@@ -1,0 +1,10 @@
+{
+  "apiKey": "YOUR_FIREBASE_WEB_API_KEY",
+  "authDomain": "YOUR_PROJECT.firebaseapp.com",
+  "projectId": "YOUR_PROJECT_ID",
+  "_googleClientIdNote": "Use a Google OAuth Desktop client id. Firebase email/password works without this field.",
+  "googleClientId": "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+  "_googleClientSecretNote": "Only needed when using a Google OAuth Web application client. Prefer a Desktop client for packaged desktop apps.",
+  "googleClientSecret": "",
+  "googleRedirectUri": "http://127.0.0.1:42813/oauth/google"
+}

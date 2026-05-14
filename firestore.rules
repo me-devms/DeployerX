@@ -1,0 +1,109 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function member(teamId) {
+      return get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    function teamExists(teamId) {
+      return exists(/databases/$(database)/documents/teams/$(teamId));
+    }
+
+    function isTeamMember(teamId) {
+      return signedIn()
+        && teamExists(teamId)
+        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    function isTeamManager(teamId) {
+      return isTeamMember(teamId) && member(teamId).data.role in ['owner', 'admin'];
+    }
+
+    function isTeamOwner(teamId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teams/$(teamId))
+        && get(/databases/$(database)/documents/teams/$(teamId)).data.ownerUid == request.auth.uid;
+    }
+
+    function inviteMatchesUser(teamId, inviteId) {
+      return signedIn()
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/teams/$(teamId)/invites/$(inviteId))
+        && get(/databases/$(database)/documents/teams/$(teamId)/invites/$(inviteId)).data.emailLower == request.auth.token.email;
+    }
+
+    function inviteResourceMatchesUser() {
+      return signedIn()
+        && request.auth.token.email != null
+        && resource.data.emailLower == request.auth.token.email;
+    }
+
+    function isTeamOwnerDocument(teamId, uid) {
+      return isSelf(uid)
+        && exists(/databases/$(database)/documents/teams/$(teamId))
+        && get(/databases/$(database)/documents/teams/$(teamId)).data.ownerUid == uid;
+    }
+
+    function acceptingOwnInvite(teamId, uid) {
+      return isSelf(uid)
+        && request.resource.data.acceptedInviteId is string
+        && inviteMatchesUser(teamId, request.resource.data.acceptedInviteId);
+    }
+
+    match /users/{uid} {
+      allow read, create, update: if isSelf(uid);
+      allow delete: if false;
+    }
+
+    match /teams/{teamId} {
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow read, update: if isTeamMember(teamId);
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /members/{uid} {
+        allow read: if isTeamMember(teamId) || isTeamOwner(teamId);
+        allow create: if isTeamOwnerDocument(teamId, uid) || acceptingOwnInvite(teamId, uid) || isTeamManager(teamId);
+        allow update: if isTeamManager(teamId) && resource.data.role != 'owner';
+        allow delete: if isTeamOwner(teamId) || (isTeamManager(teamId) && resource.data.role != 'owner');
+      }
+
+      match /invites/{inviteId} {
+        allow read: if isTeamOwner(teamId) || isTeamManager(teamId) || inviteResourceMatchesUser();
+        allow create, delete: if isTeamOwner(teamId) || isTeamManager(teamId);
+        allow update: if isTeamOwner(teamId) || isTeamManager(teamId)
+          || (
+            inviteResourceMatchesUser()
+            && request.resource.data.emailLower == resource.data.emailLower
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.status == 'accepted'
+            && request.resource.data.acceptedBy == request.auth.uid
+          );
+      }
+
+      match /projects/{projectId} {
+        allow read, create, update: if isTeamMember(teamId);
+        allow delete: if isTeamMember(teamId) || isTeamOwner(teamId);
+      }
+
+      match /templates/{templateId} {
+        allow read, create, update: if isTeamMember(teamId);
+        allow delete: if isTeamMember(teamId) || isTeamOwner(teamId);
+      }
+    }
+
+    match /{path=**}/invites/{inviteId} {
+      allow read: if signedIn()
+        && request.auth.token.email != null
+        && resource.data.emailLower == request.auth.token.email;
+    }
+  }
+}

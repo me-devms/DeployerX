@@ -1,0 +1,71 @@
+{
+  "name": "deployerx",
+  "version": "0.1.0",
+  "description": "Windows desktop deployment helper for SSH based servers.",
+  "author": "Manish K",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "node scripts/dev.js",
+    "package:win": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --win nsis portable"
+  },
+  "build": {
+    "appId": "com.everythingx.deployerx",
+    "productName": "DeployerX",
+    "copyright": "Copyright (c) 2026 Manish K",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/deployerx-logo.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-Setup-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DeployerX"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Portable-${arch}.${ext}"
+    },
+    "mac": {
+      "icon": "assets/deployerx-logo.png"
+    },
+    "linux": {
+      "icon": "assets/deployerx-logo.png"
+    }
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "ssh2": "^1.15.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0"
+  }
+}
+

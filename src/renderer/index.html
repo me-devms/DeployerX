@@ -1,0 +1,1288 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeployerX</title>
+    <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="icon-dashboard" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </symbol>
+      <symbol id="icon-templates" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M9 4v16" />
+        <path d="M3 10h18" />
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4.5-4.5" />
+      </symbol>
+      <symbol id="icon-import" viewBox="0 0 24 24">
+        <path d="M12 3v12" />
+        <path d="m8 11 4 4 4-4" />
+        <path d="M4 21h16" />
+      </symbol>
+      <symbol id="icon-export" viewBox="0 0 24 24">
+        <path d="M12 21V9" />
+        <path d="m8 13 4-4 4 4" />
+        <path d="M4 3h16" />
+      </symbol>
+      <symbol id="icon-folder-plus" viewBox="0 0 24 24">
+        <path d="M3 8a3 3 0 0 1 3-3h3l2 2h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8Z" />
+        <path d="M12 11v6" />
+        <path d="M9 14h6" />
+      </symbol>
+      <symbol id="icon-arrow-left" viewBox="0 0 24 24">
+        <path d="M19 12H5" />
+        <path d="m12 19-7-7 7-7" />
+      </symbol>
+      <symbol id="icon-stop" viewBox="0 0 24 24">
+        <path d="M7.5 2.5h9l5 5v9l-5 5h-9l-5-5v-9l5-5Z" />
+        <path d="m9 9 6 6" />
+        <path d="m15 9-6 6" />
+      </symbol>
+      <symbol id="icon-edit" viewBox="0 0 24 24">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="m6 6 1 15h10l1-15" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="12" height="12" rx="2" />
+        <path d="M4 16V6a2 2 0 0 1 2-2h10" />
+      </symbol>
+      <symbol id="icon-unplug" viewBox="0 0 24 24">
+        <path d="M9 7V3" />
+        <path d="M15 7V3" />
+        <path d="M7 7h10v5a5 5 0 0 1-10 0V7Z" />
+        <path d="M12 17v4" />
+        <path d="m19 5-3 3" />
+        <path d="m5 19 3-3" />
+      </symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24">
+        <path d="M8 5v14l11-7L8 5Z" />
+      </symbol>
+      <symbol id="icon-save" viewBox="0 0 24 24">
+        <path d="M5 3h11l3 3v15H5V3Z" />
+        <path d="M8 3v6h8V3" />
+        <path d="M8 21v-7h8v7" />
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="M18 6 6 18" />
+        <path d="m6 6 12 12" />
+      </symbol>
+      <symbol id="icon-key" viewBox="0 0 24 24">
+        <path d="M15 7a4 4 0 1 0-4 4l-6 6v3h3l1-1h2v-2h2l3-3a4 4 0 0 0-1-7Z" />
+        <circle cx="16" cy="8" r="1" />
+      </symbol>
+      <symbol id="icon-folder-open" viewBox="0 0 24 24">
+        <path d="M3 7h6l2 2h10v2" />
+        <path d="M3 7v11a2 2 0 0 0 2 2h12.5a2 2 0 0 0 1.9-1.4L22 11H6.5a2 2 0 0 0-1.9 1.4L3 18" />
+      </symbol>
+      <symbol id="icon-rocket" viewBox="0 0 24 24">
+        <path d="M4.5 16.5 3 21l4.5-1.5" />
+        <path d="M8 17 7 21l4-1" />
+        <path d="M9 15 21 3c-4.8.4-8.3 2-10.5 4.5S7.4 13.2 9 15Z" />
+        <path d="m15 9-6 6" />
+        <circle cx="16.5" cy="7.5" r="1.5" />
+      </symbol>
+      <symbol id="icon-server" viewBox="0 0 24 24">
+        <rect x="4" y="4" width="16" height="6" rx="2" />
+        <rect x="4" y="14" width="16" height="6" rx="2" />
+        <circle cx="8" cy="7" r="0.5" />
+        <circle cx="8" cy="17" r="0.5" />
+      </symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24">
+        <path d="m9 18 6-6-6-6" />
+      </symbol>
+      <symbol id="icon-users" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </symbol>
+      <symbol id="icon-cloud" viewBox="0 0 24 24">
+        <path d="M17.5 19H7a5 5 0 1 1 1.1-9.88A7 7 0 0 1 21 12.8 3.5 3.5 0 0 1 17.5 19Z" />
+      </symbol>
+      <symbol id="icon-lock" viewBox="0 0 24 24">
+        <rect x="4" y="11" width="16" height="10" rx="2" />
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      </symbol>
+      <symbol id="icon-log-out" viewBox="0 0 24 24">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <path d="m16 17 5-5-5-5" />
+        <path d="M21 12H9" />
+      </symbol>
+      <symbol id="icon-google" viewBox="0 0 24 24">
+        <path d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.4Z" />
+        <path d="M12 22c2.7 0 5-.9 6.7-2.4l-3.3-2.5c-.9.6-2.1 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3v2.6A10 10 0 0 0 12 22Z" />
+        <path d="M6.4 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.4H3A10 10 0 0 0 3 16.6L6.4 14Z" />
+        <path d="M12 5.9c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-9 5.4L6.4 10c.8-2.3 3-4.1 5.6-4.1Z" />
+      </symbol>
+    </svg>
+
+    <div id="startupLoader" class="startup-loader" role="status" aria-live="polite">
+      <div class="startup-loader-content">
+        <div class="startup-brand-row">
+          <img class="startup-brand-mark" src="../../assets/deployerx-logo.png" alt="" />
+          <div>
+            <div class="startup-loader-title">DeployerX</div>
+            <div class="startup-loader-kicker">Deployment console for SSH servers</div>
+          </div>
+        </div>
+        <p class="startup-loader-copy">
+          Manage projects, run deployment scripts, browse FTP files, and keep server commands organized from one focused desktop workspace.
+        </p>
+        <div class="startup-feature-list" aria-label="Startup highlights">
+          <span>SSH runner</span>
+          <span>FTP tools</span>
+          <span>Team backups</span>
+        </div>
+        <div class="startup-loader-action" aria-hidden="true">
+          <div class="startup-loader-spinner"></div>
+          <span>Preparing workspace</span>
+        </div>
+        <div class="startup-loader-version" id="startupAppVersion">Version loading...</div>
+      </div>
+    </div>
+
+    <main class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="team-switcher">
+            <img class="brand-mark" src="../../assets/deployerx-logo.png" alt="" />
+            <span class="team-copy">
+              <strong>DeployerX</strong>
+              <small>Deployment console</small>
+            </span>
+          </div>
+        </div>
+
+        <nav class="sidebar-body">
+          <button id="dashboardButton" class="sidebar-action active" type="button">
+            <span class="nav-icon dashboard-nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-dashboard"></use>
+              </svg>
+            </span>
+            <span>Dashboard</span>
+          </button>
+          <button id="templatesButton" class="sidebar-action" type="button">
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-templates"></use>
+              </svg>
+            </span>
+            <span>Templates</span>
+          </button>
+          <button id="teamButton" class="sidebar-action" type="button">
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-key"></use>
+              </svg>
+            </span>
+            <span>Settings</span>
+          </button>
+          <button id="dashboardImportAccountButton" class="sidebar-action hidden" type="button">
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-import"></use>
+              </svg>
+            </span>
+            <span>Import Account</span>
+          </button>
+          <button id="dashboardExportAccountButton" class="sidebar-action hidden" type="button">
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-export"></use>
+              </svg>
+            </span>
+            <span>Export Account</span>
+          </button>
+          <div class="sidebar-section">
+            <p class="sidebar-heading">Projects</p>
+            <div id="projectList" class="project-list"></div>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button id="goOnlineButton" class="sidebar-action footer-online-action hidden" type="button">
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-cloud"></use>
+              </svg>
+            </span>
+            <span>Go online</span>
+          </button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <section id="dashboardView" class="view">
+          <header class="view-header">
+            <div>
+              <h1>Projects</h1>
+            </div>
+            <div class="header-actions">
+              <button id="dashboardImportProjectsButton" class="button outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-import"></use>
+                </svg>
+                Import
+              </button>
+              <button id="dashboardExportProjectsButton" class="button outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-export"></use>
+                </svg>
+                Export
+              </button>
+              <button id="dashboardTemplatesButton" class="button outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-templates"></use>
+                </svg>
+                Templates
+              </button>
+              <button id="dashboardCreateButton" class="button solid" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-folder-plus"></use>
+                </svg>
+                Create project
+              </button>
+            </div>
+          </header>
+
+          <div id="projectGrid" class="project-grid"></div>
+        </section>
+
+        <section id="projectView" class="view hidden">
+          <header class="view-header">
+            <div class="title-row">
+              <button id="backToDashboardButton" class="button outline compact icon-only" type="button" aria-label="Back to dashboard" title="Back to dashboard">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-arrow-left"></use>
+                </svg>
+              </button>
+              <div class="project-title-block">
+                <h1 id="activeProjectName">Project</h1>
+                <nav class="project-tabs" aria-label="Project tools">
+                  <button id="projectSshTab" class="project-tab active" type="button" aria-selected="true">SSH</button>
+                  <button id="projectFtpTab" class="project-tab" type="button" aria-selected="false">FTP</button>
+                </nav>
+              </div>
+            </div>
+            <div class="header-actions">
+              <button id="emergencyStopButton" class="button danger outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-stop"></use>
+                </svg>
+                Emergency stop
+              </button>
+              <button id="editProjectButton" class="button outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-edit"></use>
+                </svg>
+                Edit details
+              </button>
+              <button id="deleteProjectButton" class="button plain danger" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-trash"></use>
+                </svg>
+                Delete
+              </button>
+            </div>
+          </header>
+
+          <div id="sshWorkspace" class="terminal-workspace">
+            <section class="terminal-main">
+              <div class="terminal-toolbar">
+                <div class="terminal-session-title">
+                  <span class="connection-dot"></span>
+                  <div>
+                    <strong id="terminalProjectLabel">SSH session</strong>
+                    <span id="terminalStatus">Not connected</span>
+                  </div>
+                </div>
+                <dl id="detailsSummary" class="terminal-connection-summary"></dl>
+                <button id="disconnectTerminalButton" class="button plain compact" type="button">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-unplug"></use>
+                  </svg>
+                  Disconnect
+                </button>
+              </div>
+              <div class="terminal-frame">
+                <div id="terminal" class="terminal-output main-terminal-output"></div>
+                <div id="terminalConnectOverlay" class="terminal-connect-overlay">
+                  <button id="connectTerminalButton" class="button solid terminal-connect-button" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-server"></use>
+                    </svg>
+                    Connect SSH
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <aside class="script-rail">
+              <section class="script-panel">
+                <div class="section-heading compact">
+                  <h2>Scripts</h2>
+                  <p>Choose saved project commands or a template, then run in this SSH terminal.</p>
+                </div>
+                <label class="field">
+                  <span>Script template</span>
+                  <select id="projectTemplateSelect">
+                    <option value="">Project commands</option>
+                  </select>
+                </label>
+                <label class="field script-editor">
+                  <span>Commands</span>
+                  <textarea id="commands" rows="12" placeholder="cd /var/www/app&#10;git pull&#10;npm install&#10;pm2 restart app"></textarea>
+                </label>
+                <div class="rail-actions">
+                  <button id="runProjectButton" class="button solid full-width" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-play"></use>
+                    </svg>
+                    Run script
+                  </button>
+                  <button id="saveCommandsButton" class="button outline full-width" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-save"></use>
+                    </svg>
+                    Save project script
+                  </button>
+                </div>
+              </section>
+            </aside>
+          </div>
+
+          <div id="ftpWorkspace" class="ftp-workspace hidden">
+            <section class="ftp-split-panel">
+              <div class="ftp-pane">
+                <div class="ftp-pane-top">
+                  <div class="ftp-pane-title">
+                    <span class="ftp-badge">Local</span>
+                    <strong id="ftpLocalStatus">Local files</strong>
+                  </div>
+                  <label class="ftp-filter">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-search"></use>
+                    </svg>
+                    <input id="ftpLocalFilter" type="search" placeholder="Filter" />
+                  </label>
+                </div>
+                <div class="ftp-path-row">
+                  <button id="ftpLocalBackButton" class="button outline compact icon-only" type="button" aria-label="Back" title="Back">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-arrow-left"></use>
+                    </svg>
+                  </button>
+                  <button id="ftpLocalForwardButton" class="button outline compact icon-only" type="button" aria-label="Forward" title="Forward">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-chevron-right"></use>
+                    </svg>
+                  </button>
+                  <label class="field ftp-path-field">
+                    <span>Local path</span>
+                    <input id="ftpLocalPathInput" type="text" spellcheck="false" />
+                  </label>
+                </div>
+                <div class="ftp-browser">
+                  <div class="ftp-table-header" aria-hidden="true">
+                    <span>Name</span>
+                    <span>Date Modified</span>
+                    <span>Size</span>
+                    <span>Kind</span>
+                  </div>
+                  <div id="ftpLocalFileList" class="ftp-file-list"></div>
+                </div>
+              </div>
+
+              <div class="ftp-pane ftp-remote-pane">
+                <div class="ftp-pane-top">
+                  <div class="ftp-pane-title">
+                    <span class="connection-dot"></span>
+                    <div>
+                      <strong>Server</strong>
+                      <span id="ftpStatus">Not connected</span>
+                    </div>
+                  </div>
+                  <div class="ftp-pane-controls">
+                    <label class="ftp-filter">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-search"></use>
+                      </svg>
+                      <input id="ftpRemoteFilter" type="search" placeholder="Filter" />
+                    </label>
+                    <button id="connectFtpButton" class="button solid compact" type="button">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-folder-open"></use>
+                      </svg>
+                      Connect
+                    </button>
+                    <button id="disconnectFtpButton" class="button plain compact" type="button">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-unplug"></use>
+                      </svg>
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+                <div class="ftp-path-row">
+                  <button id="ftpBackButton" class="button outline compact icon-only" type="button" aria-label="Back" title="Back">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-arrow-left"></use>
+                    </svg>
+                  </button>
+                  <button id="ftpForwardButton" class="button outline compact icon-only" type="button" aria-label="Forward" title="Forward">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-chevron-right"></use>
+                    </svg>
+                  </button>
+                  <label class="field ftp-path-field">
+                    <span>Server path</span>
+                    <input id="ftpPathInput" type="text" value="." spellcheck="false" />
+                  </label>
+                </div>
+                <div class="ftp-browser">
+                  <div class="ftp-table-header" aria-hidden="true">
+                    <span>Name</span>
+                    <span>Date Modified</span>
+                    <span>Size</span>
+                    <span>Kind</span>
+                  </div>
+                  <div id="ftpFileList" class="ftp-file-list"></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="templateView" class="view hidden">
+          <header class="view-header">
+            <div class="title-row">
+              <button id="backFromTemplatesButton" class="button outline compact icon-only" type="button" aria-label="Back to dashboard" title="Back to dashboard">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-arrow-left"></use>
+                </svg>
+              </button>
+              <div>
+                <h1>Templates</h1>
+              </div>
+            </div>
+            <div class="header-actions">
+              <button id="importTemplatesButton" class="button outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-import"></use>
+                </svg>
+                Import
+              </button>
+              <button id="exportTemplatesButton" class="button outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-export"></use>
+                </svg>
+                Export
+              </button>
+              <button id="newTemplateButton" class="button solid" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-templates"></use>
+                </svg>
+                Add template
+              </button>
+            </div>
+          </header>
+
+          <div id="templateCategoryChips" class="template-category-chips" aria-label="Template categories"></div>
+
+          <div class="template-page">
+            <section class="template-list-panel">
+              <label class="template-search" aria-label="Search templates">
+                <svg class="template-search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-search"></use>
+                </svg>
+                <input id="templateSearch" type="search" placeholder="Search templates" autocomplete="off" />
+              </label>
+              <div id="templateList" class="template-list"></div>
+            </section>
+
+            <form id="templatePageForm" class="template-editor-panel hidden">
+              <section class="template-editor">
+                <label class="field">
+                  <span>Template name</span>
+                  <input id="templateName" type="text" placeholder="Node.js PM2 deploy" />
+                </label>
+                <label class="field">
+                  <span>Category</span>
+                  <select id="templateCategory" required>
+                    <option value="">Select category</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Command list</span>
+                  <textarea id="templateCommands" rows="14" placeholder="cd {{app_path}}&#10;git pull origin {{branch}}&#10;npm install&#10;pm2 restart {{pm2_name}}"></textarea>
+                </label>
+                <div id="templateVariableSummary" class="template-variable-summary"></div>
+              </section>
+
+              <footer class="template-editor-actions">
+                <button id="deleteTemplateButton" class="button plain danger" type="button" disabled>
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-trash"></use>
+                  </svg>
+                  Delete
+                </button>
+                <button id="duplicateTemplateButton" class="button plain" type="button" disabled>
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-copy"></use>
+                  </svg>
+                  Duplicate
+                </button>
+                <span class="modal-spacer"></span>
+                <button id="templatePageCancelButton" class="button outline" type="button">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-x"></use>
+                  </svg>
+                  Cancel
+                </button>
+                <button id="templatePageSaveButton" class="button solid" type="submit">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-save"></use>
+                  </svg>
+                  Save template
+                </button>
+              </footer>
+            </form>
+          </div>
+        </section>
+
+        <section id="teamView" class="view hidden settings-view">
+          <div class="settings-layout">
+            <aside class="settings-nav">
+              <h1>Settings</h1>
+              <p>My Account</p>
+              <button class="settings-nav-item active" type="button" data-settings-tab="profile">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-users"></use>
+                </svg>
+                Profile
+              </button>
+              <p>DeployerX</p>
+              <button class="settings-nav-item" type="button" data-settings-tab="workspace">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-key"></use>
+                </svg>
+                Workspace
+              </button>
+              <button class="settings-nav-item" type="button" data-settings-tab="members">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-users"></use>
+                </svg>
+                Members
+              </button>
+              <button class="settings-nav-item" type="button" data-settings-tab="backup">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-export"></use>
+                </svg>
+                Backup & Restore
+              </button>
+            </aside>
+
+            <div class="settings-content">
+              <section id="settingsProfilePanel" class="settings-panel active" data-settings-panel="profile">
+                <div class="settings-panel-body gated-settings-panel">
+                  <div class="settings-card">
+                    <h2>Profile</h2>
+                    <div class="profile-row">
+                      <div id="settingsProfileAvatar" class="profile-avatar">D</div>
+                      <div>
+                        <strong id="settingsProfileName">DeployerX user</strong>
+                        <span id="settingsProfileEmail">Not signed in</span>
+                        <span id="settingsVerificationStatus" class="verification-status-pill">Not verified</span>
+                      </div>
+                    </div>
+                    <label class="field">
+                      <span>Name</span>
+                      <input id="settingsProfileNameInput" type="text" placeholder="Your name" />
+                    </label>
+                    <label class="field">
+                      <span>Email</span>
+                      <input id="settingsProfileEmailInput" type="email" disabled />
+                    </label>
+                    <div class="settings-card-actions">
+                      <button id="settingsProfileLogoutButton" class="button outline danger" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-log-out"></use>
+                        </svg>
+                        Logout
+                      </button>
+                      <button id="settingsProfileSaveButton" class="button solid" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-save"></use>
+                        </svg>
+                        Update Profile
+                      </button>
+                    </div>
+                  </div>
+                  <div class="settings-login-gate">
+                    <button class="button solid settings-login-button" type="button" data-settings-login>
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-cloud"></use>
+                      </svg>
+                      Login to continue
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section id="settingsWorkspacePanel" class="settings-panel" data-settings-panel="workspace">
+                <div class="settings-panel-body gated-settings-panel">
+                  <div id="teamCloudWarning" class="cloud-warning hidden" role="status"></div>
+                  <div class="settings-card">
+                    <h2>Workspace</h2>
+                    <p id="teamHeaderCopy" class="settings-muted">Select a workspace, create one, or unlock encrypted SSH secrets.</p>
+                    <label class="field">
+                      <span>Name</span>
+                      <input id="settingsWorkspaceName" type="text" value="DeployerX" />
+                    </label>
+                    <label class="field">
+                      <span>Active workspace</span>
+                      <select id="teamSelect"></select>
+                    </label>
+                    <div class="settings-inline-actions">
+                      <button id="switchTeamButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-users"></use>
+                        </svg>
+                        Switch
+                      </button>
+                      <button id="openCreateTeamButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-plus"></use>
+                        </svg>
+                        New workspace
+                      </button>
+                    </div>
+                    <form id="unlockTeamForm" class="team-form">
+                      <label class="field">
+                        <span>Workspace passphrase</span>
+                        <input id="teamPassphrase" type="password" autocomplete="off" />
+                      </label>
+                      <button class="button solid" type="submit">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-lock"></use>
+                        </svg>
+                        Unlock workspace
+                      </button>
+                    </form>
+                  </div>
+                  <div class="settings-card danger-zone-card">
+                    <h2>Danger Zone</h2>
+                    <div class="danger-zone-row">
+                      <span>
+                        <strong>Delete workspace</strong>
+                        <small>Permanently delete this workspace, members, invites, projects, and templates.</small>
+                      </span>
+                      <button id="deleteWorkspaceButton" class="button solid-danger" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-trash"></use>
+                        </svg>
+                        Delete workspace
+                      </button>
+                    </div>
+                  </div>
+                  <div class="settings-login-gate">
+                    <button class="button solid settings-login-button" type="button" data-settings-login>
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-cloud"></use>
+                      </svg>
+                      Login to continue
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section id="settingsMembersPanel" class="settings-panel" data-settings-panel="members">
+                <div class="settings-panel-body gated-settings-panel">
+                  <div class="settings-card">
+                    <h2>Members</h2>
+                    <form id="inviteMemberForm" class="settings-invite-row">
+                      <span class="settings-row-icon">+</span>
+                      <strong>Invite member</strong>
+                      <input id="inviteEmail" type="email" autocomplete="off" placeholder="user@company.com" />
+                      <select id="inviteRole">
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <button class="button solid" type="submit">Invite</button>
+                    </form>
+                  </div>
+                  <div class="settings-card">
+                    <div id="teamMembersList" class="team-list"></div>
+                  </div>
+                  <div class="settings-card">
+                    <h2>Pending invites</h2>
+                    <div id="pendingInvitesList" class="team-list"></div>
+                  </div>
+                  <div class="settings-login-gate">
+                    <button class="button solid settings-login-button" type="button" data-settings-login>
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-cloud"></use>
+                      </svg>
+                      Login to continue
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section id="settingsBackupPanel" class="settings-panel" data-settings-panel="backup">
+                <div class="settings-panel-body">
+                  <div class="settings-card">
+                    <h2>Backup & Restore</h2>
+                    <p class="settings-muted">Export a full account backup or restore projects and templates from a saved file.</p>
+                    <div class="backup-actions">
+                      <button id="settingsImportAccountButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-import"></use>
+                        </svg>
+                        Import account
+                      </button>
+                      <button id="settingsExportAccountButton" class="button solid" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-export"></use>
+                        </svg>
+                        Export account
+                      </button>
+                    </div>
+                  </div>
+                  <div class="settings-card">
+                    <h2>Past history</h2>
+                    <div id="backupHistoryList" class="backup-history-list"></div>
+                  </div>
+                  <button id="importLocalToCloudButton" class="button outline" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-cloud"></use>
+                    </svg>
+                    Import local data to cloud
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+          <button id="logoutButton" class="hidden" type="button">Logout</button>
+        </section>
+      </section>
+    </main>
+
+    <div id="setupModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+      <div class="modal-backdrop"></div>
+      <section class="modal-card setup-card">
+        <header class="modal-header">
+          <div>
+            <h2 id="setupTitle">Set up DeployerX</h2>
+            <p id="setupSubtitle">Choose local-only storage or sign in to sync with a cloud team.</p>
+          </div>
+        </header>
+
+        <div class="modal-body setup-body">
+          <section id="authPanel" class="auth-panel hidden">
+            <div class="cloud-auth-card">
+              <h3 class="cloud-auth-title">DeployerX</h3>
+
+              <div class="cloud-auth-tabs" role="tablist" aria-label="Authentication mode">
+                <button id="loginTabButton" class="cloud-auth-tab active" type="button">Login</button>
+                <button id="registerTabButton" class="cloud-auth-tab" type="button">Sign Up</button>
+              </div>
+
+              <div id="firebaseConfigWarning" class="auth-note hidden"></div>
+              <div id="emailVerificationNotice" class="auth-note verify-note hidden">
+                <strong>Verify your email to continue</strong>
+                <span id="emailVerificationCopy">Open the verification link sent to your inbox, then login again.</span>
+                <div class="auth-note-actions">
+                  <button id="resendVerificationButton" class="auth-link-button" type="button">Resend email</button>
+                  <button id="verificationLogoutButton" class="auth-link-button" type="button">Logout</button>
+                </div>
+              </div>
+
+              <button id="googleLoginButton" class="social-auth-button" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-google"></use>
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+
+              <div class="auth-divider"><span>OR</span></div>
+
+              <form id="authForm" class="cloud-auth-form">
+                <div id="signupNameFields" class="signup-name-grid hidden">
+                  <label class="field">
+                    <span>First Name</span>
+                    <input id="authFirstName" type="text" autocomplete="given-name" placeholder="First name" />
+                  </label>
+                  <label class="field">
+                    <span>Last Name</span>
+                    <input id="authLastName" type="text" autocomplete="family-name" placeholder="Last name" />
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Email address</span>
+                  <input id="authEmail" type="email" autocomplete="email" placeholder="Enter your email address" required />
+                </label>
+                <label class="field">
+                  <span>Password</span>
+                  <input id="authPassword" type="password" autocomplete="current-password" placeholder="Enter your password" required />
+                </label>
+                <label id="confirmPasswordField" class="field hidden">
+                  <span>Confirm Password</span>
+                  <input id="authConfirmPassword" type="password" autocomplete="new-password" placeholder="Confirm your password" />
+                </label>
+                <button id="forgotPasswordButton" class="auth-link-button forgot-password-button" type="button">Forgot password?</button>
+                <button id="authSubmitButton" class="button solid full-width auth-primary-button" type="submit">Login</button>
+              </form>
+
+              <button id="continueWithoutLoginButton" class="continue-without-login-button" type="button">
+                Continue without login
+              </button>
+            </div>
+
+            <footer class="cloud-auth-footer">
+              <span id="authFooterText">Need an account?</span>
+              <button id="authFooterSwitchButton" class="auth-link-button" type="button">Sign Up</button>
+            </footer>
+          </section>
+
+          <section id="workspaceSetupPanel" class="auth-panel workspace-auth-panel hidden">
+            <div class="cloud-auth-card workspace-auth-card">
+              <div class="workspace-brand">
+                <img class="workspace-brand-mark" src="../../assets/deployerx-logo.png" alt="" />
+              </div>
+              <h3 class="cloud-auth-title">Workspace</h3>
+              <p id="workspaceSetupCopy" class="workspace-auth-copy">Create a workspace to keep projects, templates, and team members in cloud sync.</p>
+
+              <label class="field">
+                <span>Workspace</span>
+                <select id="workspaceSetupSelect"></select>
+              </label>
+
+              <form id="workspaceCreateForm" class="workspace-form">
+                <label class="field">
+                  <span>Workspace name</span>
+                  <input id="workspaceCreateName" type="text" autocomplete="organization" placeholder="My workspace" />
+                </label>
+                <label class="field">
+                  <span>Encryption passphrase</span>
+                  <input id="workspaceCreatePassphrase" type="password" autocomplete="off" placeholder="Required to protect SSH secrets" />
+                </label>
+                <button id="workspaceCreateButton" class="button solid full-width auth-primary-button" type="submit">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-plus"></use>
+                  </svg>
+                  Create workspace
+                </button>
+              </form>
+
+              <form id="workspaceUnlockForm" class="workspace-form hidden">
+                <label class="field">
+                  <span>Encryption passphrase</span>
+                  <input id="workspaceUnlockPassphrase" type="password" autocomplete="off" placeholder="Enter workspace passphrase" />
+                </label>
+                <button id="workspaceUnlockButton" class="button solid full-width auth-primary-button" type="submit">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-lock"></use>
+                  </svg>
+                  Unlock workspace
+                </button>
+              </form>
+
+              <button id="workspaceContinueButton" class="button outline full-width" type="button">
+                Continue
+              </button>
+            </div>
+
+            <footer class="cloud-auth-footer">
+              <button id="workspaceLogoutButton" class="auth-link-button" type="button">Logout</button>
+              <span>Manage members after setup.</span>
+            </footer>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div id="createTeamModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="createTeamTitle">
+      <div class="modal-backdrop"></div>
+      <form class="modal-card small" id="createTeamForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="createTeamTitle">Create team</h2>
+            <p>The passphrase encrypts SSH passwords and keys before cloud sync.</p>
+          </div>
+          <button id="createTeamCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>Team name</span>
+            <input id="createTeamName" type="text" required />
+          </label>
+          <label class="field modal-secret">
+            <span>Team passphrase</span>
+            <input id="createTeamPassphrase" type="password" autocomplete="off" required />
+          </label>
+        </div>
+        <footer class="modal-footer">
+          <button id="createTeamCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-save"></use>
+            </svg>
+            Create
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div id="projectModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
+      <div class="modal-backdrop"></div>
+      <form class="modal-card project-modal-card" id="projectModalForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="projectModalTitle">Create project</h2>
+            <p id="projectModalSubtitle">Add project and SSH details. Commands are managed inside the project.</p>
+          </div>
+          <button id="projectModalCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <section class="form-section">
+            <div class="section-heading compact">
+              <h3>Project</h3>
+            </div>
+            <div class="field-grid project-fields">
+              <label class="field span-2">
+                <span>Project name</span>
+                <input id="modalProjectName" type="text" placeholder="Production API" required />
+              </label>
+              <label class="field">
+                <span>Server type</span>
+                <select id="modalServerType">
+                  <option value="ubuntu">Ubuntu</option>
+                  <option value="centos">CentOS</option>
+                  <option value="almalinux">AlmaLinux</option>
+                  <option value="rocky">Rocky Linux</option>
+                  <option value="rhel">Red Hat Enterprise Linux</option>
+                  <option value="debian">Debian</option>
+                  <option value="custom">Custom Linux</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Command template</span>
+                <select id="modalTemplateSelect">
+                  <option value="">No template</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading compact variable-section-heading">
+              <h3>Variables</h3>
+              <button id="modalAddVariableButton" class="button outline compact" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-plus"></use>
+                </svg>
+                Add variable
+              </button>
+            </div>
+            <div id="modalVariablesList" class="variable-list"></div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading compact">
+              <h3>SSH</h3>
+            </div>
+            <div class="field-grid modal-columns">
+              <label class="field ssh-host-field">
+                <span>Host / IP</span>
+                <input id="modalSshHost" type="text" placeholder="192.168.1.10" required />
+              </label>
+              <label class="field">
+                <span>Port</span>
+                <input id="modalSshPort" type="number" min="1" value="22" />
+              </label>
+              <label class="field">
+                <span>Username</span>
+                <input id="modalSshUsername" type="text" placeholder="root" required />
+              </label>
+              <label class="field span-2">
+                <span>Authentication</span>
+                <select id="modalAuthType">
+                  <option value="password">Password</option>
+                  <option value="key">SSH private key</option>
+                </select>
+              </label>
+            </div>
+
+            <label id="modalPasswordField" class="field modal-secret">
+              <span>Password</span>
+              <input id="modalSshPassword" type="password" autocomplete="off" />
+            </label>
+
+            <div id="modalKeyFields" class="key-grid hidden">
+              <label class="field">
+                <span>Private key</span>
+                <textarea id="modalPrivateKey" rows="5" placeholder="Paste private key or select a key file"></textarea>
+              </label>
+              <div class="key-actions">
+                <button id="modalSelectKeyButton" type="button" class="button outline">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-key"></use>
+                  </svg>
+                  Select key file
+                </button>
+                <label class="field">
+                  <span>Passphrase</span>
+                  <input id="modalKeyPassphrase" type="password" autocomplete="off" />
+                </label>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="projectModalCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="projectModalSaveButton" class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-save"></use>
+            </svg>
+            Save project
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div id="uploadModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle">
+      <div class="modal-backdrop"></div>
+      <form class="modal-card small" id="uploadModalForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="uploadModalTitle">Run deployment</h2>
+            <p>Choose whether to upload a file before running commands.</p>
+          </div>
+          <button id="uploadModalCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <label class="switch-row">
+            <input id="runNeedsUpload" type="checkbox" />
+            <span class="switch-track"></span>
+            <span>Upload file first</span>
+          </label>
+
+          <div id="runUploadFields" class="upload-box hidden">
+            <label class="field">
+              <span>Local file</span>
+              <div class="file-row">
+                <input id="uploadLocalPath" type="text" readonly placeholder="Select file" />
+                <button id="selectUploadButton" type="button" class="button outline">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-folder-open"></use>
+                  </svg>
+                  Browse
+                </button>
+              </div>
+            </label>
+            <label class="field">
+              <span>Server upload path</span>
+              <input id="uploadRemotePath" type="text" placeholder="/tmp/release.zip" />
+            </label>
+          </div>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="uploadModalCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="uploadModalStartButton" class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-rocket"></use>
+            </svg>
+            Start run
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div id="exportPickerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="exportPickerTitle">
+      <div class="modal-backdrop"></div>
+      <form class="modal-card export-picker-card" id="exportPickerForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="exportPickerTitle">Export</h2>
+            <p id="exportPickerSubtitle">Choose what to include in the export.</p>
+          </div>
+          <button id="exportPickerCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+
+        <div class="modal-body export-picker-body">
+          <label class="field">
+            <span>Search</span>
+            <input id="exportPickerSearch" type="search" placeholder="Search by name" />
+          </label>
+
+          <label class="export-select-all">
+            <input id="exportPickerSelectAll" class="export-check" type="checkbox" />
+            <span>Select all</span>
+          </label>
+
+          <div id="exportPickerList" class="export-picker-list"></div>
+        </div>
+
+        <footer class="modal-footer">
+          <span id="exportPickerCount" class="export-picker-count">0 selected</span>
+          <span class="modal-spacer"></span>
+          <button id="exportPickerCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="exportPickerExportButton" class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-export"></use>
+            </svg>
+            Export
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div id="duplicateTemplateModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="duplicateTemplateTitle">
+      <div class="modal-backdrop"></div>
+      <form class="modal-card small" id="duplicateTemplateForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="duplicateTemplateTitle">Duplicate template</h2>
+            <p>Name the copied command template.</p>
+          </div>
+          <button id="duplicateTemplateCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <label class="field">
+            <span>Template name</span>
+            <input id="duplicateTemplateName" type="text" required />
+          </label>
+          <label class="field">
+            <span>Category</span>
+            <select id="duplicateTemplateCategory" required>
+              <option value="">Select category</option>
+            </select>
+          </label>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="duplicateTemplateCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="duplicateTemplateSaveButton" class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-save"></use>
+            </svg>
+            Save duplicate
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-describedby="confirmModalDetail">
+      <div class="modal-backdrop"></div>
+      <section class="modal-card confirm-card">
+        <header class="modal-header confirm-header">
+          <span class="confirm-icon" aria-hidden="true">
+            <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+              <use href="#icon-stop"></use>
+            </svg>
+          </span>
+          <div>
+            <h2 id="confirmModalTitle">Confirm action</h2>
+            <p id="confirmModalDetail">This action needs confirmation.</p>
+          </div>
+        </header>
+
+        <footer class="modal-footer">
+          <button id="confirmModalCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="confirmModalConfirmButton" class="button danger solid-danger" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-trash"></use>
+            </svg>
+            <span id="confirmModalConfirmLabel">Confirm</span>
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="fileActivity" class="file-activity hidden" role="status" aria-live="polite"></div>
+    <div id="ftpContextMenu" class="context-menu hidden" role="menu" aria-hidden="true"></div>
+
+    <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
