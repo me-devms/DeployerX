@@ -649,8 +649,6 @@ Possible future improvements:
 
 This project is intended to be open source.
 
-Before publishing publicly, add a `LICENSE` file. MIT is a common choice for small developer tools, but choose the license that matches your goals.
-
 ## Maintainer
 
 Created by Manish K.
