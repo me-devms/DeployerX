@@ -1,6 +1,6 @@
 {
   "name": "deployerx",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows desktop deployment helper for SSH based servers.",
   "author": "Manish K",
   "main": "src/main.js",
@@ -22,6 +22,12 @@
       "src/**/*",
       "assets/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "firebase.config.json",
+        "to": "firebase.config.json"
+      }
     ],
     "win": {
       "icon": "assets/deployerx-logo.ico",
@@ -68,4 +74,3 @@
     "electron": "^30.0.0"
   }
 }
-

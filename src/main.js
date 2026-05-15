@@ -16,8 +16,6 @@ const activeFtpSessions = new Map();
 const TEMPLATE_CATEGORIES = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance'];
 const FIREBASE_AUTH_URL = 'https://identitytoolkit.googleapis.com/v1';
 const FIREBASE_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
-const SECRET_PROBE = 'deployerx-team-secret-v1';
-const SECRET_ITERATIONS = 210000;
 let settingsCache = null;
 let firebaseConfigCache = null;
 let cloudUnlock = { teamId: '', key: null };
@@ -191,6 +189,11 @@ function publicSession(auth) {
   };
 }
 
+function authSessionChanged(currentAuth, nextAuth) {
+  const fields = ['uid', 'email', 'displayName', 'idToken', 'refreshToken', 'expiresAt', 'emailVerified', 'provider'];
+  return fields.some((field) => currentAuth?.[field] !== nextAuth?.[field]);
+}
+
 async function loadFirebaseConfig({ refresh = false } = {}) {
   if (!refresh && firebaseConfigCache !== null) return firebaseConfigCache;
 
@@ -275,6 +278,22 @@ function firebaseErrorMessage(errorBody) {
   if (normalized.includes('email exists')) return 'An account already exists for this email.';
   if (normalized.includes('invalid login credentials') || normalized.includes('invalid password')) return 'Invalid email or password.';
   if (normalized.includes('email not found')) return 'No account was found for this email.';
+  if (normalized.includes('invalid email')) return 'Enter a valid email address.';
+  if (normalized.includes('weak password')) return 'Use a stronger password with at least 6 characters.';
+  if (normalized.includes('too many attempts') || normalized.includes('quota exceeded')) {
+    return 'Too many attempts. Please wait a little and try again.';
+  }
+  if (normalized.includes('user disabled')) return 'This account has been disabled.';
+  if (normalized.includes('operation not allowed')) {
+    return 'Email and password login is not enabled for this app.';
+  }
+  if (normalized.includes('expired oob code') || normalized.includes('invalid oob code')) {
+    return 'That link is no longer valid. Request a new one and try again.';
+  }
+  if (normalized.includes('token expired') || normalized.includes('invalid id token')) {
+    return 'Your session expired. Please login again.';
+  }
+  if (normalized.includes('api key')) return 'Firebase configuration is invalid. Check the app configuration and try again.';
   if (normalized.includes('client secret') || normalized.includes('client authentication')) {
     return 'Google rejected the token exchange. Add googleClientSecret to firebase.config.json for this Web OAuth client, or switch to a Desktop OAuth client.';
   }
@@ -284,26 +303,32 @@ function firebaseErrorMessage(errorBody) {
   if (normalized.includes('permission denied') || normalized.includes('missing or insufficient permissions')) {
     return 'Firestore permissions are blocking cloud data. Deploy the included firestore.rules to this Firebase project, then try again.';
   }
-  return message ? `Firebase error: ${message}` : 'Firebase request failed.';
+  return message ? 'Firebase request failed. Please try again.' : 'Firebase request failed.';
 }
 
-function isRecoverableCloudDataError(error) {
+function errorDetails(error) {
   const firstArrayError = Array.isArray(error?.body)
     ? error.body.find((item) => item?.error)?.error
     : null;
-  const details = [
+
+  return [
     error?.message,
     firstArrayError?.message,
     firstArrayError?.status,
     error?.body?.error_description,
     error?.body?.error?.message,
     error?.body?.error?.status,
+    error?.body?.error,
     error?.body?.raw
   ]
     .filter(Boolean)
     .join(' ')
     .replace(/_/g, ' ')
     .toLowerCase();
+}
+
+function isRecoverableCloudDataError(error) {
+  const details = errorDetails(error);
 
   return (
     error?.status === 403 ||
@@ -311,6 +336,22 @@ function isRecoverableCloudDataError(error) {
     details.includes('permission denied') ||
     details.includes('cloud firestore api has not been used') ||
     details.includes('firestore.googleapis.com')
+  );
+}
+
+function shouldClearStoredAuth(error) {
+  const details = errorDetails(error);
+
+  return (
+    error?.status === 401 ||
+    details.includes('login is required') ||
+    details.includes('session expired') ||
+    details.includes('token expired') ||
+    details.includes('invalid id token') ||
+    details.includes('invalid refresh token') ||
+    details.includes('invalid grant') ||
+    details.includes('user disabled') ||
+    details.includes('user not found')
   );
 }
 
@@ -549,16 +590,20 @@ function needsEmailVerification(auth) {
   return Boolean(auth?.email && auth.provider !== 'google.com' && !auth.emailVerified);
 }
 
-async function refreshAuthSession(settings) {
-  const config = await loadFirebaseConfig();
-  requireFirebaseConfig(config);
+async function refreshAuthSession(settings, options = {}) {
+  const { forceLookup = false } = options;
   if (!settings.auth?.refreshToken) throw new Error('Login is required.');
   if (settings.auth.idToken && settings.auth.expiresAt > Date.now()) {
+    if (!forceLookup) return settings.auth;
     const checkedAuth = await lookupAuthUser(settings.auth);
-    await writeSettings({ ...settings, auth: checkedAuth });
+    if (authSessionChanged(settings.auth, checkedAuth)) {
+      await writeSettings({ ...settings, auth: checkedAuth });
+    }
     return checkedAuth;
   }
 
+  const config = await loadFirebaseConfig();
+  requireFirebaseConfig(config);
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: settings.auth.refreshToken
@@ -581,9 +626,11 @@ async function refreshAuthSession(settings) {
     },
     settings.auth.displayName || ''
   );
-  const checkedAuth = await lookupAuthUser(auth);
-  await writeSettings({ ...settings, auth: checkedAuth });
-  return checkedAuth;
+  const nextAuth = forceLookup ? await lookupAuthUser(auth) : auth;
+  if (authSessionChanged(settings.auth, nextAuth)) {
+    await writeSettings({ ...settings, auth: nextAuth });
+  }
+  return nextAuth;
 }
 
 async function requireAuthSession() {
@@ -743,6 +790,39 @@ async function deleteCollectionDocuments(segments) {
   }
 }
 
+function inviteInboxPath(email, inviteId = '') {
+  const segments = ['inviteInboxes', emailKey(email), 'items'];
+  return inviteId ? [...segments, inviteId] : segments;
+}
+
+function normalizeInviteInboxDocument(invite = {}) {
+  const email = emailKey(invite.emailLower || invite.email);
+  return {
+    id: String(invite.id || ''),
+    teamId: String(invite.teamId || ''),
+    teamName: String(invite.teamName || 'Team'),
+    email,
+    emailLower: email,
+    role: 'member',
+    status: invite.status || 'pending',
+    createdAt: invite.createdAt || nowIso(),
+    updatedAt: invite.updatedAt || nowIso()
+  };
+}
+
+async function syncInviteInboxDocument(invite = {}) {
+  const inboxInvite = normalizeInviteInboxDocument(invite);
+  if (!inboxInvite.id || !inboxInvite.emailLower || !inboxInvite.teamId) return;
+  await patchDoc(inviteInboxPath(inboxInvite.emailLower, inboxInvite.id), inboxInvite);
+}
+
+async function deleteInviteInboxDocument(invite = {}) {
+  const email = emailKey(invite.emailLower || invite.email);
+  const inviteId = String(invite.id || '');
+  if (!email || !inviteId) return;
+  await deleteDoc(inviteInboxPath(email, inviteId));
+}
+
 async function deleteTeamMemberDocuments(teamId, ownerUid) {
   const members = await listCollection(['teams', teamId, 'members']);
   members.sort((left, right) => {
@@ -769,9 +849,13 @@ async function runFirestoreQuery(structuredQuery) {
   return body.filter((row) => row.document).map((row) => fromFirestoreDocument(row.document));
 }
 
-function deriveTeamKey(passphrase, salt) {
-  if (!String(passphrase || '').trim()) throw new Error('Team passphrase is required.');
-  return crypto.pbkdf2Sync(String(passphrase), Buffer.from(salt, 'base64'), SECRET_ITERATIONS, 32, 'sha256');
+function deriveWorkspaceKey(team = {}) {
+  const seed = String(team.secretSeed || team.secretSalt || team.id || '');
+  if (!seed) throw new Error('This workspace cannot encrypt cloud secrets.');
+  return crypto
+    .createHash('sha256')
+    .update(`deployerx-workspace-key-v2:${team.id || ''}:${seed}`)
+    .digest();
 }
 
 function encryptWithKey(value, key) {
@@ -796,25 +880,27 @@ function decryptWithKey(payload, key) {
   return Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8');
 }
 
-function encryptedProbe(key) {
-  return encryptWithKey(SECRET_PROBE, key);
+function encryptJsonWithKey(value, key) {
+  return encryptWithKey(JSON.stringify(value || {}), key);
 }
 
-function verifyTeamKey(team, key) {
-  try {
-    return decryptWithKey(team.secretProbe, key) === SECRET_PROBE;
-  } catch {
-    return false;
-  }
+function decryptJsonWithKey(payload, key) {
+  const raw = decryptWithKey(payload, key);
+  return raw ? JSON.parse(raw) : {};
 }
 
 async function ensureActiveTeamUnlocked() {
   const settings = await readSettings();
   if (settings.mode !== 'cloud') return null;
-  if (!settings.activeTeamId) throw new Error('Select or create a team before syncing data.');
-  if (!cloudUnlock.key || cloudUnlock.teamId !== settings.activeTeamId) {
-    throw new Error('Unlock this team with its passphrase before syncing data.');
-  }
+  if (!settings.activeTeamId) throw new Error('Select or create a workspace before syncing data.');
+  if (cloudUnlock.teamId === settings.activeTeamId && cloudUnlock.key) return settings.activeTeamId;
+  const auth = await requireAuthSession();
+  const [team, member] = await Promise.all([
+    getDoc(['teams', settings.activeTeamId]),
+    getDoc(['teams', settings.activeTeamId, 'members', auth.uid])
+  ]);
+  if (!team || !member) throw new Error('You do not have access to this workspace.');
+  cloudUnlock = { teamId: settings.activeTeamId, key: deriveWorkspaceKey(team) };
   return settings.activeTeamId;
 }
 
@@ -869,33 +955,38 @@ async function currentMember(teamId) {
 
 async function ensureTeamManager(teamId) {
   const member = await currentMember(teamId);
-  if (!['owner', 'admin'].includes(member?.role)) throw new Error('Only team owners and admins can manage members.');
+  if (member?.role !== 'owner') throw new Error('Only the workspace owner can manage members.');
   return member;
 }
 
 function prepareCloudProjectForSave(project) {
   const copy = JSON.parse(JSON.stringify(project || {}));
-  const ssh = { ...(copy.ssh || {}) };
-  const encryptedSsh = {};
-  for (const field of ['password', 'privateKey', 'passphrase']) {
-    const encrypted = encryptWithKey(ssh[field], cloudUnlock.key);
-    if (encrypted) encryptedSsh[field] = encrypted;
-    ssh[field] = '';
-  }
   return {
-    ...copy,
-    ssh,
-    encryptedSsh,
-    secretStorage: 'team-passphrase-v1'
+    id: String(copy.id || ''),
+    updatedAt: copy.updatedAt || nowIso(),
+    encryptedPayload: encryptJsonWithKey(copy, cloudUnlock.key),
+    secretStorage: 'workspace-auth-v2'
   };
 }
 
 function prepareCloudProjectForRead(project) {
+  if (project?.encryptedPayload && cloudUnlock.key) {
+    try {
+      return normalizeProjectImport(decryptJsonWithKey(project.encryptedPayload, cloudUnlock.key));
+    } catch {
+      return normalizeProjectImport({ id: project.id, name: 'Encrypted project', commands: [] });
+    }
+  }
+
   const copy = JSON.parse(JSON.stringify(project || {}));
   const ssh = { ...(copy.ssh || {}) };
   if (copy.encryptedSsh && cloudUnlock.key) {
     for (const field of ['password', 'privateKey', 'passphrase']) {
-      ssh[field] = decryptWithKey(copy.encryptedSsh[field], cloudUnlock.key);
+      try {
+        ssh[field] = decryptWithKey(copy.encryptedSsh[field], cloudUnlock.key);
+      } catch {
+        ssh[field] = '';
+      }
     }
   }
   delete copy.encryptedSsh;
@@ -906,13 +997,36 @@ function prepareCloudProjectForRead(project) {
   };
 }
 
+function prepareCloudTemplateForSave(template) {
+  const normalized = normalizeStoredTemplate(template);
+  return {
+    id: String(normalized.id || ''),
+    updatedAt: normalized.updatedAt || nowIso(),
+    encryptedPayload: encryptJsonWithKey(normalized, cloudUnlock.key),
+    secretStorage: 'workspace-auth-v2'
+  };
+}
+
+function prepareCloudTemplateForRead(template) {
+  if (template?.encryptedPayload && cloudUnlock.key) {
+    try {
+      return normalizeStoredTemplate(decryptJsonWithKey(template.encryptedPayload, cloudUnlock.key));
+    } catch {
+      return normalizeStoredTemplate({ id: template.id, name: 'Encrypted template', commands: [] });
+    }
+  }
+  return normalizeStoredTemplate(template);
+}
+
 async function readCloudStore() {
   const teamId = await ensureActiveTeamUnlocked();
-  const projects = await listCollection(['teams', teamId, 'projects']);
-  const templates = await listCollection(['teams', teamId, 'templates']);
+  const [projects, templates] = await Promise.all([
+    listCollection(['teams', teamId, 'projects']),
+    listCollection(['teams', teamId, 'templates'])
+  ]);
   return {
     projects: projects.map(prepareCloudProjectForRead),
-    templates: templates.map(normalizeStoredTemplate)
+    templates: templates.map(prepareCloudTemplateForRead)
   };
 }
 
@@ -940,7 +1054,7 @@ async function writeCloudStore(data) {
     await patchDoc(['teams', teamId, 'projects', project.id], prepareCloudProjectForSave(project));
   }
   for (const template of templates) {
-    await patchDoc(['teams', teamId, 'templates', template.id], normalizeStoredTemplate(template));
+    await patchDoc(['teams', teamId, 'templates', template.id], prepareCloudTemplateForSave(template));
   }
 }
 
@@ -953,7 +1067,7 @@ async function mergeLocalStoreIntoCloud(localData) {
     await patchDoc(['teams', teamId, 'projects', project.id], prepareCloudProjectForSave(project));
   }
   for (const template of templates) {
-    await patchDoc(['teams', teamId, 'templates', template.id], normalizeStoredTemplate(template));
+    await patchDoc(['teams', teamId, 'templates', template.id], prepareCloudTemplateForSave(template));
   }
 }
 
@@ -993,22 +1107,32 @@ async function deleteTemplateFromCurrentStore(id) {
 }
 
 async function queryPendingInvites(email) {
-  if (!email) return [];
+  const emailLower = emailKey(email);
+  if (!emailLower) return [];
   let invites = [];
   try {
-    invites = await runFirestoreQuery({
+    invites = await listCollection(inviteInboxPath(emailLower));
+  } catch {
+    invites = [];
+  }
+
+  try {
+    const collectionGroupInvites = await runFirestoreQuery({
       from: [{ collectionId: 'invites', allDescendants: true }],
       where: {
         fieldFilter: {
           field: { fieldPath: 'emailLower' },
           op: 'EQUAL',
-          value: { stringValue: emailKey(email) }
+          value: { stringValue: emailLower }
         }
       }
     });
+    invites.push(...collectionGroupInvites);
   } catch {
-    return [];
+    // Older Firestore rules or missing collection-group permissions can block this path.
   }
+
+  const seen = new Set();
   return invites
     .filter((invite) => invite.status === 'pending')
     .map((invite) => {
@@ -1018,28 +1142,37 @@ async function queryPendingInvites(email) {
         ...invite,
         teamId: teamIndex >= 0 ? parts[teamIndex + 1] : invite.teamId
       };
+    })
+    .filter((invite) => {
+      const key = `${invite.teamId || ''}:${invite.id || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
 }
 
-async function teamSnapshot() {
-  const auth = await requireAuthSession();
-  const settings = await readSettings();
-  const profile = (await readUserProfile(auth.uid)) || (await writeUserProfile(auth));
+async function teamSnapshot(options = {}) {
+  const auth = options.auth || (await requireAuthSession());
+  const settings = options.settings || (await readSettings());
+  const profile = options.profile || (await readUserProfile(auth.uid)) || (await writeUserProfile(auth));
   const teamRefs = Array.isArray(profile.teams) ? profile.teams : [];
-  const teams = [];
-
-  for (const teamRef of teamRefs) {
-    const team = await getDoc(['teams', teamRef.teamId]);
-    const member = team ? await getDoc(['teams', teamRef.teamId, 'members', auth.uid]) : null;
-    if (team && member) {
-      teams.push({
-        id: team.id,
-        name: team.name || teamRef.name || 'Team',
-        role: member.role || teamRef.role || 'member',
-        createdAt: team.createdAt || ''
-      });
-    }
-  }
+  const teams = (
+    await Promise.all(
+      teamRefs.map(async (teamRef) => {
+        const [team, member] = await Promise.all([
+          getDoc(['teams', teamRef.teamId]),
+          getDoc(['teams', teamRef.teamId, 'members', auth.uid])
+        ]);
+        if (!team || !member) return null;
+        return {
+          id: team.id,
+          name: team.name || teamRef.name || 'Team',
+          role: member.role === 'owner' ? 'owner' : 'member',
+          createdAt: team.createdAt || ''
+        };
+      })
+    )
+  ).filter(Boolean);
 
   let activeTeamId = settings.activeTeamId;
   if (activeTeamId && !teams.some((team) => team.id === activeTeamId)) activeTeamId = '';
@@ -1049,19 +1182,42 @@ async function teamSnapshot() {
   }
 
   const activeTeam = teams.find((team) => team.id === activeTeamId) || null;
-  const canManageTeam = ['owner', 'admin'].includes(activeTeam?.role || '');
-  const members = activeTeamId ? await listCollection(['teams', activeTeamId, 'members']) : [];
-  const teamInvites = activeTeamId && canManageTeam ? await listCollection(['teams', activeTeamId, 'invites']) : [];
-  const invites = await queryPendingInvites(auth.email);
+  const canManageTeam = activeTeam?.role === 'owner';
+  const [activeTeamDoc, members, teamInvites] = await Promise.all([
+    activeTeamId ? getDoc(['teams', activeTeamId]) : Promise.resolve(null),
+    activeTeamId
+      ? listCollection(['teams', activeTeamId, 'members']).then((items) =>
+          items.map((member) => ({
+            ...member,
+            role: member.role === 'owner' ? 'owner' : 'member'
+          }))
+        )
+      : Promise.resolve([]),
+    activeTeamId && canManageTeam ? listCollection(['teams', activeTeamId, 'invites']) : Promise.resolve([])
+  ]);
+  if (activeTeamId && activeTeamDoc) {
+    cloudUnlock = { teamId: activeTeamId, key: deriveWorkspaceKey(activeTeamDoc) };
+  } else {
+    cloudUnlock = { teamId: '', key: null };
+  }
+  const memberEmails = new Set(members.map((member) => emailKey(member.emailLower || member.email)));
+  const pendingTeamInvites = teamInvites.filter((invite) =>
+    invite.status === 'pending' && !memberEmails.has(emailKey(invite.emailLower || invite.email))
+  );
+  if (pendingTeamInvites.length) {
+    await Promise.allSettled(pendingTeamInvites.map(syncInviteInboxDocument));
+  }
+  const joinedTeamIds = new Set(teams.map((team) => String(team.id || '')));
+  const invites = (await queryPendingInvites(auth.email)).filter((invite) => !joinedTeamIds.has(String(invite.teamId || '')));
 
   return {
     teams,
     activeTeamId,
     activeTeam,
     members,
-    teamInvites: teamInvites.filter((invite) => invite.status === 'pending'),
+    teamInvites: pendingTeamInvites,
     invites,
-    unlocked: Boolean(activeTeamId && cloudUnlock.teamId === activeTeamId && cloudUnlock.key)
+    unlocked: Boolean(activeTeamId && activeTeamDoc)
   };
 }
 
@@ -1078,9 +1234,9 @@ function emptyTeamSnapshot(cloudError = '') {
   };
 }
 
-async function safeTeamSnapshot() {
+async function safeTeamSnapshot(options = {}) {
   try {
-    return await teamSnapshot();
+    return await teamSnapshot(options);
   } catch (error) {
     if (!isRecoverableCloudDataError(error)) throw error;
     return emptyTeamSnapshot(error.message || 'Cloud data is blocked by Firebase setup.');
@@ -1089,13 +1245,13 @@ async function safeTeamSnapshot() {
 
 async function finishCloudAuth(auth, profilePatch = {}) {
   auth = await lookupAuthUser(auth);
-  await writeSettings({ ...(await readSettings()), setupComplete: true, mode: 'cloud', auth });
+  const settings = await writeSettings({ ...(await readSettings()), setupComplete: true, mode: 'cloud', auth });
   if (needsEmailVerification(auth)) {
     return { session: publicSession(auth), requiresEmailVerification: true };
   }
   try {
-    await writeUserProfile(auth, profilePatch);
-    return { session: publicSession(auth), teams: await teamSnapshot() };
+    const profile = await writeUserProfile(auth, profilePatch);
+    return { session: publicSession(auth), teams: await teamSnapshot({ auth, settings, profile }) };
   } catch (error) {
     if (!isRecoverableCloudDataError(error)) throw error;
     return { session: publicSession(auth), teams: emptyTeamSnapshot(error.message), cloudError: error.message };
@@ -1971,7 +2127,7 @@ ipcMain.handle('setup:get', async () => {
     activeTeamId: settings.activeTeamId,
     firebase: await firebaseConfigStatus(),
     session: publicSession(settings.auth),
-    unlocked: Boolean(settings.activeTeamId && cloudUnlock.teamId === settings.activeTeamId && cloudUnlock.key)
+    unlocked: Boolean(settings.activeTeamId)
   };
 });
 
@@ -2096,10 +2252,18 @@ ipcMain.handle('auth:session', async () => {
   let auth;
   try {
     auth = await refreshAuthSession(settings);
-  } catch {
-    cloudUnlock = { teamId: '', key: null };
-    await writeSettings({ ...settings, auth: null, activeTeamId: '' });
-    return { session: null };
+  } catch (error) {
+    if (shouldClearStoredAuth(error)) {
+      cloudUnlock = { teamId: '', key: null };
+      await writeSettings({ ...settings, auth: null, activeTeamId: '' });
+      return { session: null };
+    }
+
+    return {
+      session: publicSession(settings.auth),
+      cloudError: error.message || 'Could not refresh your cloud session right now.',
+      stale: true
+    };
   }
 
   if (needsEmailVerification(auth)) {
@@ -2113,19 +2277,14 @@ ipcMain.handle('teams:list', async () => safeTeamSnapshot());
 ipcMain.handle('teams:create', async (_event, payload = {}) => {
   const auth = await requireAuthSession();
   const name = String(payload.name || '').trim();
-  const passphrase = String(payload.passphrase || '');
   if (!name) throw new Error('Team name is required.');
-  if (!passphrase) throw new Error('Team passphrase is required.');
 
   const teamId = createId('team');
-  const salt = crypto.randomBytes(16).toString('base64');
-  const key = deriveTeamKey(passphrase, salt);
   const team = {
     id: teamId,
     name,
     ownerUid: auth.uid,
-    secretSalt: salt,
-    secretProbe: encryptedProbe(key),
+    secretSeed: crypto.randomBytes(32).toString('base64'),
     createdAt: nowIso(),
     updatedAt: nowIso()
   };
@@ -2144,7 +2303,7 @@ ipcMain.handle('teams:create', async (_event, payload = {}) => {
   await updateUserTeamRef(auth.uid, { teamId, name, role: 'owner' });
 
   const settings = await readSettings();
-  cloudUnlock = { teamId, key };
+  cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
   await writeSettings({ ...settings, activeTeamId: teamId });
   return teamSnapshot();
 });
@@ -2155,20 +2314,8 @@ ipcMain.handle('teams:switch', async (_event, teamId) => {
   const member = team ? await getDoc(['teams', teamId, 'members', auth.uid]) : null;
   if (!team || !member) throw new Error('You do not have access to this team.');
   const settings = await readSettings();
-  if (settings.activeTeamId !== teamId) cloudUnlock = { teamId: '', key: null };
+  cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
   await writeSettings({ ...settings, activeTeamId: teamId });
-  return teamSnapshot();
-});
-
-ipcMain.handle('teams:unlock', async (_event, payload = {}) => {
-  const teamId = String(payload.teamId || (await readSettings()).activeTeamId || '');
-  const passphrase = String(payload.passphrase || '');
-  if (!teamId) throw new Error('Select a team first.');
-  const team = await getDoc(['teams', teamId]);
-  if (!team?.secretSalt || !team?.secretProbe) throw new Error('This team cannot be unlocked.');
-  const key = deriveTeamKey(passphrase, team.secretSalt);
-  if (!verifyTeamKey(team, key)) throw new Error('Team passphrase is incorrect.');
-  cloudUnlock = { teamId, key };
   return teamSnapshot();
 });
 
@@ -2176,13 +2323,13 @@ ipcMain.handle('teams:invite', async (_event, payload = {}) => {
   const settings = await readSettings();
   const teamId = String(payload.teamId || settings.activeTeamId || '');
   const email = emailKey(payload.email);
-  const role = ['admin', 'member'].includes(payload.role) ? payload.role : 'member';
+  const role = 'member';
   if (!teamId) throw new Error('Select a team first.');
   if (!email) throw new Error('Invite email is required.');
   await ensureTeamManager(teamId);
   const team = await getDoc(['teams', teamId]);
   const inviteId = createId('invite');
-  await patchDoc(['teams', teamId, 'invites', inviteId], {
+  const invite = {
     id: inviteId,
     teamId,
     teamName: team?.name || 'Team',
@@ -2192,7 +2339,22 @@ ipcMain.handle('teams:invite', async (_event, payload = {}) => {
     status: 'pending',
     createdAt: nowIso(),
     updatedAt: nowIso()
-  });
+  };
+  await patchDoc(['teams', teamId, 'invites', inviteId], invite);
+  await syncInviteInboxDocument(invite).catch(() => {});
+  return teamSnapshot();
+});
+
+ipcMain.handle('teams:revokeInvite', async (_event, payload = {}) => {
+  const settings = await readSettings();
+  const teamId = String(payload.teamId || settings.activeTeamId || '');
+  const inviteId = String(payload.inviteId || payload.id || '');
+  if (!teamId || !inviteId) throw new Error('Invite is missing.');
+  await ensureTeamManager(teamId);
+  const invite = await getDoc(['teams', teamId, 'invites', inviteId]);
+  if (!invite || invite.status !== 'pending') throw new Error('Invite is no longer pending.');
+  await deleteDoc(['teams', teamId, 'invites', inviteId]);
+  await deleteInviteInboxDocument(invite).catch(() => {});
   return teamSnapshot();
 });
 
@@ -2205,36 +2367,25 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
   if (!invite || invite.status !== 'pending') throw new Error('Invite is no longer available.');
   if (emailKey(invite.emailLower || invite.email) !== emailKey(auth.email)) throw new Error('This invite belongs to another email.');
 
-  const team = await getDoc(['teams', teamId]);
+  const acceptedAt = nowIso();
   const member = {
     uid: auth.uid,
     email: auth.email,
     emailLower: emailKey(auth.email),
     displayName: auth.displayName || '',
-    role: ['owner', 'admin', 'member'].includes(invite.role) ? invite.role : 'member',
+    role: 'member',
     acceptedInviteId: inviteId,
-    createdAt: nowIso(),
-    updatedAt: nowIso()
+    createdAt: acceptedAt,
+    updatedAt: acceptedAt
   };
   await patchDoc(['teams', teamId, 'members', auth.uid], member);
-  await patchDoc(['teams', teamId, 'invites', inviteId], { ...invite, status: 'accepted', acceptedBy: auth.uid, updatedAt: nowIso() });
+  const team = await getDoc(['teams', teamId]).catch(() => null);
   await updateUserTeamRef(auth.uid, { teamId, name: team?.name || invite.teamName || 'Team', role: member.role });
   await writeSettings({ ...(await readSettings()), activeTeamId: teamId });
-  cloudUnlock = { teamId: '', key: null };
-  return teamSnapshot();
-});
-
-ipcMain.handle('teams:updateMember', async (_event, payload = {}) => {
-  const settings = await readSettings();
-  const teamId = String(payload.teamId || settings.activeTeamId || '');
-  const uid = String(payload.uid || '');
-  const role = ['admin', 'member'].includes(payload.role) ? payload.role : '';
-  if (!teamId || !uid || !role) throw new Error('Member and role are required.');
-  await ensureTeamManager(teamId);
-  const member = await getDoc(['teams', teamId, 'members', uid]);
-  if (!member) throw new Error('Member was not found.');
-  if (member.role === 'owner') throw new Error('Owner role cannot be changed.');
-  await patchDoc(['teams', teamId, 'members', uid], { ...member, role, updatedAt: nowIso() });
+  if (team) cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
+  const acceptedInvite = { ...invite, status: 'accepted', acceptedBy: auth.uid, updatedAt: acceptedAt };
+  await patchDoc(['teams', teamId, 'invites', inviteId], acceptedInvite).catch(() => {});
+  await deleteInviteInboxDocument(acceptedInvite).catch(() => {});
   return teamSnapshot();
 });
 
@@ -2300,17 +2451,23 @@ ipcMain.handle('cloud:import-local', async () => {
 ipcMain.handle('projects:list', async () => readCurrentStore());
 
 ipcMain.handle('projects:save', async (_event, project) => {
-  const data = await readCurrentStore();
+  const settings = await readSettings();
   const id = project.id || `${Date.now()}`;
   const normalized = {
     ...project,
     id,
     updatedAt: nowIso()
   };
+  if (settings.mode === 'cloud') {
+    const teamId = await ensureActiveTeamUnlocked();
+    await patchDoc(['teams', teamId, 'projects', id], prepareCloudProjectForSave(normalized));
+    return normalized;
+  }
+  const data = await readStore();
   const index = data.projects.findIndex((item) => item.id === id);
   if (index >= 0) data.projects[index] = normalized;
   else data.projects.unshift(normalized);
-  await writeCurrentStore(data);
+  await writeStore(data);
   return normalized;
 });
 
@@ -2442,7 +2599,7 @@ ipcMain.handle('account:import', async () => {
 });
 
 ipcMain.handle('templates:save', async (_event, template) => {
-  const data = await readCurrentStore();
+  const settings = await readSettings();
   const id = template.id || `${Date.now()}`;
   const category = TEMPLATE_CATEGORIES.includes(String(template.category || '').trim()) ? String(template.category).trim() : '';
   if (!category) throw new Error('Template category is required.');
@@ -2452,10 +2609,16 @@ ipcMain.handle('templates:save', async (_event, template) => {
     category,
     updatedAt: new Date().toISOString()
   });
+  if (settings.mode === 'cloud') {
+    const teamId = await ensureActiveTeamUnlocked();
+    await patchDoc(['teams', teamId, 'templates', id], prepareCloudTemplateForSave(normalized));
+    return normalized;
+  }
+  const data = await readStore();
   const index = data.templates.findIndex((item) => item.id === id);
   if (index >= 0) data.templates[index] = normalized;
   else data.templates.unshift(normalized);
-  await writeCurrentStore(data);
+  await writeStore(data);
   return normalized;
 });
 

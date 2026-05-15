@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('deployerx', {
   getAppMetadata: () => ipcRenderer.invoke('app:metadata'),
@@ -15,10 +15,9 @@ contextBridge.exposeInMainWorld('deployerx', {
   listTeams: () => ipcRenderer.invoke('teams:list'),
   createTeam: (payload) => ipcRenderer.invoke('teams:create', payload),
   switchTeam: (teamId) => ipcRenderer.invoke('teams:switch', teamId),
-  unlockTeam: (payload) => ipcRenderer.invoke('teams:unlock', payload),
   inviteTeamMember: (payload) => ipcRenderer.invoke('teams:invite', payload),
+  revokeTeamInvite: (payload) => ipcRenderer.invoke('teams:revokeInvite', payload),
   acceptTeamInvite: (payload) => ipcRenderer.invoke('teams:acceptInvite', payload),
-  updateTeamMember: (payload) => ipcRenderer.invoke('teams:updateMember', payload),
   removeTeamMember: (payload) => ipcRenderer.invoke('teams:removeMember', payload),
   deleteTeam: (payload) => ipcRenderer.invoke('teams:delete', payload),
   importLocalToCloud: () => ipcRenderer.invoke('cloud:import-local'),
@@ -37,6 +36,13 @@ contextBridge.exposeInMainWorld('deployerx', {
   selectUpload: () => ipcRenderer.invoke('dialog:select-upload'),
   selectFtpUpload: () => ipcRenderer.invoke('dialog:select-ftp-upload'),
   selectFtpDownload: (defaultName) => ipcRenderer.invoke('dialog:select-ftp-download', defaultName),
+  getPathForDroppedFile: (file) => {
+    try {
+      return file?.path || webUtils.getPathForFile(file) || '';
+    } catch {
+      return '';
+    }
+  },
   runDeployment: (payload) => ipcRenderer.invoke('deployment:run', payload),
   stopDeployment: (runId) => ipcRenderer.invoke('deployment:stop', runId),
   startTerminal: (payload) => ipcRenderer.invoke('terminal:start', payload),

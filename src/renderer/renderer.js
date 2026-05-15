@@ -26,6 +26,7 @@ const state = {
     session: null,
     authMode: 'login'
   },
+  currentView: 'dashboard',
   settingsTab: 'profile',
   backupHistory: [],
   teams: {
@@ -43,6 +44,9 @@ const state = {
   activeProject: null,
   activeProjectTab: 'ssh',
   activeRunId: null,
+  terminalSessions: {},
+  terminalSessionProjectIds: {},
+  ftpSessions: {},
   activeTerminalSessionId: null,
   terminalConnected: false,
   ftpSessionId: null,
@@ -68,6 +72,7 @@ const state = {
   scriptPromptTimer: null,
   scriptReadyMarker: '',
   scriptPromptMarkerActive: false,
+  scriptTerminalSessionId: '',
   terminalOutputBuffer: '',
   terminalRawBuffer: '',
   modalMode: 'create',
@@ -110,6 +115,119 @@ terminal.loadAddon(fitAddon);
 
 const builtInVariableNames = new Set(['project_name', 'server_type', 'ssh_host', 'ssh_port', 'ssh_username']);
 const templateCategories = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance'];
+const terminalReplayLimit = 160000;
+
+function blankTerminalSession(projectId = '') {
+  return {
+    projectId,
+    sessionId: null,
+    connected: false,
+    status: 'Not connected',
+    output: 'Ready.\r\n',
+    pendingInput: '',
+    outputBuffer: '',
+    rawBuffer: ''
+  };
+}
+
+function blankFtpSession(projectId = '') {
+  return {
+    projectId,
+    sessionId: null,
+    connected: false,
+    currentPath: '.',
+    parentPath: '.',
+    entries: [],
+    selectedPath: '',
+    backStack: [],
+    forwardStack: [],
+    remoteFilter: ''
+  };
+}
+
+function getTerminalSession(projectId = state.activeProject?.id, create = false) {
+  if (!projectId) return null;
+  if (!state.terminalSessions[projectId] && create) state.terminalSessions[projectId] = blankTerminalSession(projectId);
+  return state.terminalSessions[projectId] || null;
+}
+
+function getTerminalSessionById(sessionId) {
+  const projectId = state.terminalSessionProjectIds[sessionId];
+  return projectId ? getTerminalSession(projectId) : null;
+}
+
+function getFtpSession(projectId = state.activeProject?.id, create = false) {
+  if (!projectId) return null;
+  if (!state.ftpSessions[projectId] && create) state.ftpSessions[projectId] = blankFtpSession(projectId);
+  return state.ftpSessions[projectId] || null;
+}
+
+function projectConnectionState(projectId) {
+  const terminalSession = getTerminalSession(projectId);
+  const ftpSession = getFtpSession(projectId);
+  return {
+    ssh: Boolean(terminalSession?.sessionId && terminalSession.connected),
+    ftp: Boolean(ftpSession?.sessionId && ftpSession.connected)
+  };
+}
+
+function isVisibleTerminalSession(session) {
+  return Boolean(session?.projectId && state.activeProject?.id === session.projectId);
+}
+
+function applyTerminalSessionToState(projectId) {
+  const terminalSession = getTerminalSession(projectId);
+  state.activeTerminalSessionId = terminalSession?.sessionId || null;
+  state.terminalConnected = Boolean(terminalSession?.connected);
+  state.pendingTerminalInput = terminalSession?.pendingInput || '';
+  state.terminalOutputBuffer = terminalSession?.outputBuffer || '';
+  state.terminalRawBuffer = terminalSession?.rawBuffer || '';
+}
+
+function renderVisibleTerminalSession(session = getTerminalSession()) {
+  terminal.reset();
+  terminal.clear();
+  terminal.write(session?.output || 'Ready.\r\n');
+}
+
+function removeTerminalSessionRegistration(sessionId) {
+  if (!sessionId) return;
+  delete state.terminalSessionProjectIds[sessionId];
+}
+
+async function disconnectProjectConnections(projectId) {
+  const terminalSession = getTerminalSession(projectId);
+  if (terminalSession?.sessionId) {
+    try {
+      await window.deployerx.stopTerminal(terminalSession.sessionId);
+    } catch {}
+    removeTerminalSessionRegistration(terminalSession.sessionId);
+  }
+
+  const ftpSession = getFtpSession(projectId);
+  if (ftpSession?.sessionId) {
+    try {
+      await window.deployerx.ftpDisconnect(ftpSession.sessionId);
+    } catch {}
+  }
+
+  if (projectId) {
+    state.terminalSessions[projectId] = blankTerminalSession(projectId);
+    state.ftpSessions[projectId] = blankFtpSession(projectId);
+  }
+
+  if (state.activeProject?.id === projectId) {
+    applyTerminalSessionToState(projectId);
+    applyFtpSessionToState(projectId);
+  }
+}
+
+async function disconnectAllProjectConnections() {
+  const projectIds = [...new Set([...Object.keys(state.terminalSessions), ...Object.keys(state.ftpSessions)])];
+  for (const projectId of projectIds) {
+    await disconnectProjectConnections(projectId);
+  }
+}
 
 const els = {
   startupLoader: document.getElementById('startupLoader'),
@@ -143,11 +261,7 @@ const els = {
   workspaceSetupSelect: document.getElementById('workspaceSetupSelect'),
   workspaceCreateForm: document.getElementById('workspaceCreateForm'),
   workspaceCreateName: document.getElementById('workspaceCreateName'),
-  workspaceCreatePassphrase: document.getElementById('workspaceCreatePassphrase'),
   workspaceCreateButton: document.getElementById('workspaceCreateButton'),
-  workspaceUnlockForm: document.getElementById('workspaceUnlockForm'),
-  workspaceUnlockPassphrase: document.getElementById('workspaceUnlockPassphrase'),
-  workspaceUnlockButton: document.getElementById('workspaceUnlockButton'),
   workspaceContinueButton: document.getElementById('workspaceContinueButton'),
   workspaceLogoutButton: document.getElementById('workspaceLogoutButton'),
   dashboardView: document.getElementById('dashboardView'),
@@ -160,6 +274,8 @@ const els = {
   templatesButton: document.getElementById('templatesButton'),
   goOnlineButton: document.getElementById('goOnlineButton'),
   teamButton: document.getElementById('teamButton'),
+  sidebarWorkspaceName: document.getElementById('sidebarWorkspaceName'),
+  sidebarWorkspaceMeta: document.getElementById('sidebarWorkspaceMeta'),
   dashboardImportAccountButton: document.getElementById('dashboardImportAccountButton'),
   dashboardExportAccountButton: document.getElementById('dashboardExportAccountButton'),
   dashboardImportProjectsButton: document.getElementById('dashboardImportProjectsButton'),
@@ -186,6 +302,7 @@ const els = {
   ftpPathInput: document.getElementById('ftpPathInput'),
   ftpBackButton: document.getElementById('ftpBackButton'),
   ftpForwardButton: document.getElementById('ftpForwardButton'),
+  ftpRemoteBrowser: document.getElementById('ftpRemoteBrowser'),
   ftpFileList: document.getElementById('ftpFileList'),
   fileActivity: document.getElementById('fileActivity'),
   ftpContextMenu: document.getElementById('ftpContextMenu'),
@@ -296,25 +413,25 @@ const els = {
   teamSelect: document.getElementById('teamSelect'),
   switchTeamButton: document.getElementById('switchTeamButton'),
   openCreateTeamButton: document.getElementById('openCreateTeamButton'),
-  unlockTeamForm: document.getElementById('unlockTeamForm'),
-  teamPassphrase: document.getElementById('teamPassphrase'),
   importLocalToCloudButton: document.getElementById('importLocalToCloudButton'),
   inviteMemberForm: document.getElementById('inviteMemberForm'),
+  inviteTeamSelect: document.getElementById('inviteTeamSelect'),
   inviteEmail: document.getElementById('inviteEmail'),
-  inviteRole: document.getElementById('inviteRole'),
   teamMembersList: document.getElementById('teamMembersList'),
+  incomingInvitesLists: document.querySelectorAll('[data-incoming-invites-list]'),
   pendingInvitesList: document.getElementById('pendingInvitesList'),
   teamCloudWarning: document.getElementById('teamCloudWarning'),
   createTeamModal: document.getElementById('createTeamModal'),
   createTeamForm: document.getElementById('createTeamForm'),
   createTeamCloseButton: document.getElementById('createTeamCloseButton'),
   createTeamCancelButton: document.getElementById('createTeamCancelButton'),
-  createTeamName: document.getElementById('createTeamName'),
-  createTeamPassphrase: document.getElementById('createTeamPassphrase')
+  createTeamName: document.getElementById('createTeamName')
 };
 
 const STARTUP_IPC_TIMEOUT_MS = 5000;
+const CLOUD_SESSION_TIMEOUT_MS = 15000;
 const STARTUP_VERSION_TIMEOUT_MS = 1200;
+let ftpRemoteDragDepth = 0;
 
 function withTimeout(promise, ms, message) {
   return Promise.race([
@@ -504,9 +621,10 @@ function icon(name) {
 }
 
 function showView(view) {
-  if (state.setup.mode === 'cloud' && !state.teams.unlocked && view !== 'team') {
+  if (state.setup.mode === 'cloud' && !state.teams.activeTeamId && view !== 'team') {
     view = 'team';
   }
+  state.currentView = view;
   if (view === 'team') renderSettingsView();
   const isDashboard = view === 'dashboard';
   const isProject = view === 'project';
@@ -568,6 +686,35 @@ function showAlert(message) {
 
 window.alert = showAlert;
 
+function friendlyAuthError(error, fallback = 'Something went wrong. Please try again.') {
+  let message = String(error?.message || error || '').trim();
+  message = message.replace(/^Error invoking remote method '[^']+':\s*/i, '');
+  message = message.replace(/^Error:\s*/i, '');
+  message = message.replace(/^Firebase error:\s*/i, '');
+
+  const normalized = message.replace(/[_-]/g, ' ').toLowerCase();
+  if (normalized.includes('invalid login credentials') || normalized.includes('invalid password')) {
+    return 'Invalid email or password.';
+  }
+  if (normalized.includes('email not found')) return 'No account was found for this email.';
+  if (normalized.includes('email exists')) return 'An account already exists for this email.';
+  if (normalized.includes('invalid email')) return 'Enter a valid email address.';
+  if (normalized.includes('weak password')) return 'Use a stronger password with at least 6 characters.';
+  if (normalized.includes('too many attempts') || normalized.includes('quota exceeded')) {
+    return 'Too many attempts. Please wait a little and try again.';
+  }
+  if (normalized.includes('user disabled')) return 'This account has been disabled.';
+  if (normalized.includes('operation not allowed')) return 'Email and password login is not enabled for this app.';
+  if (normalized.includes('expired oob code') || normalized.includes('invalid oob code')) {
+    return 'That link is no longer valid. Request a new one and try again.';
+  }
+  if (normalized.includes('token expired') || normalized.includes('invalid id token')) {
+    return 'Your session expired. Please login again.';
+  }
+  if (normalized.includes('auth:') || normalized.includes('remote method')) return fallback;
+  return message || fallback;
+}
+
 function formatBytes(value) {
   const bytes = Number(value || 0);
   if (!bytes) return '-';
@@ -606,6 +753,34 @@ function parentFtpPath(remotePath) {
 
 function fileNameFromPath(filePath = '') {
   return String(filePath || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || String(filePath || '');
+}
+
+function hasDraggedFiles(dataTransfer) {
+  return Array.from(dataTransfer?.types || []).includes('Files');
+}
+
+function setFtpRemoteDropActive(active) {
+  els.ftpRemoteBrowser?.classList.toggle('is-drop-target', Boolean(active));
+}
+
+function resetFtpRemoteDropState() {
+  ftpRemoteDragDepth = 0;
+  setFtpRemoteDropActive(false);
+}
+
+async function droppedFtpLocalPaths(event) {
+  const files = Array.from(event.dataTransfer?.files || []);
+  const paths = [];
+
+  for (const file of files) {
+    let localPath = String(file?.path || '');
+    if (!localPath && window.deployerx?.getPathForDroppedFile) {
+      localPath = String(window.deployerx.getPathForDroppedFile(file) || '');
+    }
+    if (localPath) paths.push(localPath);
+  }
+
+  return [...new Set(paths)];
 }
 
 function filteredEntries(entries, query) {
@@ -694,6 +869,17 @@ function renderProjectTemplateSelect() {
 }
 
 function updateTerminalStatus(text, connected = state.terminalConnected) {
+  const terminalSession = getTerminalSession();
+  if (terminalSession) {
+    terminalSession.sessionId = state.activeTerminalSessionId;
+    terminalSession.connected = Boolean(connected);
+    terminalSession.status = text;
+    terminalSession.pendingInput = state.pendingTerminalInput || '';
+    terminalSession.outputBuffer = state.terminalOutputBuffer || '';
+    terminalSession.rawBuffer = state.terminalRawBuffer || '';
+    if (terminalSession.sessionId) state.terminalSessionProjectIds[terminalSession.sessionId] = terminalSession.projectId;
+  }
+  state.terminalConnected = Boolean(connected);
   els.terminalStatus.textContent = text;
   els.projectView.classList.toggle('terminal-connected', connected);
   els.projectView.classList.toggle(
@@ -702,6 +888,37 @@ function updateTerminalStatus(text, connected = state.terminalConnected) {
   );
   els.disconnectTerminalButton.disabled = !state.activeTerminalSessionId;
   els.connectTerminalButton.disabled = Boolean(state.activeTerminalSessionId);
+  renderProjects();
+}
+
+function setTerminalSessionStatus(session, text, connected = session?.connected) {
+  if (!session) {
+    updateTerminalStatus(text, connected);
+    return;
+  }
+
+  session.status = text;
+  session.connected = Boolean(connected);
+  if (isVisibleTerminalSession(session)) {
+    state.activeTerminalSessionId = session.sessionId;
+    state.terminalConnected = session.connected;
+    state.pendingTerminalInput = session.pendingInput || '';
+    state.terminalOutputBuffer = session.outputBuffer || '';
+    state.terminalRawBuffer = session.rawBuffer || '';
+    updateTerminalStatus(text, connected);
+  } else {
+    renderProjects();
+  }
+}
+
+function appendTerminalSessionOutput(session, data) {
+  if (!session) {
+    terminal.write(data);
+    return;
+  }
+
+  session.output = `${session.output || ''}${String(data ?? '')}`.slice(-terminalReplayLimit);
+  if (isVisibleTerminalSession(session)) terminal.write(data);
 }
 
 function fitTerminal() {
@@ -804,8 +1021,9 @@ function applySetupState(setup = {}) {
   if (Object.prototype.hasOwnProperty.call(setup, 'firebase')) state.setup.firebase = setup.firebase || null;
   if (Object.prototype.hasOwnProperty.call(setup, 'session')) state.auth.session = setup.session || null;
   if (Object.prototype.hasOwnProperty.call(setup, 'activeTeamId')) state.teams.activeTeamId = setup.activeTeamId || '';
-  if (Object.prototype.hasOwnProperty.call(setup, 'unlocked')) state.teams.unlocked = Boolean(setup.unlocked);
+  state.teams.unlocked = Boolean(state.teams.activeTeamId);
   els.goOnlineButton.classList.toggle('hidden', state.setup.mode !== 'offline');
+  renderSidebarWorkspace();
   els.teamButton.classList.remove('hidden');
   renderSettingsView();
 }
@@ -817,10 +1035,10 @@ function applyTeamSnapshot(snapshot = {}) {
   state.teams.members = Array.isArray(snapshot.members) ? snapshot.members : [];
   state.teams.teamInvites = Array.isArray(snapshot.teamInvites) ? snapshot.teamInvites : [];
   state.teams.invites = Array.isArray(snapshot.invites) ? snapshot.invites : [];
-  state.teams.unlocked = Boolean(snapshot.unlocked);
+  state.teams.unlocked = Boolean(state.teams.activeTeamId);
   state.teams.cloudError = snapshot.cloudError || '';
   renderTeamView();
-  applySetupState({ setupComplete: state.setup.complete, mode: state.setup.mode, activeTeamId: state.teams.activeTeamId, session: state.auth.session, unlocked: state.teams.unlocked });
+  applySetupState({ setupComplete: state.setup.complete, mode: state.setup.mode, activeTeamId: state.teams.activeTeamId, session: state.auth.session });
 }
 
 function signedInForSettings() {
@@ -901,13 +1119,61 @@ function renderSettingsView() {
   renderBackupHistory();
 }
 
+function renderSidebarWorkspace() {
+  if (!els.sidebarWorkspaceName || !els.sidebarWorkspaceMeta) return;
+
+  const activeTeam = state.teams.activeTeam;
+  let name = 'Local workspace';
+  let meta = 'Offline mode';
+
+  if (state.setup.mode === 'cloud') {
+    name = activeTeam?.name || 'No workspace selected';
+    meta = activeTeam?.role ? `Cloud workspace - ${activeTeam.role}` : 'Cloud workspace';
+  }
+
+  els.sidebarWorkspaceName.textContent = name;
+  els.sidebarWorkspaceMeta.textContent = meta;
+}
+
+function renderIncomingInvites() {
+  if (!els.incomingInvitesLists?.length) return;
+  const invites = state.teams.invites || [];
+
+  for (const list of els.incomingInvitesLists) {
+    list.innerHTML = '';
+
+    if (!invites.length) {
+      list.innerHTML = '<div class="team-muted">No invites sent to you.</div>';
+      continue;
+    }
+
+    for (const invite of invites) {
+      const canAccept = Boolean(invite.teamId && invite.emailLower);
+      const row = document.createElement('div');
+      row.className = 'team-row';
+      row.innerHTML = `
+        <span class="team-row-copy">
+          <strong>${escapeHtml(invite.teamName || 'Workspace invite')}</strong>
+          <span>${escapeHtml(invite.email || invite.emailLower || '')} - ${escapeHtml(invite.role || 'member')}</span>
+        </span>
+        <span class="team-row-actions">
+          <button class="button outline compact" type="button" data-accept-invite="${escapeHtml(invite.id)}" data-team-id="${escapeHtml(invite.teamId || '')}" ${canAccept ? '' : 'disabled'}>${canAccept ? 'Accept' : 'Unavailable'}</button>
+        </span>
+      `;
+      row.querySelector('[data-accept-invite]')?.addEventListener('click', acceptInvite);
+      list.appendChild(row);
+    }
+  }
+}
+
 function renderTeamView() {
   const activeTeam = state.teams.activeTeam;
   const activeRole = activeTeam?.role || '';
-  const canManage = ['owner', 'admin'].includes(activeRole);
+  const canManage = activeRole === 'owner';
+  renderIncomingInvites();
   els.teamHeaderCopy.innerHTML = activeTeam
-    ? `${escapeHtml(activeTeam.name)} <span class="team-status-pill ${state.teams.unlocked ? 'unlocked' : 'locked'}">${state.teams.unlocked ? 'Unlocked' : 'Locked'}</span>`
-    : 'Create or accept a team invite to start cloud sync.';
+    ? `${escapeHtml(activeTeam.name)} <span class="team-status-pill unlocked">${escapeHtml(activeRole || 'member')}</span>`
+    : 'Create or accept a workspace invite to start cloud sync.';
   els.teamCloudWarning.classList.toggle('hidden', !state.teams.cloudError);
   els.teamCloudWarning.innerHTML = state.teams.cloudError
     ? `<strong>Firebase cloud data is blocked</strong><span>${escapeHtml(state.teams.cloudError)}</span>`
@@ -929,9 +1195,28 @@ function renderTeamView() {
   }
   els.teamSelect.value = state.teams.activeTeamId || '';
   els.switchTeamButton.disabled = !state.teams.activeTeamId || els.teamSelect.value === state.teams.activeTeamId;
-  els.unlockTeamForm.classList.toggle('hidden', !state.teams.activeTeamId);
-  els.importLocalToCloudButton.disabled = !state.teams.unlocked;
-  els.inviteMemberForm.querySelector('button').disabled = !canManage;
+  els.importLocalToCloudButton.disabled = !state.teams.activeTeamId;
+
+  const manageableTeams = state.teams.teams.filter((team) => team.role === 'owner');
+  els.inviteTeamSelect.innerHTML = '';
+  if (manageableTeams.length) {
+    for (const team of manageableTeams) {
+      const option = document.createElement('option');
+      option.value = team.id;
+      option.textContent = team.name || 'Workspace';
+      els.inviteTeamSelect.appendChild(option);
+    }
+    els.inviteTeamSelect.value = manageableTeams.some((team) => team.id === state.teams.activeTeamId)
+      ? state.teams.activeTeamId
+      : manageableTeams[0].id;
+  } else {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No owned workspaces';
+    els.inviteTeamSelect.appendChild(option);
+  }
+  els.inviteTeamSelect.disabled = !manageableTeams.length;
+  els.inviteMemberForm.querySelector('button').disabled = !manageableTeams.length;
 
   els.teamMembersList.innerHTML = '';
   if (!state.teams.members.length) {
@@ -947,29 +1232,28 @@ function renderTeamView() {
           <span>${escapeHtml(member.email || '')} - ${escapeHtml(member.role || 'member')}</span>
         </span>
         <span class="team-row-actions">
-          <select ${!canManage || isOwner ? 'disabled' : ''} data-member-role="${escapeHtml(member.uid)}">
-            <option value="member" ${member.role === 'member' ? 'selected' : ''}>Member</option>
-            <option value="admin" ${member.role === 'admin' ? 'selected' : ''}>Admin</option>
-          </select>
+          <span class="team-role-pill">${isOwner ? 'Owner' : 'Member'}</span>
           <button class="button plain danger compact" type="button" data-remove-member="${escapeHtml(member.uid)}" ${!canManage || isOwner ? 'disabled' : ''}>Remove</button>
         </span>
       `;
-      row.querySelector('[data-member-role]')?.addEventListener('change', updateMemberRole);
       row.querySelector('[data-remove-member]')?.addEventListener('click', removeMember);
       els.teamMembersList.appendChild(row);
     }
   }
 
-  const pending = [
-    ...state.teams.invites.map((invite) => ({ ...invite, personal: true })),
-    ...state.teams.teamInvites.map((invite) => ({ ...invite, personal: false }))
-  ];
+  const pending = state.teams.teamInvites.map((invite) => ({ ...invite, personal: false }));
   els.pendingInvitesList.innerHTML = '';
   if (!pending.length) {
-    els.pendingInvitesList.innerHTML = '<div class="team-muted">No pending invites.</div>';
+    els.pendingInvitesList.innerHTML = '<div class="team-muted">No invites sent from this workspace.</div>';
   } else {
     for (const invite of pending) {
       const canAccept = Boolean(invite.personal && invite.teamId && invite.emailLower);
+      const canRevoke = Boolean(!invite.personal && canManage && invite.id);
+      const actionButton = canAccept
+        ? `<button class="button outline compact" type="button" data-accept-invite="${escapeHtml(invite.id)}" data-team-id="${escapeHtml(invite.teamId || '')}">Accept</button>`
+        : canRevoke
+          ? `<button class="button plain danger compact" type="button" data-revoke-invite="${escapeHtml(invite.id)}" data-team-id="${escapeHtml(invite.teamId || state.teams.activeTeamId || '')}">Revoke</button>`
+          : '<button class="button outline compact" type="button" disabled>Pending</button>';
       const row = document.createElement('div');
       row.className = 'team-row';
       row.innerHTML = `
@@ -978,10 +1262,11 @@ function renderTeamView() {
           <span>${escapeHtml(invite.email || invite.emailLower || '')} - ${escapeHtml(invite.role || 'member')}</span>
         </span>
         <span class="team-row-actions">
-          <button class="button outline compact" type="button" data-accept-invite="${escapeHtml(invite.id)}" data-team-id="${escapeHtml(invite.teamId || '')}" ${canAccept ? '' : 'disabled'}>${canAccept ? 'Accept' : 'Pending'}</button>
+          ${actionButton}
         </span>
       `;
       row.querySelector('[data-accept-invite]')?.addEventListener('click', acceptInvite);
+      row.querySelector('[data-revoke-invite]')?.addEventListener('click', revokeInvite);
       els.pendingInvitesList.appendChild(row);
     }
   }
@@ -990,7 +1275,6 @@ function renderTeamView() {
 function renderWorkspaceSetupPanel() {
   const teams = state.teams.teams || [];
   const hasTeams = teams.length > 0;
-  const unlocked = Boolean(state.teams.unlocked);
   const selectedTeamId = state.teams.activeTeamId || teams[0]?.id || '';
 
   els.workspaceSetupSelect.innerHTML = '';
@@ -1010,14 +1294,11 @@ function renderWorkspaceSetupPanel() {
   }
 
   els.workspaceSetupSelect.closest('.field').classList.toggle('hidden', !hasTeams);
-  els.workspaceCreateForm.classList.toggle('hidden', hasTeams || unlocked);
-  els.workspaceUnlockForm.classList.toggle('hidden', !hasTeams || unlocked);
-  els.workspaceContinueButton.classList.toggle('hidden', !unlocked);
-  els.workspaceSetupCopy.textContent = unlocked
-    ? 'Workspace is ready. Continue to your dashboard.'
-    : hasTeams
-      ? 'Unlock your workspace to load projects, templates, and encrypted SSH secrets.'
-      : 'Create a workspace to keep projects, templates, and team members in cloud sync.';
+  els.workspaceCreateForm.classList.toggle('hidden', hasTeams);
+  els.workspaceContinueButton.classList.toggle('hidden', !hasTeams);
+  els.workspaceSetupCopy.textContent = hasTeams
+    ? 'Choose a workspace to load encrypted projects, templates, and SSH secrets.'
+    : 'Create a workspace to keep projects, templates, and team members in cloud sync.';
 }
 
 function showWorkspaceSetupPanel() {
@@ -1027,7 +1308,7 @@ function showWorkspaceSetupPanel() {
   els.workspaceSetupPanel.classList.remove('hidden');
   renderWorkspaceSetupPanel();
   requestAnimationFrame(() => {
-    if (state.teams.teams.length) els.workspaceUnlockPassphrase.focus();
+    if (state.teams.teams.length) els.workspaceContinueButton.focus();
     else els.workspaceCreateName.focus();
   });
 }
@@ -1091,6 +1372,17 @@ function resetWorkspaceData() {
   state.projects = [];
   state.templates = [];
   state.activeProject = null;
+  state.terminalSessions = {};
+  state.terminalSessionProjectIds = {};
+  state.ftpSessions = {};
+  state.activeTerminalSessionId = null;
+  state.terminalConnected = false;
+  state.ftpSessionId = null;
+  state.ftpConnected = false;
+  state.pendingTerminalInput = '';
+  state.terminalOutputBuffer = '';
+  state.terminalRawBuffer = '';
+  stopScriptQueue();
   closeTemplateEditor();
   renderTemplateSelect();
   renderProjects();
@@ -1098,13 +1390,23 @@ function resetWorkspaceData() {
 }
 
 async function enterCloudWorkspace() {
-  if (!state.teams.unlocked) {
+  if (!state.teams.activeTeamId) {
     showWorkspaceSetupPanel();
     return;
   }
   setSetupVisibility(false);
   await loadProjects();
   showView('dashboard');
+}
+
+async function continueCloudStartup() {
+  if (state.teams.activeTeamId) {
+    await enterCloudWorkspace();
+    return;
+  }
+
+  resetWorkspaceData();
+  showWorkspaceSetupPanel();
 }
 
 async function finishCloudAuth(result, isRegister = false) {
@@ -1120,7 +1422,7 @@ async function finishCloudAuth(result, isRegister = false) {
   els.authPassword.value = '';
   els.authConfirmPassword.value = '';
   resetWorkspaceData();
-  if (state.teams.unlocked) await enterCloudWorkspace();
+  if (state.teams.activeTeamId) await enterCloudWorkspace();
   else showWorkspaceSetupPanel();
   if (isRegister) showToast('Confirmation email sent. Check your inbox to verify this account.');
 }
@@ -1172,7 +1474,7 @@ async function submitAuth(event) {
       isRegister ? await window.deployerx.register(payload) : await window.deployerx.login(payload);
     await finishCloudAuth(result, isRegister);
   } catch (error) {
-    showAuthMessage('Could not continue', error.message || 'Check your Firebase setup and try again.');
+    showAuthMessage(isRegister ? 'Could not create account' : 'Login failed', friendlyAuthError(error, 'Check your details and try again.'));
   } finally {
     setAuthLoading(false);
   }
@@ -1184,7 +1486,7 @@ async function submitGoogleAuth() {
     const result = await window.deployerx.loginWithGoogle();
     await finishCloudAuth(result);
   } catch (error) {
-    showAuthMessage('Could not login with Google', error.message || 'Check your Firebase setup and try again.');
+    showAuthMessage('Google login failed', friendlyAuthError(error, 'Check your Google login and try again.'));
   } finally {
     setAuthLoading(false);
   }
@@ -1202,7 +1504,7 @@ async function forgotPassword() {
     await window.deployerx.forgotPassword({ email });
     showAuthMessage('Reset email sent', `Check ${email} for the password reset link.`);
   } catch (error) {
-    showAuthMessage('Could not send reset email', error.message || 'Check the email address and try again.');
+    showAuthMessage('Could not send reset email', friendlyAuthError(error, 'Check the email address and try again.'));
   } finally {
     setAuthLoading(false);
   }
@@ -1215,7 +1517,7 @@ async function resendVerification() {
     showEmailVerificationNotice(state.auth.session?.email || els.authEmail.value.trim());
     showToast('Verification email sent');
   } catch (error) {
-    showAuthMessage('Could not resend verification', error.message || 'Login again and try resending.');
+    showAuthMessage('Could not resend verification', friendlyAuthError(error, 'Login again and try resending.'));
   } finally {
     setAuthLoading(false);
   }
@@ -1227,7 +1529,7 @@ async function logout(confirmFirst = true) {
     if (!ok) return;
   }
   try {
-    if (state.activeTerminalSessionId) await window.deployerx.stopTerminal(state.activeTerminalSessionId);
+    await disconnectAllProjectConnections();
     await window.deployerx.logout();
     state.auth.session = null;
     state.teams = { teams: [], activeTeamId: '', activeTeam: null, members: [], teamInvites: [], invites: [], unlocked: false, cloudError: '' };
@@ -1249,19 +1551,88 @@ async function refreshCloudSession() {
   return result;
 }
 
+function sessionRequiresVerification(result) {
+  return Boolean(
+    result?.requiresEmailVerification ||
+      (result?.session && !result.session.emailVerified && result.session.provider !== 'google.com')
+  );
+}
+
+async function refreshCurrentPage() {
+  if (pendingActions.has('page:refresh')) return;
+  pendingActions.add('page:refresh');
+  try {
+    const currentView = state.currentView || 'dashboard';
+
+    if (!state.setup.complete || !state.setup.mode) {
+      const setup = await window.deployerx.getSetup();
+      applySetupState(setup);
+      renderTeamView();
+      showToast('Page refreshed');
+      return;
+    }
+
+    if (state.setup.mode === 'cloud') {
+      const sessionResult = await refreshCloudSession();
+      if (!sessionResult.session) {
+        setSetupVisibility(true);
+        showAuthPanel();
+        showToast('Login required');
+        return;
+      }
+      if (sessionRequiresVerification(sessionResult)) {
+        showEmailVerificationNotice(sessionResult.session.email || '');
+        return;
+      }
+    }
+
+    if (currentView === 'dashboard' || currentView === 'templates' || currentView === 'project') {
+      if (state.setup.mode === 'cloud' && !state.teams.activeTeamId) {
+        resetWorkspaceData();
+        showWorkspaceSetupPanel();
+        showToast('Page refreshed');
+        return;
+      }
+
+      const activeProjectId = state.activeProject?.id || '';
+      await refreshProjectsAndTemplates();
+
+      if (currentView === 'project') {
+        const project = activeProjectId ? state.projects.find((item) => item.id === activeProjectId) : null;
+        if (project) populateProjectView(project);
+        else showView('dashboard');
+      } else {
+        showView(currentView);
+      }
+    } else {
+      renderSettingsView();
+      renderTeamView();
+      showView('team');
+    }
+
+    showToast('Page refreshed');
+  } catch (error) {
+    showAlert(error.message || 'Could not refresh this page.');
+  } finally {
+    pendingActions.delete('page:refresh');
+  }
+}
+
 async function createTeam(event) {
   event.preventDefault();
+  const button = event.submitter || els.createTeamForm.querySelector('button[type="submit"]');
   try {
-    const snapshot = await window.deployerx.createTeam({
-      name: els.createTeamName.value.trim(),
-      passphrase: els.createTeamPassphrase.value
-    });
+    const snapshot = await withButtonLoading('team:create', button, () =>
+      window.deployerx.createTeam({
+        name: els.createTeamName.value.trim()
+      })
+    );
+    if (!snapshot) return;
     els.createTeamName.value = '';
-    els.createTeamPassphrase.value = '';
     setModalVisible(false, els.createTeamModal);
     applyTeamSnapshot(snapshot);
     await loadProjects();
-    showToast('Team created and unlocked');
+    showToast('Workspace created');
   } catch (error) {
     showAlert(error.message || 'Could not create team.');
   }
@@ -1272,11 +1643,9 @@ async function createWorkspace(event) {
   try {
     els.workspaceCreateButton.disabled = true;
     const snapshot = await window.deployerx.createTeam({
-      name: els.workspaceCreateName.value.trim(),
-      passphrase: els.workspaceCreatePassphrase.value
+      name: els.workspaceCreateName.value.trim()
     });
     els.workspaceCreateName.value = '';
-    els.workspaceCreatePassphrase.value = '';
     applyTeamSnapshot(snapshot);
     await enterCloudWorkspace();
     showToast('Workspace created');
@@ -1287,68 +1656,30 @@ async function createWorkspace(event) {
   }
 }
 
-async function unlockWorkspace(event) {
-  event.preventDefault();
-  try {
-    els.workspaceUnlockButton.disabled = true;
-    const selectedTeamId = els.workspaceSetupSelect.value || state.teams.activeTeamId;
-    if (selectedTeamId && selectedTeamId !== state.teams.activeTeamId) {
-      applyTeamSnapshot(await window.deployerx.switchTeam(selectedTeamId));
-    }
-    const snapshot = await window.deployerx.unlockTeam({
-      teamId: selectedTeamId || state.teams.activeTeamId,
-      passphrase: els.workspaceUnlockPassphrase.value
-    });
-    els.workspaceUnlockPassphrase.value = '';
-    applyTeamSnapshot(snapshot);
-    await enterCloudWorkspace();
-    showToast('Workspace unlocked');
-  } catch (error) {
-    showAlert(error.message || 'Could not unlock this workspace.');
-  } finally {
-    els.workspaceUnlockButton.disabled = false;
-  }
-}
-
 async function switchTeam() {
   const teamId = els.teamSelect.value;
   if (!teamId || teamId === state.teams.activeTeamId) return;
   try {
-    const snapshot = await window.deployerx.switchTeam(teamId);
+    const snapshot = await withButtonLoading('team:switch', els.switchTeamButton, () => window.deployerx.switchTeam(teamId));
+    if (!snapshot) return;
     applyTeamSnapshot(snapshot);
     resetWorkspaceData();
     showView('team');
-    showToast('Team switched. Unlock it to sync projects.');
+    showToast('Workspace switched');
   } catch (error) {
     showAlert(error.message || 'Could not switch team.');
   }
 }
 
-async function unlockTeam(event) {
-  event.preventDefault();
-  try {
-    const snapshot = await window.deployerx.unlockTeam({
-      teamId: state.teams.activeTeamId,
-      passphrase: els.teamPassphrase.value
-    });
-    els.teamPassphrase.value = '';
-    applyTeamSnapshot(snapshot);
-    await loadProjects();
-    showToast('Cloud workspace unlocked');
-    showView('dashboard');
-  } catch (error) {
-    showAlert(error.message || 'Could not unlock this team.');
-  }
-}
-
 async function inviteMember(event) {
   event.preventDefault();
+  const button = els.inviteMemberForm.querySelector('button[type="submit"]');
   try {
-    const snapshot = await window.deployerx.inviteTeamMember({
-      teamId: state.teams.activeTeamId,
-      email: els.inviteEmail.value.trim(),
-      role: els.inviteRole.value
-    });
+    const snapshot = await withButtonLoading('team:invite', button, () => window.deployerx.inviteTeamMember({
+      teamId: els.inviteTeamSelect.value || state.teams.activeTeamId,
+      email: els.inviteEmail.value.trim()
+    }));
+    if (!snapshot) return;
     els.inviteEmail.value = '';
     applyTeamSnapshot(snapshot);
     showToast('Invite created');
@@ -1359,31 +1690,45 @@ async function inviteMember(event) {
 
 async function acceptInvite(event) {
   const button = event.currentTarget;
+  const inviteId = button.dataset.acceptInvite;
   try {
-    const snapshot = await window.deployerx.acceptTeamInvite({
-      inviteId: button.dataset.acceptInvite,
-      teamId: button.dataset.teamId
-    });
+    const snapshot = await withButtonLoading(`team:accept:${inviteId}`, button, () =>
+      window.deployerx.acceptTeamInvite({
+        inviteId,
+        teamId: button.dataset.teamId
+      })
+    );
+    if (!snapshot) return;
     applyTeamSnapshot(snapshot);
-    showToast('Invite accepted. Unlock the team to sync.');
+    resetWorkspaceData();
+    await enterCloudWorkspace();
+    showToast('Invite accepted');
   } catch (error) {
     showAlert(error.message || 'Could not accept invite.');
   }
 }
 
-async function updateMemberRole(event) {
-  const select = event.currentTarget;
+async function revokeInvite(event) {
+  const button = event.currentTarget;
+  const invite = state.teams.teamInvites.find((item) => item.id === button.dataset.revokeInvite);
+  const ok = await confirmDangerousAction(
+    `Revoke invite for ${invite?.email || invite?.emailLower || 'this email'}?`,
+    'They will no longer be able to join this workspace from this invite.',
+    'Revoke'
+  );
+  if (!ok) return;
   try {
-    const snapshot = await window.deployerx.updateTeamMember({
-      teamId: state.teams.activeTeamId,
-      uid: select.dataset.memberRole,
-      role: select.value
-    });
+    const snapshot = await withButtonLoading(`team:revoke:${button.dataset.revokeInvite}`, button, () =>
+      window.deployerx.revokeTeamInvite({
+        inviteId: button.dataset.revokeInvite,
+        teamId: button.dataset.teamId
+      })
+    );
+    if (!snapshot) return;
     applyTeamSnapshot(snapshot);
-    showToast('Member role updated');
+    showToast('Invite revoked');
   } catch (error) {
-    showAlert(error.message || 'Could not update member.');
-    renderTeamView();
+    showAlert(error.message || 'Could not revoke invite.');
   }
 }
 
@@ -1429,7 +1774,7 @@ async function deleteWorkspace() {
 }
 
 async function importLocalToCloud() {
-  if (!state.teams.unlocked) return;
+  if (!state.teams.activeTeamId) return;
   const ok = await confirmDangerousAction(
     'Import local projects and templates to this cloud team?',
     'Items with the same id will be overwritten in the active cloud team.',
@@ -1474,27 +1819,48 @@ async function initializeApp() {
       return;
     }
 
-    const sessionResult = await withTimeout(
-      refreshCloudSession(),
-      STARTUP_IPC_TIMEOUT_MS,
-      'Cloud session took too long to refresh.'
-    );
+    const sessionRefreshPromise = refreshCloudSession();
+    let sessionResult;
+    try {
+      sessionResult = await withTimeout(
+        sessionRefreshPromise,
+        CLOUD_SESSION_TIMEOUT_MS,
+        'Cloud session took too long to refresh.'
+      );
+    } catch (error) {
+      if (!state.auth.session) throw error;
+
+      sessionRefreshPromise
+        .then(async (lateResult) => {
+          if (!lateResult.session) {
+            setSetupVisibility(true);
+            showAuthPanel();
+            return;
+          }
+          if (sessionRequiresVerification(lateResult)) {
+            showEmailVerificationNotice(lateResult.session.email || '');
+            return;
+          }
+          if (state.setup.mode === 'cloud') await continueCloudStartup();
+        })
+        .catch(() => {});
+
+      showToast('Restored your saved session while cloud sync reconnects.');
+      await continueCloudStartup();
+      return;
+    }
+
     if (!sessionResult.session) {
       setSetupVisibility(true);
       showAuthPanel();
       return;
     }
-    if (sessionResult.requiresEmailVerification || (sessionResult.session && !sessionResult.session.emailVerified && sessionResult.session.provider !== 'google.com')) {
+    if (sessionRequiresVerification(sessionResult)) {
       showEmailVerificationNotice(sessionResult.session.email || '');
       return;
     }
 
-    if (state.teams.unlocked) {
-      await enterCloudWorkspace();
-    } else {
-      resetWorkspaceData();
-      showWorkspaceSetupPanel();
-    }
+    await continueCloudStartup();
   } catch (error) {
     showAlert(error.message || 'Could not initialize DeployerX.');
     setSetupVisibility(true);
@@ -1627,6 +1993,15 @@ function renderProjects() {
   }
 
   for (const project of state.projects) {
+    const connectionState = projectConnectionState(project.id);
+    const sshStatus = connectionState.ssh ? 'SSH connected' : 'SSH disconnected';
+    const ftpStatus = connectionState.ftp ? 'FTP connected' : 'FTP disconnected';
+    const connectionDots = `
+      <span class="project-connection-dots" aria-label="${sshStatus}. ${ftpStatus}.">
+        <span class="project-status-dot ${connectionState.ssh ? 'connected' : 'disconnected'}" title="${sshStatus}"></span>
+        <span class="project-status-dot ${connectionState.ftp ? 'connected' : 'disconnected'}" title="${ftpStatus}"></span>
+      </span>
+    `;
     const listItem = document.createElement('button');
     listItem.type = 'button';
     listItem.className = `project-item ${state.activeProject?.id === project.id ? 'active' : ''}`;
@@ -1636,6 +2011,7 @@ function renderProjects() {
         <strong>${escapeHtml(project.name || 'Untitled Project')}</strong>
         <span>${escapeHtml(project.serverType || 'server')} · ${escapeHtml(project.ssh?.host || 'no host')}</span>
       </span>
+      ${connectionDots}
       <span class="project-item-action">${icon('chevron-right')}</span>
     `;
     listItem.addEventListener('click', () => openProject(project.id));
@@ -1768,8 +2144,36 @@ function renderDetailsSummary(project) {
     .join('');
 }
 
+function syncActiveFtpSession() {
+  const ftpSession = getFtpSession(state.activeProject?.id, Boolean(state.activeProject));
+  if (!ftpSession) return;
+  ftpSession.sessionId = state.ftpSessionId;
+  ftpSession.connected = Boolean(state.ftpConnected);
+  ftpSession.currentPath = state.ftpCurrentPath || '.';
+  ftpSession.parentPath = state.ftpParentPath || '.';
+  ftpSession.entries = Array.isArray(state.ftpEntries) ? [...state.ftpEntries] : [];
+  ftpSession.selectedPath = state.ftpSelectedPath || '';
+  ftpSession.backStack = [...state.ftpBackStack];
+  ftpSession.forwardStack = [...state.ftpForwardStack];
+  ftpSession.remoteFilter = state.ftpRemoteFilter || '';
+}
+
+function applyFtpSessionToState(projectId) {
+  const ftpSession = getFtpSession(projectId);
+  state.ftpSessionId = ftpSession?.sessionId || null;
+  state.ftpConnected = Boolean(ftpSession?.connected);
+  state.ftpCurrentPath = ftpSession?.currentPath || '.';
+  state.ftpParentPath = ftpSession?.parentPath || '.';
+  state.ftpEntries = Array.isArray(ftpSession?.entries) ? [...ftpSession.entries] : [];
+  state.ftpSelectedPath = ftpSession?.selectedPath || '';
+  state.ftpBackStack = Array.isArray(ftpSession?.backStack) ? [...ftpSession.backStack] : [];
+  state.ftpForwardStack = Array.isArray(ftpSession?.forwardStack) ? [...ftpSession.forwardStack] : [];
+  state.ftpRemoteFilter = ftpSession?.remoteFilter || '';
+}
+
 function updateFtpStatus(message, connected = state.ftpConnected) {
   state.ftpConnected = Boolean(connected);
+  syncActiveFtpSession();
   els.ftpStatus.textContent = message;
   els.ftpWorkspace.classList.toggle('terminal-connected', state.ftpConnected);
   els.connectFtpButton.disabled = state.ftpConnected;
@@ -1778,7 +2182,9 @@ function updateFtpStatus(message, connected = state.ftpConnected) {
   els.ftpBackButton.disabled = !state.ftpConnected || !state.ftpBackStack.length;
   els.ftpForwardButton.disabled = !state.ftpConnected || !state.ftpForwardStack.length;
   els.ftpRemoteFilter.disabled = !state.ftpConnected;
+  if (!state.ftpConnected) resetFtpRemoteDropState();
   renderFtpActionState();
+  renderProjects();
 }
 
 function updateLocalFtpStatus(message = 'Local files') {
@@ -1881,7 +2287,7 @@ function renderRemoteFtpBrowser() {
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'ftp-empty';
-    empty.textContent = state.ftpRemoteFilter ? 'No server matches.' : 'This server folder is empty.';
+    empty.textContent = state.ftpRemoteFilter ? 'No server matches.' : 'This server folder is empty. Drop files or folders here to upload.';
     empty.addEventListener('contextmenu', (event) => showFtpContextMenu(event, 'remote'));
     els.ftpFileList.appendChild(empty);
     return;
@@ -1908,6 +2314,7 @@ function renderFtpBrowser() {
   renderRemoteFtpBrowser();
   updateLocalFtpStatus(fileNameFromPath(state.ftpLocalCurrentPath) || 'Local files');
   updateFtpStatus(state.ftpConnected ? 'Connected' : 'Not connected', state.ftpConnected);
+  syncActiveFtpSession();
 }
 
 async function refreshLocalFtpList(pathOverride = state.ftpLocalCurrentPath, options = {}) {
@@ -2190,22 +2597,81 @@ function showFtpContextMenu(event, pane, entry = null) {
 
 async function uploadFtpFile(entryOverride = null) {
   const entry = entryOverride || selectedFtpLocalEntry();
-  if (!state.ftpSessionId || !entry || pendingActions.has('ftp:upload')) return;
+  if (!entry) return;
+  await uploadFtpPaths([entry.path]);
+}
+
+async function uploadFtpPaths(localPaths = []) {
+  const paths = [...new Set(localPaths.map((localPath) => String(localPath || '').trim()).filter(Boolean))];
+  if (!state.ftpSessionId || !paths.length || pendingActions.has('ftp:upload')) return;
+
+  const label = paths.length === 1 ? fileNameFromPath(paths[0]) : `${paths.length} items`;
+  const remoteDirectory = state.ftpCurrentPath;
   try {
-    await withFileActivity(`Uploading ${entry.name}...`, () =>
-      withButtonLoading('ftp:upload', null, () =>
-        window.deployerx.ftpUpload({
-          sessionId: state.ftpSessionId,
-          localPath: entry.path,
-          remoteDirectory: state.ftpCurrentPath
-        })
-      )
+    await withFileActivity(`Uploading ${label}...`, () =>
+      withButtonLoading('ftp:upload', null, async () => {
+        for (const localPath of paths) {
+          await window.deployerx.ftpUpload({
+            sessionId: state.ftpSessionId,
+            localPath,
+            remoteDirectory
+          });
+        }
+      })
     );
     await refreshFtpList();
-    showToast(`Uploaded ${entry.name}`);
+    showToast(paths.length === 1 ? `Uploaded ${label}` : `Uploaded ${paths.length} items`);
   } catch (error) {
     showAlert(error.message || 'Could not upload item.');
   }
+}
+
+function handleFtpRemoteDragEnter(event) {
+  if (!hasDraggedFiles(event.dataTransfer)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  ftpRemoteDragDepth += 1;
+  if (state.ftpConnected && state.ftpSessionId && !pendingActions.has('ftp:upload')) {
+    setFtpRemoteDropActive(true);
+  }
+}
+
+function handleFtpRemoteDragOver(event) {
+  if (!hasDraggedFiles(event.dataTransfer)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const droppable = Boolean(state.ftpConnected && state.ftpSessionId && !pendingActions.has('ftp:upload'));
+  if (event.dataTransfer) event.dataTransfer.dropEffect = droppable ? 'copy' : 'none';
+  setFtpRemoteDropActive(droppable);
+}
+
+function handleFtpRemoteDragLeave(event) {
+  if (!hasDraggedFiles(event.dataTransfer)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.relatedTarget && els.ftpRemoteBrowser?.contains(event.relatedTarget)) return;
+  ftpRemoteDragDepth = Math.max(0, ftpRemoteDragDepth - 1);
+  if (!ftpRemoteDragDepth) setFtpRemoteDropActive(false);
+}
+
+async function handleFtpRemoteDrop(event) {
+  if (!hasDraggedFiles(event.dataTransfer)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  resetFtpRemoteDropState();
+
+  if (!state.ftpConnected || !state.ftpSessionId) {
+    showAlert('Connect FTP before dropping files to upload.');
+    return;
+  }
+
+  const localPaths = await droppedFtpLocalPaths(event);
+  if (!localPaths.length) {
+    showAlert('Could not read the dropped files. Try dropping local files or folders directly from Explorer.');
+    return;
+  }
+
+  await uploadFtpPaths(localPaths);
 }
 
 async function downloadFtpFile(entryOverride = null) {
@@ -2307,34 +2773,16 @@ async function deleteFtpEntry(entryOverride = null) {
 }
 
 function populateProjectView(project) {
-  const isDifferentProject = state.activeProject?.id && state.activeProject.id !== project.id;
-
-  if (isDifferentProject && state.activeTerminalSessionId) {
-    window.deployerx.stopTerminal(state.activeTerminalSessionId);
-    resetTerminalView();
-  } else if (!state.activeTerminalSessionId) {
-    resetTerminalView();
-  }
-
-  if (isDifferentProject && state.ftpSessionId) {
-    window.deployerx.ftpDisconnect(state.ftpSessionId);
-    state.ftpSessionId = null;
-    state.ftpConnected = false;
-  }
-
   const normalizedProject = normalizeProject(project);
   state.activeProject = structuredClone(normalizedProject);
-  if (isDifferentProject || !state.ftpSessionId) {
-    state.ftpCurrentPath = '.';
-    state.ftpParentPath = '.';
-    state.ftpEntries = [];
-    state.ftpSelectedPath = '';
-    state.ftpBackStack = [];
-    state.ftpForwardStack = [];
-  }
+  const terminalSession = getTerminalSession(normalizedProject.id, true);
+  getFtpSession(normalizedProject.id, true);
+  applyTerminalSessionToState(normalizedProject.id);
+  applyFtpSessionToState(normalizedProject.id);
   els.activeProjectName.textContent = normalizedProject.name || 'Untitled Project';
   els.terminalProjectLabel.textContent = 'SSH';
-  if (!state.activeTerminalSessionId) updateTerminalStatus('Not connected', false);
+  renderVisibleTerminalSession(terminalSession);
+  updateTerminalStatus(terminalSession.status || (terminalSession.connected ? 'Connected' : 'Not connected'), terminalSession.connected);
   updateFtpStatus(state.ftpConnected ? 'Connected' : 'Not connected', state.ftpConnected);
   els.projectTemplateSelect.value = '';
   els.commands.value = Array.isArray(normalizedProject.commands) ? normalizedProject.commands.join('\n') : '';
@@ -2348,15 +2796,24 @@ function populateProjectView(project) {
   });
 }
 
-async function loadProjects() {
+async function refreshProjectsAndTemplates() {
   const data = await window.deployerx.listProjects();
+  const activeProjectId = state.activeProject?.id || '';
   state.projects = (data.projects || []).map(normalizeProject);
   state.templates = (data.templates || []).map(normalizeTemplate);
+  if (activeProjectId) {
+    state.activeProject = state.projects.find((project) => project.id === activeProjectId) || null;
+  }
   renderTemplateCategories();
   renderTemplates();
   renderTemplateSelect();
   renderProjects();
+}
+
+async function loadProjects() {
+  await refreshProjectsAndTemplates();
   state.activeProject = null;
+  renderProjects();
   showView('dashboard');
 }
 
@@ -2808,17 +3265,7 @@ async function deleteCurrentProject() {
     return;
   }
 
-  if (state.ftpSessionId) {
-    window.deployerx.ftpDisconnect(state.ftpSessionId);
-    state.ftpSessionId = null;
-    state.ftpConnected = false;
-    state.ftpCurrentPath = '.';
-    state.ftpParentPath = '.';
-    state.ftpEntries = [];
-    state.ftpSelectedPath = '';
-    state.ftpBackStack = [];
-    state.ftpForwardStack = [];
-  }
+  await disconnectProjectConnections(projectId);
   state.projects = state.projects.filter((project) => project.id !== projectId);
   state.activeProject = state.projects[0] || null;
   renderProjects();
@@ -2878,12 +3325,15 @@ async function startDeployment(event) {
 
 function appendLog(message, kind = 'log') {
   const prefix = kind === 'error' ? '[stderr] ' : '';
-  terminal.write(`${prefix}${message}`.replace(/\n/g, '\r\n'));
-  if (!String(message).endsWith('\n') && !String(message).endsWith('\r')) terminal.write('\r\n');
+  const rendered = `${prefix}${message}`.replace(/\n/g, '\r\n');
+  const needsBreak = !String(message).endsWith('\n') && !String(message).endsWith('\r');
+  const terminalSession = getTerminalSession();
+  appendTerminalSessionOutput(terminalSession, rendered);
+  if (needsBreak) appendTerminalSessionOutput(terminalSession, '\r\n');
 }
 
 function writeTerminalData(data) {
-  terminal.write(data);
+  appendTerminalSessionOutput(getTerminalSession(), data);
 }
 
 function stripTerminalControls(data) {
@@ -2909,16 +3359,26 @@ function applyTerminalBackspaces(text) {
   return output.join('');
 }
 
-function appendTerminalOutputBuffer(data) {
+function appendTerminalOutputBuffer(data, terminalSession = getTerminalSession()) {
   const rawText = String(data ?? '');
   const visibleText = applyTerminalBackspaces(stripTerminalControls(rawText).replace(/\r/g, '\n'));
 
-  state.terminalRawBuffer = `${state.terminalRawBuffer}${rawText}`.slice(-4000);
-  state.terminalOutputBuffer = `${state.terminalOutputBuffer}${visibleText}`.slice(-4000);
+  if (!terminalSession) {
+    state.terminalRawBuffer = `${state.terminalRawBuffer}${rawText}`.slice(-4000);
+    state.terminalOutputBuffer = `${state.terminalOutputBuffer}${visibleText}`.slice(-4000);
+    return;
+  }
+
+  terminalSession.rawBuffer = `${terminalSession.rawBuffer || ''}${rawText}`.slice(-4000);
+  terminalSession.outputBuffer = `${terminalSession.outputBuffer || ''}${visibleText}`.slice(-4000);
+  if (isVisibleTerminalSession(terminalSession)) {
+    state.terminalRawBuffer = terminalSession.rawBuffer;
+    state.terminalOutputBuffer = terminalSession.outputBuffer;
+  }
 }
 
-function lastTerminalLine() {
-  const lines = state.terminalOutputBuffer.split('\n');
+function lastTerminalLine(terminalSession = getTerminalSessionById(state.scriptTerminalSessionId) || getTerminalSession()) {
+  const lines = String(terminalSession?.outputBuffer || '').split('\n');
   return lines[lines.length - 1] || '';
 }
 
@@ -2946,34 +3406,41 @@ function stopScriptQueue() {
   state.scriptWaitingForPrompt = false;
   state.scriptReadyMarker = '';
   state.scriptPromptMarkerActive = false;
+  state.scriptTerminalSessionId = '';
 }
 
 function updateScriptStatus() {
+  const terminalSession = getTerminalSessionById(state.scriptTerminalSessionId) || getTerminalSession();
   if (!state.scriptRunnerActive) {
-    updateTerminalStatus('Connected', true);
+    setTerminalSessionStatus(terminalSession, 'Connected', true);
     return;
   }
 
-  updateTerminalStatus(`Running script (${state.scriptCommandQueue.length} queued)`, true);
+  setTerminalSessionStatus(terminalSession, `Running script (${state.scriptCommandQueue.length} queued)`, true);
 }
 
 async function runNextScriptCommand() {
   clearScriptPromptTimer();
 
-  if (!state.scriptRunnerActive || state.scriptWaitingForPrompt || !state.terminalConnected) return;
+  const terminalSession = getTerminalSessionById(state.scriptTerminalSessionId);
+  if (!state.scriptRunnerActive || state.scriptWaitingForPrompt || !terminalSession?.connected) return;
 
   const command = state.scriptCommandQueue.shift();
   if (!command) {
     stopScriptQueue();
-    updateTerminalStatus('Connected', true);
+    setTerminalSessionStatus(terminalSession, 'Connected', true);
     return;
   }
 
   state.scriptWaitingForPrompt = true;
-  state.terminalOutputBuffer = '';
-  state.terminalRawBuffer = '';
+  terminalSession.outputBuffer = '';
+  terminalSession.rawBuffer = '';
+  if (isVisibleTerminalSession(terminalSession)) {
+    state.terminalOutputBuffer = '';
+    state.terminalRawBuffer = '';
+  }
   updateScriptStatus();
-  await sendTerminalInput(`${command}\n`);
+  await sendTerminalInput(`${command}\n`, terminalSession.sessionId);
 }
 
 function createScriptPromptSetupCommand() {
@@ -2982,59 +3449,72 @@ function createScriptPromptSetupCommand() {
 }
 
 async function prepareScriptQueue() {
-  if (!state.scriptRunnerActive || !state.terminalConnected) return;
+  const terminalSession = getTerminalSessionById(state.scriptTerminalSessionId);
+  if (!state.scriptRunnerActive || !terminalSession?.connected) return;
 
   state.scriptWaitingForPrompt = true;
-  state.terminalOutputBuffer = '';
-  state.terminalRawBuffer = '';
-  updateTerminalStatus('Preparing script runner', true);
-  await sendTerminalInput(createScriptPromptSetupCommand());
+  terminalSession.outputBuffer = '';
+  terminalSession.rawBuffer = '';
+  if (isVisibleTerminalSession(terminalSession)) {
+    state.terminalOutputBuffer = '';
+    state.terminalRawBuffer = '';
+  }
+  setTerminalSessionStatus(terminalSession, 'Preparing script runner', true);
+  await sendTerminalInput(createScriptPromptSetupCommand(), terminalSession.sessionId);
 }
 
-function hasScriptReadyMarker() {
+function hasScriptReadyMarker(terminalSession = getTerminalSessionById(state.scriptTerminalSessionId) || getTerminalSession()) {
   if (!state.scriptReadyMarker) return false;
 
   return (
-    state.terminalRawBuffer.includes(`\x1b]1337;${state.scriptReadyMarker}\x07`) ||
-    state.terminalRawBuffer.includes(`\x1b]1337;${state.scriptReadyMarker}\x1b\\`)
+    String(terminalSession?.rawBuffer || '').includes(`\x1b]1337;${state.scriptReadyMarker}\x07`) ||
+    String(terminalSession?.rawBuffer || '').includes(`\x1b]1337;${state.scriptReadyMarker}\x1b\\`)
   );
 }
 
-function maybeContinueScriptQueue() {
-  if (!state.scriptRunnerActive || !state.scriptWaitingForPrompt) return;
+function maybeContinueScriptQueue(terminalSession = getTerminalSessionById(state.scriptTerminalSessionId)) {
+  if (!state.scriptRunnerActive || !state.scriptWaitingForPrompt || !terminalSession || terminalSession.sessionId !== state.scriptTerminalSessionId) return;
 
-  const markerSeen = hasScriptReadyMarker();
+  const markerSeen = hasScriptReadyMarker(terminalSession);
   if (markerSeen) state.scriptPromptMarkerActive = true;
 
-  const promptSeen = !state.scriptPromptMarkerActive && isShellPromptLine(lastTerminalLine());
+  const promptSeen = !state.scriptPromptMarkerActive && isShellPromptLine(lastTerminalLine(terminalSession));
   if (!markerSeen && !promptSeen) return;
 
   clearScriptPromptTimer();
   state.scriptPromptTimer = setTimeout(() => {
     state.scriptPromptTimer = null;
     if (!state.scriptRunnerActive || !state.scriptWaitingForPrompt) return;
-    if (!hasScriptReadyMarker() && !(!state.scriptPromptMarkerActive && isShellPromptLine(lastTerminalLine()))) return;
+    if (!hasScriptReadyMarker(terminalSession) && !(!state.scriptPromptMarkerActive && isShellPromptLine(lastTerminalLine(terminalSession)))) return;
 
     state.scriptWaitingForPrompt = false;
     runNextScriptCommand().catch((error) => appendLog(error.message, 'error'));
   }, 150);
 }
 
-function handleTerminalData(data) {
-  writeTerminalData(data);
-  appendTerminalOutputBuffer(data);
-  maybeContinueScriptQueue();
+function handleTerminalData(data, terminalSession = getTerminalSession()) {
+  appendTerminalSessionOutput(terminalSession, data);
+  appendTerminalOutputBuffer(data, terminalSession);
+  maybeContinueScriptQueue(terminalSession);
 }
 
 function resetTerminalView() {
+  const terminalSession = getTerminalSession();
+  if (terminalSession) {
+    terminalSession.sessionId = null;
+    terminalSession.connected = false;
+    terminalSession.status = 'Not connected';
+    terminalSession.pendingInput = '';
+    terminalSession.outputBuffer = '';
+    terminalSession.rawBuffer = '';
+  }
   state.activeTerminalSessionId = null;
   state.terminalConnected = false;
   state.pendingTerminalInput = '';
   state.terminalOutputBuffer = '';
   state.terminalRawBuffer = '';
   stopScriptQueue();
-  terminal.clear();
-  terminal.write('Ready.\r\n');
+  renderVisibleTerminalSession(terminalSession);
   updateTerminalStatus('Not connected', false);
 }
 
@@ -3063,6 +3543,7 @@ async function startRun(event) {
   state.scriptWaitingForPrompt = false;
   state.scriptReadyMarker = `__DEPLOYERX_READY_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
   state.scriptPromptMarkerActive = false;
+  state.scriptTerminalSessionId = state.activeTerminalSessionId || '';
   state.terminalOutputBuffer = '';
   state.terminalRawBuffer = '';
 
@@ -3075,9 +3556,18 @@ async function ensureTerminal() {
   if (state.activeTerminalSessionId) return false;
   fitTerminal();
 
+  const terminalSession = getTerminalSession(state.activeProject.id, true);
   const sessionId = `${Date.now()}`;
+  terminalSession.sessionId = sessionId;
+  terminalSession.connected = false;
+  terminalSession.status = 'Connecting...';
+  terminalSession.output = 'Ready.\r\n';
+  terminalSession.pendingInput = '';
+  terminalSession.outputBuffer = '';
+  terminalSession.rawBuffer = '';
+  state.terminalSessionProjectIds[sessionId] = state.activeProject.id;
   state.activeTerminalSessionId = sessionId;
-  terminal.clear();
+  renderVisibleTerminalSession(terminalSession);
   updateTerminalStatus('Connecting...');
   appendLog(`Opening terminal: ${state.activeProject.name}\n`);
 
@@ -3087,7 +3577,13 @@ async function ensureTerminal() {
     cols: terminal.cols,
     rows: terminal.rows
   });
-  state.activeTerminalSessionId = response.sessionId || sessionId;
+  const nextSessionId = response.sessionId || sessionId;
+  if (nextSessionId !== sessionId) {
+    removeTerminalSessionRegistration(sessionId);
+    state.terminalSessionProjectIds[nextSessionId] = state.activeProject.id;
+  }
+  terminalSession.sessionId = nextSessionId;
+  state.activeTerminalSessionId = nextSessionId;
   updateTerminalStatus('Connecting...');
   setTimeout(() => {
     fitTerminal();
@@ -3096,12 +3592,15 @@ async function ensureTerminal() {
   return false;
 }
 
-async function sendTerminalInput(input) {
+async function sendTerminalInput(input, sessionId = state.activeTerminalSessionId) {
   if (!input) return;
+  const terminalSession = getTerminalSessionById(sessionId) || getTerminalSession();
+  const targetConnected = Boolean(terminalSession?.connected);
 
-  if (!state.terminalConnected) {
-    if (state.activeTerminalSessionId) {
+  if (!targetConnected) {
+    if (sessionId && terminalSession && sessionId === terminalSession.sessionId && isVisibleTerminalSession(terminalSession)) {
       state.pendingTerminalInput = `${state.pendingTerminalInput || ''}${input}`;
+      terminalSession.pendingInput = state.pendingTerminalInput;
     } else {
       updateTerminalStatus('Connect SSH first', false);
     }
@@ -3109,13 +3608,14 @@ async function sendTerminalInput(input) {
   }
 
   window.deployerx.sendTerminalInput({
-    sessionId: state.activeTerminalSessionId,
+    sessionId,
     input
   });
 }
 
 async function disconnectTerminal() {
   if (!state.activeTerminalSessionId) return;
+  const sessionId = state.activeTerminalSessionId;
   const ok = await confirmDangerousAction(
     'Disconnect the active terminal session?',
     'Running shell commands in this terminal session will be stopped.',
@@ -3123,10 +3623,7 @@ async function disconnectTerminal() {
   );
   if (!ok) return;
   stopScriptQueue();
-  await window.deployerx.stopTerminal(state.activeTerminalSessionId);
-  state.activeTerminalSessionId = null;
-  state.terminalConnected = false;
-  updateTerminalStatus('Disconnected', false);
+  await window.deployerx.stopTerminal(sessionId);
 }
 
 async function connectTerminal() {
@@ -3134,6 +3631,11 @@ async function connectTerminal() {
   try {
     await ensureTerminal();
   } catch (error) {
+    const terminalSession = getTerminalSession(state.activeProject.id, true);
+    removeTerminalSessionRegistration(terminalSession.sessionId);
+    terminalSession.sessionId = null;
+    terminalSession.connected = false;
+    terminalSession.status = 'Connection failed';
     state.activeTerminalSessionId = null;
     state.terminalConnected = false;
     updateTerminalStatus('Connection failed', false);
@@ -3150,6 +3652,10 @@ async function emergencyStop() {
   if (!ok) return;
   await window.deployerx.emergencyStop();
   state.activeRunId = null;
+  const activeProjectId = state.activeProject?.id || '';
+  state.terminalSessions = {};
+  state.terminalSessionProjectIds = {};
+  state.ftpSessions = {};
   state.activeTerminalSessionId = null;
   state.terminalConnected = false;
   state.ftpSessionId = null;
@@ -3164,11 +3670,21 @@ async function emergencyStop() {
   state.terminalOutputBuffer = '';
   state.terminalRawBuffer = '';
   stopScriptQueue();
+  if (activeProjectId) {
+    state.terminalSessions[activeProjectId] = blankTerminalSession(activeProjectId);
+    state.ftpSessions[activeProjectId] = blankFtpSession(activeProjectId);
+  }
   appendLog('Emergency stop requested.\n', 'error');
   renderFtpBrowser();
 }
 
 els.dashboardButton.addEventListener('click', () => showView('dashboard'));
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') {
+    event.preventDefault();
+    refreshCurrentPage();
+  }
+});
 els.loginTabButton.addEventListener('click', () => updateAuthMode('login'));
 els.registerTabButton.addEventListener('click', () => updateAuthMode('register'));
 els.authForm.addEventListener('submit', submitAuth);
@@ -3186,7 +3702,6 @@ els.settingsImportAccountButton.addEventListener('click', importAccount);
 els.settingsExportAccountButton.addEventListener('click', exportAccount);
 els.deleteWorkspaceButton.addEventListener('click', deleteWorkspace);
 els.workspaceCreateForm.addEventListener('submit', createWorkspace);
-els.workspaceUnlockForm.addEventListener('submit', unlockWorkspace);
 els.workspaceSetupSelect.addEventListener('change', async () => {
   const teamId = els.workspaceSetupSelect.value;
   if (!teamId || teamId === state.teams.activeTeamId) return;
@@ -3255,10 +3770,18 @@ els.ftpFileList.addEventListener('contextmenu', (event) => {
   if (event.target.closest('.ftp-row')) return;
   showFtpContextMenu(event, 'remote');
 });
+els.ftpRemoteBrowser.addEventListener('dragenter', handleFtpRemoteDragEnter);
+els.ftpRemoteBrowser.addEventListener('dragover', handleFtpRemoteDragOver);
+els.ftpRemoteBrowser.addEventListener('dragleave', handleFtpRemoteDragLeave);
+els.ftpRemoteBrowser.addEventListener('drop', (event) => {
+  handleFtpRemoteDrop(event).catch((error) => showAlert(error.message || 'Could not upload dropped items.'));
+});
 document.addEventListener('click', (event) => {
   if (!els.ftpContextMenu || els.ftpContextMenu.contains(event.target)) return;
   hideFtpContextMenu();
 });
+document.addEventListener('dragend', resetFtpRemoteDropState);
+document.addEventListener('drop', resetFtpRemoteDropState);
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') hideFtpContextMenu();
 });
@@ -3269,11 +3792,9 @@ els.teamSelect.addEventListener('change', () => {
 els.switchTeamButton.addEventListener('click', switchTeam);
 els.openCreateTeamButton.addEventListener('click', () => {
   els.createTeamName.value = '';
-  els.createTeamPassphrase.value = '';
   setModalVisible(true, els.createTeamModal);
   els.createTeamName.focus();
 });
-els.unlockTeamForm.addEventListener('submit', unlockTeam);
 els.inviteMemberForm.addEventListener('submit', inviteMember);
 els.importLocalToCloudButton.addEventListener('click', importLocalToCloud);
 els.createTeamForm.addEventListener('submit', createTeam);
@@ -3343,37 +3864,37 @@ window.deployerx.onDeploymentEvent((event) => {
 });
 
 window.deployerx.onTerminalEvent(async (event) => {
-  if (state.activeTerminalSessionId && event.sessionId !== state.activeTerminalSessionId) return;
+  const terminalSession = getTerminalSessionById(event.sessionId);
+  if (!terminalSession) return;
 
   if (event.type === 'connected') {
-    state.terminalConnected = true;
-    updateTerminalStatus('Connected', true);
-    if (state.pendingTerminalInput) {
+    terminalSession.connected = true;
+    setTerminalSessionStatus(terminalSession, 'Connected', true);
+    if (terminalSession.pendingInput) {
       window.deployerx.sendTerminalInput({
         sessionId: event.sessionId,
-        input: state.pendingTerminalInput
+        input: terminalSession.pendingInput
       });
-      state.pendingTerminalInput = '';
+      terminalSession.pendingInput = '';
+      if (isVisibleTerminalSession(terminalSession)) state.pendingTerminalInput = '';
     }
-    if (state.scriptRunnerActive) {
+    if (state.scriptRunnerActive && state.scriptTerminalSessionId === event.sessionId) {
       prepareScriptQueue().catch((error) => appendLog(error.message, 'error'));
     }
   }
-  if (event.type === 'log') handleTerminalData(event.payload);
-  if (event.type === 'error') handleTerminalData(event.payload);
-  if (event.type === 'failed') {
-    stopScriptQueue();
-    appendLog(`${event.payload}\n`, 'error');
-    state.activeTerminalSessionId = null;
-    state.terminalConnected = false;
-    updateTerminalStatus('Connection failed', false);
-  }
-  if (event.type === 'closed') {
-    stopScriptQueue();
-    appendLog(`${event.payload}\n`);
-    state.activeTerminalSessionId = null;
-    state.terminalConnected = false;
-    updateTerminalStatus('Disconnected', false);
+  if (event.type === 'log') handleTerminalData(event.payload, terminalSession);
+  if (event.type === 'error') handleTerminalData(event.payload, terminalSession);
+  if (event.type === 'failed' || event.type === 'closed') {
+    const message = `${event.payload}\n`;
+    appendTerminalSessionOutput(terminalSession, message.replace(/\n/g, '\r\n'));
+    appendTerminalOutputBuffer(message, terminalSession);
+    if (state.scriptTerminalSessionId === event.sessionId) stopScriptQueue();
+    const closedSessionId = terminalSession.sessionId;
+    terminalSession.sessionId = null;
+    terminalSession.connected = false;
+    terminalSession.pendingInput = '';
+    removeTerminalSessionRegistration(closedSessionId);
+    setTerminalSessionStatus(terminalSession, event.type === 'failed' ? 'Connection failed' : 'Disconnected', false);
   }
 });
 
@@ -3381,6 +3902,13 @@ terminal.open(els.terminal);
 terminal.write('Ready.\r\n');
 requestAnimationFrame(fitTerminal);
 terminal.attachCustomKeyEventHandler((event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.type === 'keydown') refreshCurrentPage();
+    return false;
+  }
+
   if (event.key !== 'Tab') return true;
 
   event.preventDefault();
@@ -3411,4 +3939,8 @@ window.addEventListener('resize', () => {
 
 renderTemplateCategories();
 showView('dashboard');
-initializeApp().catch((error) => appendLog(error.message, 'error'));
+initializeApp().catch((error) => {
+  showAlert(error.message || 'Could not initialize DeployerX.');
+  setSetupVisibility(true);
+  showAuthPanel();
+});

@@ -372,6 +372,27 @@ button:disabled {
   gap: 1px;
 }
 
+.project-connection-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.project-status-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.project-status-dot.connected {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
 .project-item-action {
   display: grid;
   flex: 0 0 auto;
@@ -427,6 +448,51 @@ button:disabled {
 
 .footer-online-action {
   color: var(--ink);
+}
+
+.sidebar-footer-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.sidebar-workspace-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(24, 24, 27, 0.03);
+  padding: 11px 12px;
+}
+
+.sidebar-workspace-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sidebar-workspace-copy strong,
+.sidebar-workspace-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-workspace-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.sidebar-workspace-copy span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .workspace {
@@ -1418,6 +1484,7 @@ textarea:focus {
 
 .ftp-browser {
   display: grid;
+  position: relative;
   min-height: 0;
   overflow: hidden;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1425,6 +1492,33 @@ textarea:focus {
   border-radius: 0;
   background: var(--surface);
   box-shadow: none;
+}
+
+.ftp-browser.is-drop-target {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.03));
+}
+
+.ftp-browser.is-drop-target::after {
+  content: 'Drop files or folders to upload';
+  position: absolute;
+  inset: 10px 14px 14px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed rgba(37, 99, 235, 0.45);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ftp-browser.is-drop-target .ftp-table-header,
+.ftp-browser.is-drop-target .ftp-file-list {
+  position: relative;
+  z-index: 1;
 }
 
 .ftp-table-header,
@@ -2545,6 +2639,19 @@ textarea:focus {
   width: 120px;
 }
 
+.team-role-pill {
+  min-width: 72px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--muted);
+  padding: 7px 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
 .team-status-pill {
   display: inline-flex;
   width: fit-content;
@@ -2770,15 +2877,16 @@ textarea:focus {
 
 .settings-invite-row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) 120px auto;
+  grid-template-columns: 25% 65% minmax(96px, 1fr);
   align-items: center;
   gap: 10px;
 }
 
-.settings-row-icon {
-  color: var(--muted);
-  font-size: 20px;
-  line-height: 1;
+.settings-invite-row select,
+.settings-invite-row input,
+.settings-invite-row .button {
+  width: 100%;
+  min-width: 0;
 }
 
 .backup-history-list {

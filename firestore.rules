@@ -25,7 +25,7 @@ service cloud.firestore {
     }
 
     function isTeamManager(teamId) {
-      return isTeamMember(teamId) && member(teamId).data.role in ['owner', 'admin'];
+      return isTeamMember(teamId) && member(teamId).data.role == 'owner';
     }
 
     function isTeamOwner(teamId) {
@@ -45,6 +45,19 @@ service cloud.firestore {
       return signedIn()
         && request.auth.token.email != null
         && resource.data.emailLower == request.auth.token.email;
+    }
+
+    function isInviteInboxOwner(emailLower) {
+      return signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email == emailLower;
+    }
+
+    function canWriteInviteInbox(emailLower) {
+      return signedIn()
+        && request.resource.data.emailLower == emailLower
+        && request.resource.data.teamId is string
+        && isTeamManager(request.resource.data.teamId);
     }
 
     function isTeamOwnerDocument(teamId, uid) {
@@ -71,8 +84,12 @@ service cloud.firestore {
 
       match /members/{uid} {
         allow read: if isTeamMember(teamId) || isTeamOwner(teamId);
-        allow create: if isTeamOwnerDocument(teamId, uid) || acceptingOwnInvite(teamId, uid) || isTeamManager(teamId);
-        allow update: if isTeamManager(teamId) && resource.data.role != 'owner';
+        allow create: if isTeamOwnerDocument(teamId, uid)
+          || (acceptingOwnInvite(teamId, uid) && request.resource.data.role == 'member')
+          || (isTeamManager(teamId) && request.resource.data.role == 'member');
+        allow update: if isTeamManager(teamId)
+          && resource.data.role != 'owner'
+          && request.resource.data.role == 'member';
         allow delete: if isTeamOwner(teamId) || (isTeamManager(teamId) && resource.data.role != 'owner');
       }
 
@@ -83,7 +100,7 @@ service cloud.firestore {
           || (
             inviteResourceMatchesUser()
             && request.resource.data.emailLower == resource.data.emailLower
-            && request.resource.data.role == resource.data.role
+            && request.resource.data.role == 'member'
             && request.resource.data.status == 'accepted'
             && request.resource.data.acceptedBy == request.auth.uid
           );
@@ -104,6 +121,13 @@ service cloud.firestore {
       allow read: if signedIn()
         && request.auth.token.email != null
         && resource.data.emailLower == request.auth.token.email;
+    }
+
+    match /inviteInboxes/{emailLower}/items/{inviteId} {
+      allow read: if isInviteInboxOwner(emailLower);
+      allow create, update: if canWriteInviteInbox(emailLower);
+      allow delete: if isInviteInboxOwner(emailLower)
+        || (resource.data.teamId is string && isTeamManager(resource.data.teamId));
     }
   }
 }
