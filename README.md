@@ -1,6 +1,6 @@
 # DeployerX
 
-DeployerX is a free, open-source desktop deployment console for managing SSH-based servers, deployment scripts, command templates, FTP/SFTP file workflows, and optional Firebase cloud sync.
+DeployerX is a free, open-source desktop app for managing SSH-based servers, deployment scripts, command templates, SFTP file workflows, and optional Firebase cloud sync.
 
 It is built for developers, indie hackers, agencies, and small teams who want a practical way to keep server deployment work organized without paying for a hosted deployment platform or giving up control of their workflow.
 
@@ -105,7 +105,7 @@ Recommended:
 Clone the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/DeployerX.git
+git clone https://github.com/me-devms/DeployerX.git
 cd DeployerX
 ```
 
@@ -122,6 +122,12 @@ npm start
 ```
 
 The app opens as an Electron desktop window.
+
+Available scripts:
+
+- `npm start` launches the app.
+- `npm run package:win` creates the Windows installer and portable build.
+- `build-exe.bat` is a Windows helper for packaging.
 
 ## First Run
 
@@ -551,9 +557,10 @@ The batch file checks for Node/npm, installs dependencies if needed, and creates
 
 ```text
 DeployerX/
-  assets/
+ assets/
     deployerx-logo.ico
     deployerx-logo.png
+  build-exe.bat
   scripts/
   src/
     main.js
