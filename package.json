@@ -1,8 +1,12 @@
 {
   "name": "deployerx",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Windows desktop deployment helper for SSH based servers.",
   "author": "Manish K",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/me-devms/DeployerX.git"
+  },
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -27,6 +31,11 @@
       {
         "from": "firebase.config.json",
         "to": "firebase.config.json"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github"
       }
     ],
     "win": {
@@ -68,6 +77,7 @@
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "electron-updater": "^6.8.3",
     "ssh2": "^1.15.0"
   },
   "devDependencies": {

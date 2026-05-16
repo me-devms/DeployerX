@@ -12,11 +12,51 @@ const blankProject = () => ({
     passphrase: '',
     timeout: 20000
   },
+  ftp: {
+    host: '',
+    port: '',
+    username: '',
+    authType: '',
+    password: '',
+    privateKey: '',
+    passphrase: ''
+  },
   commands: [],
   variables: {}
 });
 
+function defaultAppUpdateState() {
+  return {
+    enabled: false,
+    status: 'idle',
+    currentVersion: '0.1.0',
+    availableVersion: '',
+    downloadedVersion: '',
+    releaseName: '',
+    releaseDate: '',
+    downloadPercent: 0,
+    lastCheckedAt: '',
+    releasePageUrl: '',
+    message: '',
+    error: '',
+    canCheck: false,
+    canInstall: false
+  };
+}
+
+function normalizeAppUpdateState(update = {}) {
+  return {
+    ...defaultAppUpdateState(),
+    ...(update && typeof update === 'object' ? update : {}),
+    downloadPercent: Number(update?.downloadPercent || 0)
+  };
+}
+
 const state = {
+  app: {
+    version: '0.1.0',
+    updates: defaultAppUpdateState()
+  },
   setup: {
     complete: false,
     mode: '',
@@ -53,6 +93,7 @@ const state = {
   ftpConnected: false,
   ftpLocalCurrentPath: '',
   ftpLocalParentPath: '',
+  ftpLocalLoaded: false,
   ftpLocalEntries: [],
   ftpLocalSelectedPath: '',
   ftpLocalFilter: '',
@@ -80,6 +121,7 @@ const state = {
   activeTemplateId: '',
   activeTemplateCategory: 'All',
   duplicateTemplateDraft: null,
+  variablePrompt: null,
   exportPicker: {
     type: '',
     selectedIds: new Set()
@@ -114,8 +156,20 @@ const fitAddon = new FitAddon.FitAddon();
 terminal.loadAddon(fitAddon);
 
 const builtInVariableNames = new Set(['project_name', 'server_type', 'ssh_host', 'ssh_port', 'ssh_username']);
-const templateCategories = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance'];
+const templateCategories = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance', 'Security', 'Hosting', 'Web Server', 'Cache', 'Control Panel', 'PaaS'];
 const terminalReplayLimit = 160000;
+
+function blankTerminalUploadState() {
+  return {
+    active: false,
+    fileName: '',
+    remotePath: '',
+    transferredBytes: 0,
+    totalBytes: 0,
+    percent: 0,
+    cancelRequested: false
+  };
+}
 
 function blankTerminalSession(projectId = '') {
   return {
@@ -126,7 +180,14 @@ function blankTerminalSession(projectId = '') {
     output: 'Ready.\r\n',
     pendingInput: '',
     outputBuffer: '',
-    rawBuffer: ''
+    rawBuffer: '',
+    commandBuffer: '',
+    pendingDirectoryCandidate: '',
+    currentDirectory: '',
+    homeDirectory: '',
+    previousDirectory: '',
+    awaitingPwd: false,
+    upload: blankTerminalUploadState()
   };
 }
 
@@ -135,6 +196,14 @@ function blankFtpSession(projectId = '') {
     projectId,
     sessionId: null,
     connected: false,
+    localCurrentPath: '',
+    localParentPath: '',
+    localLoaded: false,
+    localEntries: [],
+    localSelectedPath: '',
+    localBackStack: [],
+    localForwardStack: [],
+    localFilter: '',
     currentPath: '.',
     parentPath: '.',
     entries: [],
@@ -173,6 +242,260 @@ function projectConnectionState(projectId) {
 
 function isVisibleTerminalSession(session) {
   return Boolean(session?.projectId && state.activeProject?.id === session.projectId);
+}
+
+function normalizeRemoteShellPath(remotePath = '.') {
+  const source = String(remotePath || '.').trim().replace(/\\/g, '/');
+  if (!source) return '.';
+  const absolute = source.startsWith('/');
+  const stack = [];
+  for (const segment of source.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (stack.length) stack.pop();
+      continue;
+    }
+    stack.push(segment);
+  }
+
+  if (absolute) return stack.length ? `/${stack.join('/')}` : '/';
+  return stack.length ? stack.join('/') : '.';
+}
+
+function joinRemoteShellPath(parentPath = '.', childPath = '') {
+  const child = String(childPath || '').trim().replace(/\\/g, '/');
+  if (!child) return normalizeRemoteShellPath(parentPath);
+  if (child.startsWith('/')) return normalizeRemoteShellPath(child);
+
+  const base = normalizeRemoteShellPath(parentPath);
+  if (base === '.' || !base) return normalizeRemoteShellPath(child);
+  if (base === '/') return normalizeRemoteShellPath(`/${child}`);
+  return normalizeRemoteShellPath(`${base}/${child}`);
+}
+
+function remoteShellBaseName(remotePath = '') {
+  const normalized = normalizeRemoteShellPath(remotePath);
+  if (!normalized || normalized === '.' || normalized === '/') return '';
+  return normalized.split('/').filter(Boolean).pop() || '';
+}
+
+function stripShellQuotes(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function formatByteCount(bytes = 0) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function setTerminalUploadState(
+  session,
+  patch = { active: false, fileName: '', remotePath: '', transferredBytes: 0, totalBytes: 0, percent: 0 }
+) {
+  if (!session) return;
+  const current = session.upload || blankTerminalUploadState();
+  session.upload = {
+    ...current,
+    ...patch
+  };
+  if (isVisibleTerminalSession(session)) renderSshUploadPanel(session);
+}
+
+function setTerminalSessionDirectory(session, directory, { setHome = false } = {}) {
+  if (!session) return;
+  const normalized = normalizeRemoteShellPath(directory);
+  if (!normalized) return;
+  const previous = String(session.currentDirectory || '');
+  if (previous && previous !== normalized) session.previousDirectory = previous;
+  session.currentDirectory = normalized;
+  if (setHome || !session.homeDirectory) session.homeDirectory = normalized;
+  if (isVisibleTerminalSession(session)) renderSshUploadPanel(session);
+}
+
+function renderSshUploadPanel(session = getTerminalSession()) {
+  if (!els.sshUploadPanel) return;
+  const connected = Boolean(session?.sessionId && session?.connected);
+  els.sshUploadPanel.classList.toggle('hidden', !connected);
+  if (!connected) return;
+
+  const waitingForPathUpdate = Boolean(session?.pendingDirectoryCandidate);
+  const currentPath = String(session?.currentDirectory || session?.homeDirectory || '').trim();
+  els.sshUploadPath.textContent = waitingForPathUpdate
+    ? 'Current path: updating...'
+    : currentPath
+      ? `Current path: ${currentPath}`
+      : 'Current path: waiting for shell...';
+
+  const upload = session?.upload || blankTerminalUploadState();
+  const uploadInFlight = Boolean(upload.active || pendingActions.has('terminal:upload'));
+  const canUpload = Boolean(connected && currentPath && !waitingForPathUpdate && !uploadInFlight);
+  els.sshUploadButton.disabled = !canUpload;
+
+  els.sshUploadProgress.classList.toggle('hidden', !upload.active);
+  els.sshUploadCancelButton.classList.toggle('hidden', !upload.active);
+  els.sshUploadCancelButton.disabled = Boolean(!upload.active || upload.cancelRequested);
+  els.sshUploadCancelButton.textContent = upload.cancelRequested ? 'Cancelling...' : 'Cancel upload';
+  if (!upload.active) return;
+
+  const percent = Math.max(0, Math.min(100, Number(upload.percent || 0)));
+  const transferred = Number(upload.transferredBytes || 0);
+  const total = Number(upload.totalBytes || 0);
+  els.sshUploadProgressFile.textContent = upload.fileName ? `Uploading ${upload.fileName}` : 'Uploading file';
+  els.sshUploadProgressPercent.textContent = `${percent}%`;
+  els.sshUploadProgressBar.style.width = `${percent}%`;
+  els.sshUploadProgressDetail.textContent = `${formatByteCount(transferred)} of ${formatByteCount(total)}${
+    upload.remotePath ? ` to ${upload.remotePath}` : ''
+  }`;
+}
+
+function resolveShellCdTarget(rawTarget, session) {
+  const source = String(rawTarget || '').trim().replace(/^--\s+/, '');
+  const currentPath = String(session?.pendingDirectoryCandidate || session?.currentDirectory || session?.homeDirectory || '').trim();
+  const homePath = String(session?.homeDirectory || '').trim();
+  const previousPath = String(session?.previousDirectory || '').trim();
+
+  if (!source || source === '~') return homePath || currentPath;
+  if (source === '-') return previousPath;
+  if (source.startsWith('/')) return normalizeRemoteShellPath(source);
+  if (source === '~/') return homePath || currentPath;
+  if (source.startsWith('~/')) {
+    const relative = source.slice(2);
+    return joinRemoteShellPath(homePath || currentPath || '.', relative);
+  }
+  if (source.startsWith('~')) return '';
+  if (!currentPath) return '';
+  return joinRemoteShellPath(currentPath, source);
+}
+
+function trackShellCommand(command, session) {
+  if (!session) return;
+  const raw = String(command || '').trim();
+  if (!raw) return;
+
+  session.awaitingPwd = /^pwd(?:\s|$)/.test(raw);
+  const cdMatch = raw.match(/^cd(?:\s+(.*))?$/);
+  if (!cdMatch) {
+    renderSshUploadPanel(session);
+    return;
+  }
+
+  const rawTarget = stripShellQuotes(cdMatch[1] || '');
+  const nextDirectory = resolveShellCdTarget(rawTarget, session);
+  if (nextDirectory) session.pendingDirectoryCandidate = normalizeRemoteShellPath(nextDirectory);
+  renderSshUploadPanel(session);
+}
+
+function trackTerminalInputChunk(input, sessionId = state.activeTerminalSessionId) {
+  const terminalSession = getTerminalSessionById(sessionId) || getTerminalSession();
+  if (!terminalSession) return;
+
+  const chunk = String(input || '');
+  for (const char of chunk) {
+    if (char === '\u0003') {
+      terminalSession.commandBuffer = '';
+      terminalSession.pendingDirectoryCandidate = '';
+      terminalSession.awaitingPwd = false;
+      continue;
+    }
+    if (char === '\u0015') {
+      terminalSession.commandBuffer = '';
+      continue;
+    }
+    if (char === '\u007f' || char === '\b') {
+      terminalSession.commandBuffer = String(terminalSession.commandBuffer || '').slice(0, -1);
+      continue;
+    }
+    if (char === '\r' || char === '\n') {
+      const command = String(terminalSession.commandBuffer || '');
+      terminalSession.commandBuffer = '';
+      trackShellCommand(command, terminalSession);
+      continue;
+    }
+    if (char >= ' ') terminalSession.commandBuffer = `${terminalSession.commandBuffer || ''}${char}`;
+  }
+}
+
+function promptPathTokenFromLine(line = '') {
+  const prompt = String(line || '').trimEnd();
+  if (!prompt) return '';
+  let match = prompt.match(/^\[[^\]\r\n]+?\s+([^\]\r\n]+)\]\s*[#$]\s*$/);
+  if (match?.[1]) return match[1].trim();
+  match = prompt.match(/^[A-Za-z0-9_.-]+@[\w.-]+:(~?[^\r\n#$]*)[#$]\s*$/);
+  if (match?.[1]) return match[1].trim();
+  match = prompt.match(/^[A-Za-z0-9_.-]+@[\w.-]+\s+(~?[^\r\n#$]*)[#$]\s*$/);
+  if (match?.[1]) return match[1].trim();
+  return '';
+}
+
+function reconcilePromptPath(session, promptToken = '') {
+  if (!session) return;
+  const token = String(promptToken || '').trim();
+  if (!token) return;
+
+  if (token.startsWith('/') || token.startsWith('~/') || token === '~') {
+    const resolved = token === '~' ? session.homeDirectory : resolveShellCdTarget(token, session);
+    if (resolved) setTerminalSessionDirectory(session, resolved);
+    session.pendingDirectoryCandidate = '';
+    return;
+  }
+
+  const pendingDirectory = String(session.pendingDirectoryCandidate || '');
+  if (pendingDirectory && remoteShellBaseName(pendingDirectory) === token) {
+    setTerminalSessionDirectory(session, pendingDirectory);
+    session.pendingDirectoryCandidate = '';
+    return;
+  }
+
+  const currentDirectory = String(session.currentDirectory || '');
+  if (currentDirectory && remoteShellBaseName(currentDirectory) === token) {
+    session.pendingDirectoryCandidate = '';
+    renderSshUploadPanel(session);
+    return;
+  }
+
+  if (pendingDirectory) {
+    session.pendingDirectoryCandidate = '';
+    renderSshUploadPanel(session);
+  }
+}
+
+function syncTerminalDirectoryFromOutput(visibleText, session) {
+  if (!session) return;
+  const lines = String(visibleText || '')
+    .split('\n')
+    .map((line) => line.replace(/\r/g, '').trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (session.awaitingPwd && line.startsWith('/')) {
+      setTerminalSessionDirectory(session, line);
+      session.awaitingPwd = false;
+      session.pendingDirectoryCandidate = '';
+      continue;
+    }
+
+    const promptToken = promptPathTokenFromLine(line);
+    if (promptToken) reconcilePromptPath(session, promptToken);
+  }
+}
+
+async function ensureTerminalHomeDirectory(sessionId = state.activeTerminalSessionId) {
+  const terminalSession = getTerminalSessionById(sessionId) || getTerminalSession();
+  if (!terminalSession?.sessionId || terminalSession.homeDirectory) return terminalSession?.homeDirectory || '';
+  const response = await window.deployerx.getTerminalHomeDirectory(terminalSession.sessionId);
+  const homeDirectory = normalizeRemoteShellPath(response?.path || '');
+  if (!homeDirectory) return '';
+  setTerminalSessionDirectory(terminalSession, homeDirectory, { setHome: true });
+  return homeDirectory;
 }
 
 function applyTerminalSessionToState(projectId) {
@@ -292,6 +615,7 @@ const els = {
   ftpLocalStatus: document.getElementById('ftpLocalStatus'),
   ftpLocalFilter: document.getElementById('ftpLocalFilter'),
   ftpLocalPathInput: document.getElementById('ftpLocalPathInput'),
+  ftpLocalPathPickerButton: document.getElementById('ftpLocalPathPickerButton'),
   ftpLocalBackButton: document.getElementById('ftpLocalBackButton'),
   ftpLocalForwardButton: document.getElementById('ftpLocalForwardButton'),
   ftpLocalFileList: document.getElementById('ftpLocalFileList'),
@@ -342,6 +666,15 @@ const els = {
   modalPasswordField: document.getElementById('modalPasswordField'),
   modalKeyFields: document.getElementById('modalKeyFields'),
   modalSelectKeyButton: document.getElementById('modalSelectKeyButton'),
+  modalFtpHost: document.getElementById('modalFtpHost'),
+  modalFtpPort: document.getElementById('modalFtpPort'),
+  modalFtpUsername: document.getElementById('modalFtpUsername'),
+  modalFtpAuthType: document.getElementById('modalFtpAuthType'),
+  modalFtpPassword: document.getElementById('modalFtpPassword'),
+  modalFtpPrivateKey: document.getElementById('modalFtpPrivateKey'),
+  modalFtpKeyPassphrase: document.getElementById('modalFtpKeyPassphrase'),
+  modalFtpPasswordField: document.getElementById('modalFtpPasswordField'),
+  modalFtpKeyFields: document.getElementById('modalFtpKeyFields'),
   templatePageForm: document.getElementById('templatePageForm'),
   templatePageCancelButton: document.getElementById('templatePageCancelButton'),
   templatePageSaveButton: document.getElementById('templatePageSaveButton'),
@@ -357,6 +690,7 @@ const els = {
   templateCategory: document.getElementById('templateCategory'),
   templateCommands: document.getElementById('templateCommands'),
   templateVariableSummary: document.getElementById('templateVariableSummary'),
+  templateEditorNote: document.getElementById('templateEditorNote'),
   toast: document.getElementById('toast'),
   uploadModal: document.getElementById('uploadModal'),
   uploadModalForm: document.getElementById('uploadModalForm'),
@@ -368,6 +702,15 @@ const els = {
   uploadLocalPath: document.getElementById('uploadLocalPath'),
   uploadRemotePath: document.getElementById('uploadRemotePath'),
   selectUploadButton: document.getElementById('selectUploadButton'),
+  sshUploadPanel: document.getElementById('sshUploadPanel'),
+  sshUploadPath: document.getElementById('sshUploadPath'),
+  sshUploadButton: document.getElementById('sshUploadButton'),
+  sshUploadProgress: document.getElementById('sshUploadProgress'),
+  sshUploadProgressFile: document.getElementById('sshUploadProgressFile'),
+  sshUploadProgressPercent: document.getElementById('sshUploadProgressPercent'),
+  sshUploadProgressBar: document.getElementById('sshUploadProgressBar'),
+  sshUploadProgressDetail: document.getElementById('sshUploadProgressDetail'),
+  sshUploadCancelButton: document.getElementById('sshUploadCancelButton'),
   exportPickerModal: document.getElementById('exportPickerModal'),
   exportPickerForm: document.getElementById('exportPickerForm'),
   exportPickerTitle: document.getElementById('exportPickerTitle'),
@@ -386,6 +729,15 @@ const els = {
   duplicateTemplateSaveButton: document.getElementById('duplicateTemplateSaveButton'),
   duplicateTemplateName: document.getElementById('duplicateTemplateName'),
   duplicateTemplateCategory: document.getElementById('duplicateTemplateCategory'),
+  variablePromptModal: document.getElementById('variablePromptModal'),
+  variablePromptForm: document.getElementById('variablePromptForm'),
+  variablePromptTitle: document.getElementById('variablePromptTitle'),
+  variablePromptDetail: document.getElementById('variablePromptDetail'),
+  variablePromptList: document.getElementById('variablePromptList'),
+  variablePromptCloseButton: document.getElementById('variablePromptCloseButton'),
+  variablePromptCancelButton: document.getElementById('variablePromptCancelButton'),
+  variablePromptSaveButton: document.getElementById('variablePromptSaveButton'),
+  variablePromptSaveLabel: document.getElementById('variablePromptSaveLabel'),
   confirmModal: document.getElementById('confirmModal'),
   confirmModalTitle: document.getElementById('confirmModalTitle'),
   confirmModalDetail: document.getElementById('confirmModalDetail'),
@@ -406,6 +758,13 @@ const els = {
   settingsProfileSaveButton: document.getElementById('settingsProfileSaveButton'),
   settingsProfileLogoutButton: document.getElementById('settingsProfileLogoutButton'),
   settingsWorkspaceName: document.getElementById('settingsWorkspaceName'),
+  settingsAppVersion: document.getElementById('settingsAppVersion'),
+  appUpdateStatus: document.getElementById('appUpdateStatus'),
+  appUpdateDetail: document.getElementById('appUpdateDetail'),
+  appUpdateMeta: document.getElementById('appUpdateMeta'),
+  appUpdateCheckButton: document.getElementById('appUpdateCheckButton'),
+  appUpdateRestartButton: document.getElementById('appUpdateRestartButton'),
+  appUpdateOpenReleasesButton: document.getElementById('appUpdateOpenReleasesButton'),
   settingsImportAccountButton: document.getElementById('settingsImportAccountButton'),
   settingsExportAccountButton: document.getElementById('settingsExportAccountButton'),
   backupHistoryList: document.getElementById('backupHistoryList'),
@@ -444,7 +803,7 @@ function withTimeout(promise, ms, message) {
 
 async function hydrateStartupMetadata() {
   if (!els.startupAppVersion) return;
-  els.startupAppVersion.textContent = 'Version 0.1.0';
+  els.startupAppVersion.textContent = `Version ${state.app.version}`;
   if (!window.deployerx?.getAppMetadata) return;
   try {
     const metadata = await withTimeout(
@@ -452,14 +811,121 @@ async function hydrateStartupMetadata() {
       STARTUP_VERSION_TIMEOUT_MS,
       'App metadata took too long to load.'
     );
-    els.startupAppVersion.textContent = `Version ${metadata.version || '0.1.0'}`;
+    applyAppMetadata(metadata);
   } catch {
-    els.startupAppVersion.textContent = 'Version 0.1.0';
+    els.startupAppVersion.textContent = `Version ${state.app.version}`;
+  }
+}
+
+function applyAppUpdateState(update = {}, { toastOnDownloaded = false } = {}) {
+  const previousStatus = state.app.updates.status;
+  state.app.updates = normalizeAppUpdateState(update);
+  if (state.app.updates.currentVersion) state.app.version = state.app.updates.currentVersion;
+  renderAppUpdateCard();
+  if (toastOnDownloaded && previousStatus !== 'downloaded' && state.app.updates.status === 'downloaded') {
+    const version = state.app.updates.downloadedVersion || state.app.updates.availableVersion || 'the latest release';
+    showToast(`Update ${version} is ready. Restart DeployerX to install it.`);
+  }
+}
+
+function applyAppMetadata(metadata = {}) {
+  state.app.version = String(metadata?.version || state.app.version || '0.1.0');
+  if (metadata?.updates) applyAppUpdateState(metadata.updates);
+  else renderAppUpdateCard();
+  if (els.startupAppVersion) els.startupAppVersion.textContent = `Version ${state.app.version}`;
+}
+
+async function refreshAppUpdateState() {
+  if (!window.deployerx?.getUpdateState) return;
+  try {
+    const update = await window.deployerx.getUpdateState();
+    applyAppUpdateState(update);
+  } catch {}
+}
+
+function formatUpdateTimestamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function appUpdateStatusLabel(status) {
+  switch (status) {
+    case 'checking':
+      return 'Checking';
+    case 'available':
+      return 'Found';
+    case 'downloading':
+      return 'Downloading';
+    case 'downloaded':
+      return 'Ready';
+    case 'up-to-date':
+      return 'Up to date';
+    case 'portable':
+      return 'Portable build';
+    case 'development':
+      return 'Dev build';
+    case 'unsupported':
+      return 'Unsupported';
+    case 'unconfigured':
+      return 'Not configured';
+    case 'error':
+      return 'Error';
+    default:
+      return 'Idle';
+  }
+}
+
+function appUpdateDetail(update) {
+  if (update.error) return update.error;
+  if (update.message) return update.message;
+  if (update.status === 'downloading' && update.availableVersion) return `Downloading version ${update.availableVersion}.`;
+  if (update.status === 'downloaded' && (update.downloadedVersion || update.availableVersion)) {
+    return `Version ${update.downloadedVersion || update.availableVersion} is downloaded and ready to install.`;
+  }
+  return 'Automatic GitHub release tracking is standing by.';
+}
+
+function renderAppUpdateCard() {
+  const update = normalizeAppUpdateState(state.app.updates);
+  const installedVersion = state.app.version || update.currentVersion || '0.1.0';
+  if (els.settingsAppVersion) els.settingsAppVersion.textContent = `Installed version ${installedVersion}`;
+  if (els.appUpdateStatus) {
+    els.appUpdateStatus.textContent = appUpdateStatusLabel(update.status);
+    els.appUpdateStatus.dataset.status = update.status || 'idle';
+  }
+  if (els.appUpdateDetail) els.appUpdateDetail.textContent = appUpdateDetail(update);
+  if (els.appUpdateMeta) {
+    const meta = [];
+    if (update.availableVersion) meta.push(`Latest release ${update.availableVersion}`);
+    if (update.status === 'downloaded' && update.downloadedVersion) meta.push(`Downloaded ${update.downloadedVersion}`);
+    if (update.status === 'downloading') meta.push(`${Math.round(update.downloadPercent)}% downloaded`);
+    if (update.lastCheckedAt) meta.push(`Checked ${formatUpdateTimestamp(update.lastCheckedAt)}`);
+    els.appUpdateMeta.innerHTML = meta.map((entry) => `<span>${escapeHtml(entry)}</span>`).join('');
+  }
+  if (els.appUpdateCheckButton) {
+    els.appUpdateCheckButton.disabled = !update.canCheck;
+    els.appUpdateCheckButton.title = update.canCheck ? '' : 'Update checks are not available for this build.';
+  }
+  if (els.appUpdateRestartButton) {
+    els.appUpdateRestartButton.classList.toggle('hidden', !update.canInstall);
+    els.appUpdateRestartButton.disabled = !update.canInstall;
+  }
+  if (els.appUpdateOpenReleasesButton) {
+    els.appUpdateOpenReleasesButton.disabled = !update.releasePageUrl;
   }
 }
 
 let toastTimer = null;
 let confirmModalResolve = null;
+let variablePromptResolve = null;
 const pendingActions = new Set();
 const fileActivities = new Map();
 let nextFileActivityId = 0;
@@ -579,9 +1045,20 @@ function normalizeProject(project = {}) {
       ...blank.ssh,
       ...(project.ssh || {})
     },
+    ftp: {
+      ...blank.ftp,
+      ...(project.ftp || {})
+    },
     commands: Array.isArray(project.commands) ? project.commands : [],
     variables: normalizeVariables(project.variables)
   };
+}
+
+function hasCustomFtpDetails(project = {}) {
+  const ftp = project?.ftp || {};
+  return ['host', 'port', 'username', 'authType', 'password', 'privateKey', 'passphrase'].some(
+    (field) => String(ftp[field] ?? '').trim() !== ''
+  );
 }
 
 function normalizeTemplateCategory(category) {
@@ -595,8 +1072,19 @@ function normalizeTemplate(template = {}) {
     ...template,
     category: normalizeTemplateCategory(template.category),
     commands,
-    variables: Array.isArray(template.variables) ? template.variables : extractTemplateVariables(commands)
+    variables: Array.isArray(template.variables) ? template.variables : extractTemplateVariables(commands),
+    builtIn: Boolean(template.builtIn),
+    readOnly: Boolean(template.readOnly),
+    source: template.source ? String(template.source) : template.builtIn ? 'library' : 'user'
   };
+}
+
+function isBuiltInTemplate(template) {
+  return Boolean(template?.builtIn || template?.readOnly || template?.source === 'library');
+}
+
+function getTemplateById(templateId) {
+  return state.templates.find((item) => String(item.id) === String(templateId)) || null;
 }
 
 function projectBadge(project) {
@@ -658,8 +1146,8 @@ function setProjectTab(tab) {
   els.ftpWorkspace.classList.toggle('hidden', !isFtp);
   if (isFtp) {
     renderFtpBrowser();
-    if (!state.ftpLocalCurrentPath) {
-      refreshLocalFtpList().catch((error) => showAlert(error.message || 'Could not load local files.'));
+    if (!state.ftpLocalLoaded) {
+      ensureActiveProjectLocalFtpReady().catch((error) => showAlert(error.message || 'Could not load local files.'));
     }
   } else {
     requestAnimationFrame(fitTerminal);
@@ -682,6 +1170,51 @@ function showToast(message) {
 
 function showAlert(message) {
   showToast(String(message || 'Something went wrong.'));
+}
+
+async function checkForAppUpdates() {
+  if (!window.deployerx?.checkForUpdates || pendingActions.has('app:update:check')) return;
+  pendingActions.add('app:update:check');
+  setButtonLoading(els.appUpdateCheckButton, true);
+  try {
+    const update = await window.deployerx.checkForUpdates();
+    applyAppUpdateState(update, { toastOnDownloaded: true });
+    if (update.status === 'up-to-date') showToast('DeployerX is already on the latest published release.');
+    if (update.status === 'portable' || update.status === 'development' || update.status === 'unsupported') {
+      showToast(update.message || 'Automatic updates are not available for this build.');
+    }
+  } catch (error) {
+    showAlert(error.message || 'Could not check for updates.');
+  } finally {
+    pendingActions.delete('app:update:check');
+    setButtonLoading(els.appUpdateCheckButton, false);
+    renderAppUpdateCard();
+  }
+}
+
+async function installAppUpdate() {
+  if (!window.deployerx?.installUpdate || pendingActions.has('app:update:install')) return;
+  pendingActions.add('app:update:install');
+  setButtonLoading(els.appUpdateRestartButton, true);
+  try {
+    showToast('Restarting DeployerX to install the downloaded update.');
+    await window.deployerx.installUpdate();
+  } catch (error) {
+    showAlert(error.message || 'Could not install the downloaded update.');
+  } finally {
+    pendingActions.delete('app:update:install');
+    setButtonLoading(els.appUpdateRestartButton, false);
+    renderAppUpdateCard();
+  }
+}
+
+async function openReleasesPage() {
+  if (!window.deployerx?.openReleasesPage) return;
+  try {
+    await window.deployerx.openReleasesPage();
+  } catch (error) {
+    showAlert(error.message || 'Could not open the GitHub releases page.');
+  }
 }
 
 window.alert = showAlert;
@@ -832,15 +1365,151 @@ function confirmDangerousAction(message, detail = '', confirmLabel = 'Confirm') 
   });
 }
 
+function closeVariablePrompt(result = null) {
+  if (!variablePromptResolve) {
+    setModalVisible(false, els.variablePromptModal);
+    els.variablePromptList.innerHTML = '';
+    state.variablePrompt = null;
+    return;
+  }
+
+  const resolve = variablePromptResolve;
+  variablePromptResolve = null;
+  state.variablePrompt = null;
+  setModalVisible(false, els.variablePromptModal);
+  els.variablePromptList.innerHTML = '';
+  resolve(result);
+}
+
+function readVariablePromptValues() {
+  const values = {};
+  for (const input of els.variablePromptList.querySelectorAll('.variable-prompt-value')) {
+    const key = normalizeVariableKey(input.dataset.variableName);
+    if (!key) continue;
+    values[key] = input.value;
+  }
+  return values;
+}
+
+function submitVariablePrompt(event) {
+  if (event?.preventDefault) event.preventDefault();
+
+  const inputs = Array.from(els.variablePromptList.querySelectorAll('.variable-prompt-value'));
+  const emptyInput = inputs.find((input) => !String(input.value || '').trim());
+  if (emptyInput) {
+    emptyInput.reportValidity();
+    emptyInput.focus();
+    return;
+  }
+
+  closeVariablePrompt(readVariablePromptValues());
+}
+
+function renderVariablePromptFields(project, variableNames) {
+  const existingVariables = normalizeVariables(project?.variables);
+  els.variablePromptList.innerHTML = '';
+
+  for (const name of variableNames) {
+    const row = document.createElement('label');
+    row.className = 'field variable-prompt-row';
+    row.innerHTML = `
+      <span class="variable-prompt-key">{{${escapeHtml(name)}}}</span>
+      <input
+        class="variable-prompt-value"
+        type="text"
+        data-variable-name="${escapeHtml(name)}"
+        value="${escapeHtml(existingVariables[name] || '')}"
+        placeholder="Enter ${escapeHtml(name)}"
+        required
+      />
+    `;
+    els.variablePromptList.appendChild(row);
+  }
+}
+
+function promptForMissingVariables(
+  project,
+  variableNames,
+  {
+    title = 'Set script variables',
+    detail = 'Enter the missing values to finish this script.',
+    confirmLabel = 'Save and continue'
+  } = {}
+) {
+  if (variablePromptResolve) closeVariablePrompt(null);
+
+  const missingVariables = [...new Set((Array.isArray(variableNames) ? variableNames : []).map(String).filter(Boolean))];
+  if (!missingVariables.length) return Promise.resolve({});
+
+  state.variablePrompt = {
+    projectId: project?.id || '',
+    missingVariables
+  };
+  els.variablePromptTitle.textContent = title;
+  els.variablePromptDetail.textContent = detail;
+  els.variablePromptSaveLabel.textContent = confirmLabel;
+  renderVariablePromptFields(project, missingVariables);
+  setModalVisible(true, els.variablePromptModal);
+
+  const firstInput = els.variablePromptList.querySelector('.variable-prompt-value');
+  if (firstInput) {
+    firstInput.focus();
+    firstInput.select();
+  }
+
+  return new Promise((resolve) => {
+    variablePromptResolve = resolve;
+  });
+}
+
+async function ensureProjectVariables(
+  project,
+  commands,
+  {
+    persist = false,
+    title = 'Set script variables',
+    detail = 'Enter the missing values to finish this script.',
+    confirmLabel = 'Save and continue'
+  } = {}
+) {
+  const missingVariables = missingTemplateVariables(commands, project);
+  if (!missingVariables.length) return normalizeProject(project);
+
+  const values = await promptForMissingVariables(project, missingVariables, {
+    title,
+    detail,
+    confirmLabel
+  });
+  if (!values) return null;
+
+  const nextProject = normalizeProject({
+    ...project,
+    variables: {
+      ...normalizeVariables(project?.variables),
+      ...normalizeVariables(values)
+    }
+  });
+
+  if (!persist) return nextProject;
+  return saveProject(nextProject);
+}
+
 window.deployerx.onConfirmationRequest?.(async ({ id, message, detail, confirmLabel }) => {
   const confirmed = await confirmDangerousAction(message, detail, confirmLabel);
   await window.deployerx.resolveConfirmation?.({ id, confirmed });
 });
 
+function toggleConnectionAuthFields(authType, passwordField, keyFields) {
+  passwordField.classList.toggle('hidden', authType !== 'password');
+  keyFields.classList.toggle('hidden', authType !== 'key');
+}
+
 function updateAuthFields() {
-  const isKey = els.modalAuthType.value === 'key';
-  els.modalPasswordField.classList.toggle('hidden', isKey);
-  els.modalKeyFields.classList.toggle('hidden', !isKey);
+  toggleConnectionAuthFields(els.modalAuthType.value, els.modalPasswordField, els.modalKeyFields);
+}
+
+function updateFtpAuthFields() {
+  toggleConnectionAuthFields(els.modalFtpAuthType.value, els.modalFtpPasswordField, els.modalFtpKeyFields);
 }
 
 function updateUploadFields() {
@@ -852,7 +1521,7 @@ function renderTemplateSelect() {
   for (const template of state.templates) {
     const option = document.createElement('option');
     option.value = template.id;
-    option.textContent = template.name || 'Untitled template';
+    option.textContent = `${template.name || 'Untitled template'} [${isBuiltInTemplate(template) ? 'Default' : 'Own'}]`;
     els.modalTemplateSelect.appendChild(option);
   }
   renderProjectTemplateSelect();
@@ -863,9 +1532,19 @@ function renderProjectTemplateSelect() {
   for (const template of state.templates) {
     const option = document.createElement('option');
     option.value = template.id;
-    option.textContent = template.name || 'Untitled template';
+    option.textContent = `${template.name || 'Untitled template'} [${isBuiltInTemplate(template) ? 'Default' : 'Own'}]`;
     els.projectTemplateSelect.appendChild(option);
   }
+}
+
+function renderTemplateEditorState(template = null) {
+  const builtIn = isBuiltInTemplate(template);
+  els.deleteTemplateButton.disabled = !template || builtIn;
+  els.duplicateTemplateButton.disabled = !template;
+  els.templateEditorNote.classList.toggle('hidden', !builtIn);
+  els.templateEditorNote.textContent = builtIn
+    ? 'Library template: saving your edits creates a custom copy for this workspace. Duplicate also works if you want to keep the original open.'
+    : '';
 }
 
 function updateTerminalStatus(text, connected = state.terminalConnected) {
@@ -888,6 +1567,7 @@ function updateTerminalStatus(text, connected = state.terminalConnected) {
   );
   els.disconnectTerminalButton.disabled = !state.activeTerminalSessionId;
   els.connectTerminalButton.disabled = Boolean(state.activeTerminalSessionId);
+  renderSshUploadPanel(terminalSession);
   renderProjects();
 }
 
@@ -936,11 +1616,40 @@ function resizeActiveTerminal() {
   });
 }
 
-function applySelectedScriptTemplate() {
-  const template = state.templates.find((item) => item.id === els.projectTemplateSelect.value);
-  const commands = template
-    ? resolveTemplateCommands(template.commands || [], state.activeProject)
-    : state.activeProject?.commands || [];
+async function applySelectedScriptTemplate() {
+  if (!state.activeProject) return;
+
+  const template = getTemplateById(els.projectTemplateSelect.value);
+  if (!template) {
+    els.commands.value = Array.isArray(state.activeProject.commands) ? state.activeProject.commands.join('\n') : '';
+    return;
+  }
+
+  let project = state.activeProject;
+  try {
+    const nextProject = await ensureProjectVariables(project, template.commands || [], {
+      persist: true,
+      title: `Set variables for ${template.name || 'this template'}`,
+      detail: 'This project is missing one or more template values. Enter them once and DeployerX will finish the script for you.',
+      confirmLabel: 'Save and apply'
+    });
+    if (!nextProject) {
+      els.projectTemplateSelect.value = '';
+      els.commands.value = Array.isArray(state.activeProject.commands) ? state.activeProject.commands.join('\n') : '';
+      return;
+    }
+    project = normalizeProject(nextProject);
+    state.activeProject = structuredClone(project);
+    renderDetailsSummary(project);
+    renderProjects();
+  } catch (error) {
+    els.projectTemplateSelect.value = '';
+    els.commands.value = Array.isArray(state.activeProject.commands) ? state.activeProject.commands.join('\n') : '';
+    showAlert(error.message || 'Could not save project variables.');
+    return;
+  }
+
+  const commands = resolveTemplateCommands(template.commands || [], project);
   els.commands.value = Array.isArray(commands) ? commands.join('\n') : '';
 }
 
@@ -1116,6 +1825,7 @@ function renderSettingsView() {
     els.deleteWorkspaceButton.title = activeTeam?.role === 'owner' ? '' : 'Only the workspace owner can delete this workspace.';
   }
 
+  renderAppUpdateCard();
   renderBackupHistory();
 }
 
@@ -1783,11 +2493,7 @@ async function importLocalToCloud() {
   if (!ok) return;
   try {
     const result = await window.deployerx.importLocalToCloud();
-    state.projects = (result.projects || []).map(normalizeProject);
-    state.templates = (result.templates || []).map(normalizeTemplate);
-    renderProjects();
-    renderTemplates();
-    renderTemplateSelect();
+    await refreshProjectsAndTemplates();
     showToast(`Imported ${result.projectCount} project${result.projectCount === 1 ? '' : 's'} and ${result.templateCount} template${result.templateCount === 1 ? '' : 's'}`);
   } catch (error) {
     showAlert(error.message || 'Could not import local data.');
@@ -1797,6 +2503,7 @@ async function importLocalToCloud() {
 async function initializeApp() {
   try {
     hydrateStartupMetadata();
+    refreshAppUpdateState().catch(() => {});
     const setup = await withTimeout(
       window.deployerx.getSetup(),
       STARTUP_IPC_TIMEOUT_MS,
@@ -1942,12 +2649,21 @@ function fillModal(project) {
   els.modalSshPassword.value = normalizedProject.ssh?.password || '';
   els.modalPrivateKey.value = normalizedProject.ssh?.privateKey || '';
   els.modalKeyPassphrase.value = normalizedProject.ssh?.passphrase || '';
+  els.modalFtpHost.value = normalizedProject.ftp?.host || '';
+  els.modalFtpPort.value = normalizedProject.ftp?.port || '';
+  els.modalFtpUsername.value = normalizedProject.ftp?.username || '';
+  els.modalFtpAuthType.value = normalizedProject.ftp?.authType || (normalizedProject.ftp?.privateKey ? 'key' : normalizedProject.ftp?.password ? 'password' : '');
+  els.modalFtpPassword.value = normalizedProject.ftp?.password || '';
+  els.modalFtpPrivateKey.value = normalizedProject.ftp?.privateKey || '';
+  els.modalFtpKeyPassphrase.value = normalizedProject.ftp?.passphrase || '';
   updateAuthFields();
+  updateFtpAuthFields();
 }
 
 function readModalProject() {
   const selectedTemplate = state.templates.find((template) => template.id === els.modalTemplateSelect.value);
   const variables = readModalVariables();
+  const ftpAuthType = els.modalFtpAuthType.value;
 
   const project = {
     ...state.modalDraft,
@@ -1963,6 +2679,15 @@ function readModalProject() {
       privateKey: els.modalPrivateKey.value,
       passphrase: els.modalKeyPassphrase.value,
       timeout: 20000
+    },
+    ftp: {
+      host: els.modalFtpHost.value.trim(),
+      port: els.modalFtpPort.value ? Number(els.modalFtpPort.value) : '',
+      username: els.modalFtpUsername.value.trim(),
+      authType: ftpAuthType,
+      password: ftpAuthType === 'password' ? els.modalFtpPassword.value : '',
+      privateKey: ftpAuthType === 'key' ? els.modalFtpPrivateKey.value : '',
+      passphrase: ftpAuthType === 'key' ? els.modalFtpKeyPassphrase.value : ''
     }
   };
 
@@ -2036,7 +2761,7 @@ function renderProjects() {
   }
 }
 
-function renderTemplates() {
+function renderTemplatesLegacy() {
   els.templateList.innerHTML = '';
   const query = els.templateSearch.value.trim().toLowerCase();
   const visibleTemplates = state.templates.filter((template) => {
@@ -2081,8 +2806,67 @@ function renderTemplates() {
   }
 }
 
-function setTemplateMetaLine(item, template, variableCount) {
+function setTemplateMetaLineLegacy(item, template, variableCount) {
   const meta = item.querySelector('span:not(.template-item-icon):not(.template-item-action)');
+  if (!meta) return;
+  const category = normalizeTemplateCategory(template.category);
+  const variableText = variableCount ? ` - ${variableCount} variables` : '';
+  const scopeText = isBuiltInTemplate(template) ? 'Library - ' : '';
+  meta.textContent = `${scopeText}${category} - ${template.commands?.length || 0} commands${variableText}`;
+}
+
+function renderTemplates() {
+  els.templateList.innerHTML = '';
+  const query = els.templateSearch.value.trim().toLowerCase();
+  const visibleTemplates = state.templates.filter((template) => {
+    const category = normalizeTemplateCategory(template.category);
+    const categoryMatches = state.activeTemplateCategory === 'All' || category === state.activeTemplateCategory;
+    const commands = Array.isArray(template.commands) ? template.commands.join('\n') : '';
+    const variables = extractTemplateVariables(template.commands || []).join('\n');
+    const searchMatches = !query || `${template.name || ''}\n${category}\n${commands}\n${variables}`.toLowerCase().includes(query);
+    return categoryMatches && searchMatches;
+  });
+
+  if (!state.templates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'template-empty';
+    empty.innerHTML = '<strong>No templates</strong><span>Create reusable command lists.</span>';
+    els.templateList.appendChild(empty);
+    return;
+  }
+
+  if (!visibleTemplates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'template-empty';
+    empty.innerHTML = '<strong>No matching templates</strong><span>Try another category or search.</span>';
+    els.templateList.appendChild(empty);
+    return;
+  }
+
+  for (const template of visibleTemplates) {
+    const variableCount = extractTemplateVariables(template.commands || []).length;
+    const sourceLabel = isBuiltInTemplate(template) ? 'Default' : 'Own';
+    const badgeClass = isBuiltInTemplate(template) ? 'template-badge' : 'template-badge own';
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `template-item ${state.activeTemplateId === template.id ? 'active' : ''}`;
+    item.innerHTML = `
+      <span class="template-item-icon">${icon('templates')}</span>
+      <strong>${escapeHtml(template.name || 'Untitled template')}</strong>
+      <span class="template-item-meta">
+        <span class="template-item-meta-text"></span>
+        <span class="${badgeClass}">${sourceLabel}</span>
+      </span>
+      <span class="template-item-action">${icon('chevron-right')}</span>
+    `;
+    setTemplateMetaLine(item, template, variableCount);
+    item.addEventListener('click', () => selectTemplate(template.id));
+    els.templateList.appendChild(item);
+  }
+}
+
+function setTemplateMetaLine(item, template, variableCount) {
+  const meta = item.querySelector('.template-item-meta-text');
   if (!meta) return;
   const category = normalizeTemplateCategory(template.category);
   const variableText = variableCount ? ` - ${variableCount} variables` : '';
@@ -2090,15 +2874,14 @@ function setTemplateMetaLine(item, template, variableCount) {
 }
 
 function selectTemplate(templateId) {
-  const template = state.templates.find((item) => item.id === templateId);
+  const template = getTemplateById(templateId);
   if (!template) return;
   state.activeTemplateId = template.id;
   els.templateName.value = template.name || '';
   els.templateCategory.value = normalizeTemplateCategory(template.category);
   els.templateCommands.value = Array.isArray(template.commands) ? template.commands.join('\n') : '';
   renderTemplateVariableSummary(template.commands || []);
-  els.deleteTemplateButton.disabled = false;
-  els.duplicateTemplateButton.disabled = false;
+  renderTemplateEditorState(template);
   els.templatePageForm.classList.remove('hidden');
   renderTemplates();
 }
@@ -2109,8 +2892,7 @@ function newTemplate() {
   els.templateCategory.value = '';
   els.templateCommands.value = '';
   renderTemplateVariableSummary([]);
-  els.deleteTemplateButton.disabled = true;
-  els.duplicateTemplateButton.disabled = true;
+  renderTemplateEditorState(null);
   els.templatePageForm.classList.remove('hidden');
   renderTemplates();
 }
@@ -2121,19 +2903,20 @@ function closeTemplateEditor() {
   els.templateCategory.value = '';
   els.templateCommands.value = '';
   renderTemplateVariableSummary([]);
-  els.deleteTemplateButton.disabled = true;
-  els.duplicateTemplateButton.disabled = true;
+  renderTemplateEditorState(null);
   els.templatePageForm.classList.add('hidden');
   renderTemplates();
 }
 
 function renderDetailsSummary(project) {
+  const ftpSummary = hasCustomFtpDetails(project) ? 'Custom FTP details saved' : 'Uses SSH details';
   const rows = [
     ['Server type', project.serverType || '-'],
     ['Host', project.ssh?.host || '-'],
     ['Port', project.ssh?.port || '22'],
     ['Username', project.ssh?.username || '-'],
-    ['Authentication', project.ssh?.authType === 'key' ? 'SSH private key' : 'Password']
+    ['Authentication', project.ssh?.authType === 'key' ? 'SSH private key' : 'Password'],
+    ['FTP', ftpSummary]
   ];
 
   els.detailsSummary.innerHTML = rows
@@ -2149,6 +2932,14 @@ function syncActiveFtpSession() {
   if (!ftpSession) return;
   ftpSession.sessionId = state.ftpSessionId;
   ftpSession.connected = Boolean(state.ftpConnected);
+  ftpSession.localCurrentPath = state.ftpLocalCurrentPath || '';
+  ftpSession.localParentPath = state.ftpLocalParentPath || '';
+  ftpSession.localLoaded = Boolean(state.ftpLocalLoaded);
+  ftpSession.localEntries = Array.isArray(state.ftpLocalEntries) ? [...state.ftpLocalEntries] : [];
+  ftpSession.localSelectedPath = state.ftpLocalSelectedPath || '';
+  ftpSession.localBackStack = [...state.ftpLocalBackStack];
+  ftpSession.localForwardStack = [...state.ftpLocalForwardStack];
+  ftpSession.localFilter = state.ftpLocalFilter || '';
   ftpSession.currentPath = state.ftpCurrentPath || '.';
   ftpSession.parentPath = state.ftpParentPath || '.';
   ftpSession.entries = Array.isArray(state.ftpEntries) ? [...state.ftpEntries] : [];
@@ -2162,6 +2953,14 @@ function applyFtpSessionToState(projectId) {
   const ftpSession = getFtpSession(projectId);
   state.ftpSessionId = ftpSession?.sessionId || null;
   state.ftpConnected = Boolean(ftpSession?.connected);
+  state.ftpLocalCurrentPath = ftpSession?.localCurrentPath || '';
+  state.ftpLocalParentPath = ftpSession?.localParentPath || '';
+  state.ftpLocalLoaded = Boolean(ftpSession?.localLoaded);
+  state.ftpLocalEntries = Array.isArray(ftpSession?.localEntries) ? [...ftpSession.localEntries] : [];
+  state.ftpLocalSelectedPath = ftpSession?.localSelectedPath || '';
+  state.ftpLocalBackStack = Array.isArray(ftpSession?.localBackStack) ? [...ftpSession.localBackStack] : [];
+  state.ftpLocalForwardStack = Array.isArray(ftpSession?.localForwardStack) ? [...ftpSession.localForwardStack] : [];
+  state.ftpLocalFilter = ftpSession?.localFilter || '';
   state.ftpCurrentPath = ftpSession?.currentPath || '.';
   state.ftpParentPath = ftpSession?.parentPath || '.';
   state.ftpEntries = Array.isArray(ftpSession?.entries) ? [...ftpSession.entries] : [];
@@ -2189,7 +2988,8 @@ function updateFtpStatus(message, connected = state.ftpConnected) {
 
 function updateLocalFtpStatus(message = 'Local files') {
   els.ftpLocalStatus.textContent = message;
-  els.ftpLocalPathInput.disabled = !state.ftpLocalCurrentPath;
+  els.ftpLocalPathInput.disabled = !state.activeProject;
+  els.ftpLocalPathPickerButton.disabled = !state.activeProject;
   els.ftpLocalBackButton.disabled = !state.ftpLocalBackStack.length;
   els.ftpLocalForwardButton.disabled = !state.ftpLocalForwardStack.length;
   renderFtpActionState();
@@ -2233,9 +3033,8 @@ function renderLocalFtpBrowser() {
   els.ftpLocalPathInput.value = state.ftpLocalCurrentPath || '';
   els.ftpLocalFilter.value = state.ftpLocalFilter;
   els.ftpLocalFileList.innerHTML = '';
-  const entries = filteredEntries(state.ftpLocalEntries, state.ftpLocalFilter);
 
-  if (!state.ftpLocalCurrentPath) {
+  if (!state.ftpLocalLoaded) {
     const empty = document.createElement('div');
     empty.className = 'ftp-empty';
     empty.textContent = 'Loading local files...';
@@ -2244,6 +3043,7 @@ function renderLocalFtpBrowser() {
     return;
   }
 
+  const entries = filteredEntries(state.ftpLocalEntries, state.ftpLocalFilter);
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'ftp-empty';
@@ -2317,11 +3117,51 @@ function renderFtpBrowser() {
   syncActiveFtpSession();
 }
 
+async function persistActiveProjectLocalSettings(localPath = state.ftpLocalCurrentPath) {
+  if (!state.activeProject?.id) return;
+  await window.deployerx.setProjectLocalSettings(state.activeProject.id, {
+    ftpLocalPath: localPath || ''
+  });
+}
+
+async function ensureActiveProjectLocalFtpReady(projectId = state.activeProject?.id) {
+  const activeProjectId = String(projectId || '').trim();
+  if (!activeProjectId) return;
+
+  const ftpSession = getFtpSession(activeProjectId, true);
+  if (ftpSession?.localLoaded && ftpSession.localCurrentPath) return;
+
+  let targetPath = ftpSession?.localCurrentPath || '';
+  if (!targetPath) {
+    const localSettings = await window.deployerx.getProjectLocalSettings(activeProjectId);
+    targetPath = String(localSettings?.ftpLocalPath || '').trim();
+    if (state.activeProject?.id === activeProjectId && targetPath) {
+      state.ftpLocalCurrentPath = targetPath;
+      state.ftpLocalLoaded = false;
+      renderFtpBrowser();
+    }
+  }
+
+  if (state.activeProject?.id !== activeProjectId) return;
+
+  try {
+    await refreshLocalFtpList(targetPath || undefined, { persist: false, projectId: activeProjectId });
+  } catch (error) {
+    if (!targetPath) throw error;
+    await window.deployerx.setProjectLocalSettings(activeProjectId, { ftpLocalPath: '' });
+    await refreshLocalFtpList(undefined, { persist: false, projectId: activeProjectId });
+    showAlert('Your saved local folder was not found, so the FTP pane opened your home folder instead.');
+  }
+}
+
 async function refreshLocalFtpList(pathOverride = state.ftpLocalCurrentPath, options = {}) {
+  const targetProjectId = String(options.projectId || state.activeProject?.id || '').trim();
   const previousPath = state.ftpLocalCurrentPath;
   const result = await withFileActivity('Loading local files...', () => window.deployerx.localList({ path: pathOverride || undefined }));
+  if (targetProjectId && state.activeProject?.id !== targetProjectId) return;
   state.ftpLocalCurrentPath = result.path || pathOverride || '';
   state.ftpLocalParentPath = result.parentPath || '';
+  state.ftpLocalLoaded = true;
   state.ftpLocalEntries = Array.isArray(result.items) ? result.items : [];
   state.ftpLocalSelectedPath = '';
   if (options.pushHistory && previousPath && previousPath !== state.ftpLocalCurrentPath) {
@@ -2330,6 +3170,9 @@ async function refreshLocalFtpList(pathOverride = state.ftpLocalCurrentPath, opt
   }
   updateLocalFtpStatus(fileNameFromPath(state.ftpLocalCurrentPath) || 'Local files');
   renderFtpBrowser();
+  if (options.persist !== false && state.ftpLocalCurrentPath) {
+    persistActiveProjectLocalSettings(state.ftpLocalCurrentPath).catch(() => {});
+  }
 }
 
 async function refreshFtpList(pathOverride = state.ftpCurrentPath, options = {}) {
@@ -2377,7 +3220,7 @@ async function connectFtp() {
     state.ftpBackStack = [];
     state.ftpForwardStack = [];
     updateFtpStatus('Connected', true);
-    if (!state.ftpLocalCurrentPath) await refreshLocalFtpList();
+    if (!state.ftpLocalLoaded) await ensureActiveProjectLocalFtpReady();
     await refreshFtpList(state.ftpCurrentPath);
   } catch (error) {
   state.ftpSessionId = null;
@@ -2410,6 +3253,13 @@ async function disconnectFtp() {
 
 async function openLocalFtpPath(localPath, options = {}) {
   await refreshLocalFtpList(localPath || els.ftpLocalPathInput.value, options);
+}
+
+async function chooseLocalFtpPath() {
+  if (!state.activeProject) return;
+  const localPath = await window.deployerx.selectLocalFolder(state.ftpLocalCurrentPath || '');
+  if (!localPath) return;
+  await openLocalFtpPath(localPath, { pushHistory: true });
 }
 
 async function openFtpPath(remotePath, options = {}) {
@@ -2790,6 +3640,12 @@ function populateProjectView(project) {
   renderProjects();
   showView('project');
   setProjectTab(state.activeProjectTab);
+  if (terminalSession.connected && terminalSession.sessionId && !terminalSession.homeDirectory) {
+    ensureTerminalHomeDirectory(terminalSession.sessionId).catch(() => {});
+  }
+  if (state.activeProjectTab === 'ftp' && !state.ftpLocalLoaded) {
+    ensureActiveProjectLocalFtpReady(normalizedProject.id).catch((error) => showAlert(error.message || 'Could not load local files.'));
+  }
   requestAnimationFrame(() => {
     fitTerminal();
     if (!state.activeTerminalSessionId) els.connectTerminalButton.focus();
@@ -2822,6 +3678,7 @@ async function saveProject(project) {
   const index = state.projects.findIndex((item) => item.id === saved.id);
   if (index >= 0) state.projects[index] = saved;
   else state.projects.unshift(saved);
+  if (state.activeProject?.id === saved.id) state.activeProject = structuredClone(saved);
   return saved;
 }
 
@@ -2834,7 +3691,7 @@ function exportPickerItems(type = state.exportPicker.type) {
     }));
   }
 
-  return state.templates.map((template) => {
+  return state.templates.filter((template) => !isBuiltInTemplate(template)).map((template) => {
     const variableCount = extractTemplateVariables(template.commands || []).length;
     return {
       id: String(template.id),
@@ -2999,11 +3856,7 @@ async function importAccount() {
   try {
     const result = await window.deployerx.importAccount();
     if (result?.canceled) return;
-    state.projects = (result.projects || []).map(normalizeProject);
-    state.templates = (result.templates || []).map(normalizeTemplate);
-    if (state.activeProject) {
-      state.activeProject = state.projects.find((project) => project.id === state.activeProject.id) || state.activeProject;
-    }
+    await refreshProjectsAndTemplates();
     closeTemplateEditor();
     renderProjects();
     renderTemplates();
@@ -3022,8 +3875,9 @@ async function importAccount() {
 async function saveTemplate(event) {
   event.preventDefault();
   if (pendingActions.has('template:save')) return;
+  const activeTemplate = getTemplateById(state.activeTemplateId);
   const template = {
-    id: state.activeTemplateId,
+    id: isBuiltInTemplate(activeTemplate) ? '' : state.activeTemplateId,
     name: els.templateName.value.trim(),
     category: els.templateCategory.value,
     commands: normalizeCommands(els.templateCommands.value),
@@ -3035,30 +3889,29 @@ async function saveTemplate(event) {
     return;
   }
 
-  let saved;
   try {
     const result = await withButtonLoading('template:save', els.templatePageSaveButton, () =>
       window.deployerx.saveTemplate(template)
     );
     if (!result) return;
-    saved = normalizeTemplate(result);
   } catch (error) {
     showAlert(error.message || 'Could not save template.');
     return;
   }
 
-  const index = state.templates.findIndex((item) => item.id === saved.id);
-  if (index >= 0) state.templates[index] = saved;
-  else state.templates.unshift(saved);
-  renderTemplateSelect();
+  await refreshProjectsAndTemplates();
   closeTemplateEditor();
-  showToast('Template saved');
+  showToast(isBuiltInTemplate(activeTemplate) ? 'Library template saved as custom copy' : 'Template saved');
 }
 
 async function deleteTemplate() {
   if (!state.activeTemplateId || pendingActions.has('template:delete')) return;
   const templateId = state.activeTemplateId;
-  const template = state.templates.find((item) => item.id === templateId);
+  const template = getTemplateById(templateId);
+  if (isBuiltInTemplate(template)) {
+    showAlert('Library templates cannot be deleted. Duplicate one to customize it.');
+    return;
+  }
   const ok = await confirmDangerousAction(
     `Delete template "${template?.name || 'Untitled template'}"?`,
     'This action cannot be undone.',
@@ -3072,10 +3925,8 @@ async function deleteTemplate() {
     return;
   }
 
-  state.templates = state.templates.filter((item) => item.id !== templateId);
-  if (state.activeTemplateId === templateId) closeTemplateEditor();
-  else renderTemplates();
-  renderTemplateSelect();
+  await refreshProjectsAndTemplates();
+  closeTemplateEditor();
 }
 
 function closeDuplicateTemplateModal() {
@@ -3129,18 +3980,9 @@ async function duplicateTemplate(event) {
     );
     if (!result) return;
     const saved = normalizeTemplate(result);
-    state.templates.unshift(saved);
-    state.activeTemplateId = saved.id;
-    els.templateName.value = saved.name || '';
-    els.templateCategory.value = normalizeTemplateCategory(saved.category);
-    els.templateCommands.value = Array.isArray(saved.commands) ? saved.commands.join('\n') : '';
-    renderTemplateVariableSummary(saved.commands || []);
-    els.deleteTemplateButton.disabled = false;
-    els.duplicateTemplateButton.disabled = false;
-    els.templatePageForm.classList.remove('hidden');
+    await refreshProjectsAndTemplates();
     closeDuplicateTemplateModal();
-    renderTemplateSelect();
-    renderTemplates();
+    selectTemplate(saved.id);
     showToast('Template duplicated');
   } catch (error) {
     showAlert(error.message || 'Could not duplicate template.');
@@ -3155,9 +3997,8 @@ async function importTemplates() {
   try {
     const result = await window.deployerx.importTemplates();
     if (result?.canceled) return;
-    state.templates = (result.templates || []).map(normalizeTemplate);
+    await refreshProjectsAndTemplates();
     closeTemplateEditor();
-    renderTemplateSelect();
     showToast(`Imported ${result.count} template${result.count === 1 ? '' : 's'}${importResultDetail(result)}`);
   } catch (error) {
     showAlert(error.message || 'Could not import templates.');
@@ -3174,7 +4015,7 @@ function openCreateModal() {
   state.modalMode = 'create';
   state.modalDraft = blankProject();
   els.projectModalTitle.textContent = 'Create project';
-  els.projectModalSubtitle.textContent = 'Add project and SSH details. Commands are managed inside the project.';
+  els.projectModalSubtitle.textContent = 'Add project, SSH, and optional FTP details. Commands are managed inside the project.';
   fillModal(state.modalDraft);
   setModalVisible(true, els.projectModal);
 }
@@ -3183,7 +4024,7 @@ function openEditModal() {
   if (!state.activeProject) return;
   state.modalMode = 'edit';
   els.projectModalTitle.textContent = 'Edit project';
-  els.projectModalSubtitle.textContent = 'Update project and SSH details.';
+  els.projectModalSubtitle.textContent = 'Update project, SSH, and optional FTP details.';
   fillModal(state.activeProject);
   setModalVisible(true, els.projectModal);
 }
@@ -3191,7 +4032,7 @@ function openEditModal() {
 async function commitModalProject(event) {
   event.preventDefault();
   if (pendingActions.has('project:save')) return;
-  const project = readModalProject();
+  let project = readModalProject();
 
   if (!project.name || !project.ssh.host || !project.ssh.username) {
     return;
@@ -3205,17 +4046,21 @@ async function commitModalProject(event) {
     return;
   }
 
-  const missingVariables = missingTemplateVariables(project.commands, project);
-  if (missingVariables.length) {
-    showAlert(`Set project variable${missingVariables.length > 1 ? 's' : ''}: ${missingVariables.join(', ')}`);
-    return;
-  }
-
-  project.commands = resolveTemplateCommands(project.commands, project);
-
   let saved;
   try {
-    saved = await withButtonLoading('project:save', els.projectModalSaveButton, () => saveProject(project));
+    saved = await withButtonLoading('project:save', els.projectModalSaveButton, async () => {
+      const hydratedProject = await ensureProjectVariables(project, project.commands, {
+        title: 'Set project variables',
+        detail: 'This template needs a few values before the project can be saved.',
+        confirmLabel: 'Save project'
+      });
+      if (!hydratedProject) return null;
+
+      project = normalizeProject(hydratedProject);
+      renderModalVariables(project);
+      project.commands = resolveTemplateCommands(project.commands, project);
+      return saveProject(project);
+    });
     if (!saved) return;
   } catch (error) {
     showAlert(error.message || 'Could not save project.');
@@ -3290,11 +4135,22 @@ async function startDeployment(event) {
   if (!state.activeProject) return;
 
   const rawCommands = normalizeCommands(els.commands.value);
-  const missingVariables = missingTemplateVariables(rawCommands, state.activeProject);
-  if (missingVariables.length) {
-    showAlert(`Set project variable${missingVariables.length > 1 ? 's' : ''}: ${missingVariables.join(', ')}`);
+  let hydratedProject;
+  try {
+    hydratedProject = await ensureProjectVariables(state.activeProject, rawCommands, {
+      persist: true,
+      title: 'Set deployment variables',
+      detail: 'This deployment script needs a few variable values before it can run.',
+      confirmLabel: 'Save and deploy'
+    });
+  } catch (error) {
+    showAlert(error.message || 'Could not save project variables.');
     return;
   }
+  if (!hydratedProject) return;
+  state.activeProject = structuredClone(normalizeProject(hydratedProject));
+  renderDetailsSummary(state.activeProject);
+  renderProjects();
 
   const project = {
     ...state.activeProject,
@@ -3371,6 +4227,7 @@ function appendTerminalOutputBuffer(data, terminalSession = getTerminalSession()
 
   terminalSession.rawBuffer = `${terminalSession.rawBuffer || ''}${rawText}`.slice(-4000);
   terminalSession.outputBuffer = `${terminalSession.outputBuffer || ''}${visibleText}`.slice(-4000);
+  syncTerminalDirectoryFromOutput(visibleText, terminalSession);
   if (isVisibleTerminalSession(terminalSession)) {
     state.terminalRawBuffer = terminalSession.rawBuffer;
     state.terminalOutputBuffer = terminalSession.outputBuffer;
@@ -3507,6 +4364,10 @@ function resetTerminalView() {
     terminalSession.pendingInput = '';
     terminalSession.outputBuffer = '';
     terminalSession.rawBuffer = '';
+    terminalSession.commandBuffer = '';
+    terminalSession.pendingDirectoryCandidate = '';
+    terminalSession.awaitingPwd = false;
+    terminalSession.upload = blankTerminalUploadState();
   }
   state.activeTerminalSessionId = null;
   state.terminalConnected = false;
@@ -3523,11 +4384,22 @@ async function startRun(event) {
 
   if (event?.preventDefault) event.preventDefault();
   const rawCommands = normalizeCommands(els.commands.value);
-  const missingVariables = missingTemplateVariables(rawCommands, state.activeProject);
-  if (missingVariables.length) {
-    showAlert(`Set project variable${missingVariables.length > 1 ? 's' : ''}: ${missingVariables.join(', ')}`);
+  let hydratedProject;
+  try {
+    hydratedProject = await ensureProjectVariables(state.activeProject, rawCommands, {
+      persist: true,
+      title: 'Set script variables',
+      detail: 'This script needs a few variable values before it can run in the SSH terminal.',
+      confirmLabel: 'Save and run'
+    });
+  } catch (error) {
+    showAlert(error.message || 'Could not save project variables.');
     return;
   }
+  if (!hydratedProject) return;
+  state.activeProject = structuredClone(normalizeProject(hydratedProject));
+  renderDetailsSummary(state.activeProject);
+  renderProjects();
 
   const commands = resolveTemplateCommands(rawCommands, state.activeProject);
   if (!commands.length) return;
@@ -3607,6 +4479,7 @@ async function sendTerminalInput(input, sessionId = state.activeTerminalSessionI
     return;
   }
 
+  trackTerminalInputChunk(input, sessionId);
   window.deployerx.sendTerminalInput({
     sessionId,
     input
@@ -3640,6 +4513,86 @@ async function connectTerminal() {
     state.terminalConnected = false;
     updateTerminalStatus('Connection failed', false);
     appendLog(`${error.message}\n`, 'error');
+  }
+}
+
+async function uploadFileToCurrentSshPath() {
+  const terminalSession = getTerminalSession();
+  if (!terminalSession?.sessionId || !terminalSession.connected || pendingActions.has('terminal:upload')) return;
+  if (terminalSession.pendingDirectoryCandidate) {
+    showAlert('Wait for the current directory to finish updating, then upload.');
+    return;
+  }
+
+  let remoteDirectory = String(terminalSession.currentDirectory || '').trim();
+  if (!remoteDirectory) {
+    try {
+      await ensureTerminalHomeDirectory(terminalSession.sessionId);
+    } catch {}
+    remoteDirectory = String(terminalSession.currentDirectory || terminalSession.homeDirectory || '').trim();
+  }
+  if (!remoteDirectory) {
+    showAlert('Current SSH path is not ready yet. Try again in a moment.');
+    return;
+  }
+
+  const localPath = await window.deployerx.selectUpload();
+  if (!localPath) return;
+
+  const fileName = fileNameFromPath(localPath);
+  const remotePath = joinRemoteShellPath(remoteDirectory, fileName);
+  setTerminalUploadState(terminalSession, {
+    active: true,
+    fileName,
+    remotePath,
+    transferredBytes: 0,
+    totalBytes: 0,
+    percent: 0,
+    cancelRequested: false
+  });
+
+  try {
+    await withButtonLoading('terminal:upload', els.sshUploadButton, () =>
+      window.deployerx.uploadTerminalFile({
+        sessionId: terminalSession.sessionId,
+        localPath,
+        remoteDirectory
+      })
+    );
+  } catch (error) {
+    const canceled = Boolean(terminalSession.upload?.cancelRequested);
+    setTerminalUploadState(terminalSession, blankTerminalUploadState());
+    if (canceled || /canceled/i.test(String(error?.message || ''))) {
+      showToast('Upload canceled');
+      return;
+    }
+    showAlert(error.message || 'Could not upload file.');
+  }
+}
+
+async function cancelCurrentSshUpload() {
+  const terminalSession = getTerminalSession();
+  if (!terminalSession?.sessionId || !terminalSession.upload?.active || terminalSession.upload.cancelRequested) return;
+
+  setTerminalUploadState(terminalSession, {
+    ...terminalSession.upload,
+    cancelRequested: true
+  });
+
+  try {
+    const canceled = await window.deployerx.cancelTerminalUpload(terminalSession.sessionId);
+    if (!canceled) {
+      setTerminalUploadState(terminalSession, {
+        ...terminalSession.upload,
+        cancelRequested: false
+      });
+    }
+  } catch (error) {
+    setTerminalUploadState(terminalSession, {
+      ...terminalSession.upload,
+      cancelRequested: false
+    });
+    showAlert(error.message || 'Could not cancel upload.');
   }
 }
 
@@ -3698,6 +4651,9 @@ els.settingsNavItems.forEach((item) => item.addEventListener('click', () => setS
 els.settingsLoginButtons.forEach((button) => button.addEventListener('click', activateCloudMode));
 els.settingsProfileSaveButton.addEventListener('click', () => showToast('Profile updates are synced through Firebase Auth.'));
 els.settingsProfileLogoutButton.addEventListener('click', logout);
+els.appUpdateCheckButton?.addEventListener('click', checkForAppUpdates);
+els.appUpdateRestartButton?.addEventListener('click', installAppUpdate);
+els.appUpdateOpenReleasesButton?.addEventListener('click', openReleasesPage);
 els.settingsImportAccountButton.addEventListener('click', importAccount);
 els.settingsExportAccountButton.addEventListener('click', exportAccount);
 els.deleteWorkspaceButton.addEventListener('click', deleteWorkspace);
@@ -3738,10 +4694,17 @@ els.projectTemplateSelect.addEventListener('change', applySelectedScriptTemplate
 els.emergencyStopButton.addEventListener('click', emergencyStop);
 els.connectTerminalButton.addEventListener('click', connectTerminal);
 els.disconnectTerminalButton.addEventListener('click', disconnectTerminal);
+els.sshUploadButton.addEventListener('click', () =>
+  uploadFileToCurrentSshPath().catch((error) => showAlert(error.message || 'Could not upload file.'))
+);
+els.sshUploadCancelButton.addEventListener('click', () =>
+  cancelCurrentSshUpload().catch((error) => showAlert(error.message || 'Could not cancel upload.'))
+);
 els.connectFtpButton.addEventListener('click', connectFtp);
 els.disconnectFtpButton.addEventListener('click', disconnectFtp);
 els.ftpLocalBackButton.addEventListener('click', () => goLocalFtpHistory(-1).catch((error) => showAlert(error.message || 'Could not go back.')));
 els.ftpLocalForwardButton.addEventListener('click', () => goLocalFtpHistory(1).catch((error) => showAlert(error.message || 'Could not go forward.')));
+els.ftpLocalPathPickerButton.addEventListener('click', () => chooseLocalFtpPath().catch((error) => showAlert(error.message || 'Could not choose local folder.')));
 els.ftpLocalPathInput.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter') return;
   event.preventDefault();
@@ -3783,7 +4746,9 @@ document.addEventListener('click', (event) => {
 document.addEventListener('dragend', resetFtpRemoteDropState);
 document.addEventListener('drop', resetFtpRemoteDropState);
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') hideFtpContextMenu();
+  if (event.key !== 'Escape') return;
+  hideFtpContextMenu();
+  if (variablePromptResolve) closeVariablePrompt(null);
 });
 els.logoutButton.addEventListener('click', logout);
 els.teamSelect.addEventListener('change', () => {
@@ -3809,6 +4774,7 @@ els.templatePageForm.addEventListener('submit', saveTemplate);
 els.uploadModalForm.addEventListener('submit', startDeployment);
 els.exportPickerForm.addEventListener('submit', confirmExportPicker);
 els.duplicateTemplateForm.addEventListener('submit', duplicateTemplate);
+els.variablePromptForm.addEventListener('submit', submitVariablePrompt);
 els.projectModalCloseButton.addEventListener('click', () => setModalVisible(false, els.projectModal));
 els.projectModalCancelButton.addEventListener('click', () => setModalVisible(false, els.projectModal));
 els.newTemplateButton.addEventListener('click', newTemplate);
@@ -3823,6 +4789,11 @@ els.duplicateTemplateCancelButton.addEventListener('click', closeDuplicateTempla
 els.duplicateTemplateModal.addEventListener('click', (event) => {
   if (event.target === els.duplicateTemplateModal || event.target.classList.contains('modal-backdrop')) closeDuplicateTemplateModal();
 });
+els.variablePromptCloseButton.addEventListener('click', () => closeVariablePrompt(null));
+els.variablePromptCancelButton.addEventListener('click', () => closeVariablePrompt(null));
+els.variablePromptModal.addEventListener('click', (event) => {
+  if (event.target === els.variablePromptModal || event.target.classList.contains('modal-backdrop')) closeVariablePrompt(null);
+});
 els.uploadModalCloseButton.addEventListener('click', () => setModalVisible(false, els.uploadModal));
 els.uploadModalCancelButton.addEventListener('click', () => setModalVisible(false, els.uploadModal));
 els.exportPickerCloseButton.addEventListener('click', closeExportPicker);
@@ -3835,6 +4806,7 @@ els.confirmModal.addEventListener('click', (event) => {
   if (event.target === els.confirmModal || event.target.classList.contains('modal-backdrop')) closeConfirmModal(false);
 });
 els.modalAuthType.addEventListener('change', updateAuthFields);
+els.modalFtpAuthType.addEventListener('change', updateFtpAuthFields);
 els.modalTemplateSelect.addEventListener('change', syncModalVariablesForTemplate);
 els.modalAddVariableButton.addEventListener('click', () => addVariableRow());
 els.templateCommands.addEventListener('input', () => renderTemplateVariableSummary(els.templateCommands.value));
@@ -3846,6 +4818,10 @@ els.modalSelectKeyButton.addEventListener('click', async () => {
 els.selectUploadButton.addEventListener('click', async () => {
   const filePath = await window.deployerx.selectUpload();
   if (filePath) els.uploadLocalPath.value = filePath;
+});
+
+window.deployerx.onAppUpdateEvent?.((update) => {
+  applyAppUpdateState(update, { toastOnDownloaded: true });
 });
 
 window.deployerx.onDeploymentEvent((event) => {
@@ -3870,7 +4846,9 @@ window.deployerx.onTerminalEvent(async (event) => {
   if (event.type === 'connected') {
     terminalSession.connected = true;
     setTerminalSessionStatus(terminalSession, 'Connected', true);
+    ensureTerminalHomeDirectory(event.sessionId).catch(() => {});
     if (terminalSession.pendingInput) {
+      trackTerminalInputChunk(terminalSession.pendingInput, event.sessionId);
       window.deployerx.sendTerminalInput({
         sessionId: event.sessionId,
         input: terminalSession.pendingInput
@@ -3881,6 +4859,30 @@ window.deployerx.onTerminalEvent(async (event) => {
     if (state.scriptRunnerActive && state.scriptTerminalSessionId === event.sessionId) {
       prepareScriptQueue().catch((error) => appendLog(error.message, 'error'));
     }
+  }
+  if (event.type === 'upload-started') {
+    setTerminalUploadState(terminalSession, {
+      active: true,
+      fileName: event.payload?.fileName || '',
+      remotePath: event.payload?.remotePath || '',
+      transferredBytes: 0,
+      totalBytes: Number(event.payload?.totalBytes || 0),
+      percent: 0
+    });
+  }
+  if (event.type === 'upload-progress') {
+    setTerminalUploadState(terminalSession, {
+      active: true,
+      fileName: event.payload?.fileName || terminalSession.upload?.fileName || '',
+      remotePath: event.payload?.remotePath || terminalSession.upload?.remotePath || '',
+      transferredBytes: Number(event.payload?.transferredBytes || 0),
+      totalBytes: Number(event.payload?.totalBytes || 0),
+      percent: Number(event.payload?.percent || 0)
+    });
+  }
+  if (event.type === 'upload-complete') {
+    setTerminalUploadState(terminalSession, blankTerminalUploadState());
+    showToast(`Uploaded ${event.payload?.fileName || 'file'} to ${event.payload?.remotePath || 'server path'}`);
   }
   if (event.type === 'log') handleTerminalData(event.payload, terminalSession);
   if (event.type === 'error') handleTerminalData(event.payload, terminalSession);
@@ -3893,6 +4895,10 @@ window.deployerx.onTerminalEvent(async (event) => {
     terminalSession.sessionId = null;
     terminalSession.connected = false;
     terminalSession.pendingInput = '';
+    terminalSession.commandBuffer = '';
+    terminalSession.pendingDirectoryCandidate = '';
+    terminalSession.awaitingPwd = false;
+    terminalSession.upload = blankTerminalUploadState();
     removeTerminalSessionRegistration(closedSessionId);
     setTerminalSessionStatus(terminalSession, event.type === 'failed' ? 'Connection failed' : 'Disconnected', false);
   }

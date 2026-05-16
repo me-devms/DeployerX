@@ -1290,6 +1290,80 @@ textarea:focus {
   box-shadow: 0 1px 1px rgba(24, 24, 27, 0.03);
 }
 
+.ssh-upload-panel {
+  gap: 10px;
+}
+
+.ssh-upload-path {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ssh-upload-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.ssh-upload-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ssh-upload-progress-meta strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ssh-upload-progress-meta span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.ssh-upload-progress-track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4e4e7;
+}
+
+.ssh-upload-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #0ea5e9);
+  transition: width 120ms linear;
+}
+
+.ssh-upload-progress-detail {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ssh-upload-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .script-editor textarea {
   min-height: 260px;
   max-height: 38vh;
@@ -1418,25 +1492,37 @@ textarea:focus {
 .ftp-path-row {
   display: grid;
   grid-template-columns: auto auto minmax(220px, 1fr);
-  align-items: end;
+  align-items: center;
   gap: 8px;
-  min-height: 58px;
+  min-height: 54px;
   border-bottom: 1px solid var(--line);
   padding: 8px 14px;
 }
 
 .ftp-path-field {
-  gap: 6px;
-}
-
-.ftp-path-field span {
-  color: var(--muted);
+  position: relative;
+  gap: 0;
 }
 
 .ftp-path-field input {
   border-color: var(--line);
   background: #ffffff;
   color: var(--ink);
+}
+
+.ftp-path-field-local input {
+  padding-right: 42px;
+}
+
+.ftp-path-picker-button {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  min-width: 30px;
+  min-height: 30px;
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .ftp-pane .button.outline {
@@ -1943,6 +2029,13 @@ textarea:focus {
   line-height: 20px;
 }
 
+.project-section-note {
+  margin: -4px 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
 .project-fields {
   gap: 12px;
 }
@@ -2102,6 +2195,41 @@ textarea:focus {
   line-height: 16px;
 }
 
+.template-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.template-item-meta-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.template-badge.own {
+  border-color: rgba(24, 24, 27, 0.12);
+  background: rgba(24, 24, 27, 0.05);
+  color: #3f3f46;
+}
+
 .template-item-icon,
 .template-item-action {
   display: grid;
@@ -2173,6 +2301,16 @@ textarea:focus {
   line-height: 20px;
 }
 
+.template-editor-note {
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.05);
+  color: #1e3a8a;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
 .template-variable-tags {
   display: flex;
   flex-wrap: wrap;
@@ -2196,6 +2334,24 @@ textarea:focus {
   gap: 8px;
   border-top: 1px solid var(--line);
   padding: 14px 18px;
+}
+
+.variable-prompt-list {
+  display: grid;
+  gap: 12px;
+}
+
+.variable-prompt-row {
+  display: grid;
+  gap: 6px;
+}
+
+.variable-prompt-key {
+  color: var(--ink);
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
 }
 
 .setup-card {
@@ -2779,11 +2935,82 @@ textarea:focus {
   line-height: 22px;
 }
 
+.app-update-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-update-pill {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  background: #f4f4f5;
+  color: #334155;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.app-update-pill[data-status='checking'],
+.app-update-pill[data-status='available'],
+.app-update-pill[data-status='downloading'] {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+}
+
+.app-update-pill[data-status='downloaded'],
+.app-update-pill[data-status='up-to-date'] {
+  border-color: rgba(22, 163, 74, 0.22);
+  background: rgba(22, 163, 74, 0.08);
+  color: #166534;
+}
+
+.app-update-pill[data-status='portable'],
+.app-update-pill[data-status='development'],
+.app-update-pill[data-status='unsupported'],
+.app-update-pill[data-status='unconfigured'] {
+  border-color: rgba(217, 119, 6, 0.18);
+  background: rgba(217, 119, 6, 0.08);
+  color: #b45309;
+}
+
+.app-update-pill[data-status='error'] {
+  border-color: rgba(220, 38, 38, 0.18);
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+}
+
 .settings-muted {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
   line-height: 20px;
+}
+
+.app-update-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-update-meta span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border-radius: 999px;
+  background: #f4f4f5;
+  color: var(--muted);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
 }
 
 .settings-card-actions,

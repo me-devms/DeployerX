@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('deployerx', {
   getAppMetadata: () => ipcRenderer.invoke('app:metadata'),
+  getUpdateState: () => ipcRenderer.invoke('app:update-state'),
+  checkForUpdates: () => ipcRenderer.invoke('app:update-check'),
+  openReleasesPage: () => ipcRenderer.invoke('app:update-open-releases'),
+  installUpdate: () => ipcRenderer.invoke('app:update-install'),
   getSetup: () => ipcRenderer.invoke('setup:get'),
   setSetupMode: (mode) => ipcRenderer.invoke('setup:setMode', mode),
   selectFirebaseConfig: () => ipcRenderer.invoke('setup:select-firebase-config'),
@@ -36,6 +40,7 @@ contextBridge.exposeInMainWorld('deployerx', {
   selectUpload: () => ipcRenderer.invoke('dialog:select-upload'),
   selectFtpUpload: () => ipcRenderer.invoke('dialog:select-ftp-upload'),
   selectFtpDownload: (defaultName) => ipcRenderer.invoke('dialog:select-ftp-download', defaultName),
+  selectLocalFolder: (defaultPath) => ipcRenderer.invoke('dialog:select-local-folder', defaultPath),
   getPathForDroppedFile: (file) => {
     try {
       return file?.path || webUtils.getPathForFile(file) || '';
@@ -46,10 +51,16 @@ contextBridge.exposeInMainWorld('deployerx', {
   runDeployment: (payload) => ipcRenderer.invoke('deployment:run', payload),
   stopDeployment: (runId) => ipcRenderer.invoke('deployment:stop', runId),
   startTerminal: (payload) => ipcRenderer.invoke('terminal:start', payload),
+  getTerminalHomeDirectory: (sessionId) => ipcRenderer.invoke('terminal:home-directory', sessionId),
+  uploadTerminalFile: (payload) => ipcRenderer.invoke('terminal:upload', payload),
+  cancelTerminalUpload: (sessionId) => ipcRenderer.invoke('terminal:upload-cancel', sessionId),
   sendTerminalInput: (payload) => ipcRenderer.send('terminal:input:send', payload),
   resizeTerminal: (payload) => ipcRenderer.invoke('terminal:resize', payload),
   stopTerminal: (sessionId) => ipcRenderer.invoke('terminal:stop', sessionId),
   localList: (payload) => ipcRenderer.invoke('local:list', payload),
+  getProjectLocalSettings: (projectId) => ipcRenderer.invoke('project-local-settings:get', projectId),
+  setProjectLocalSettings: (projectId, settings) => ipcRenderer.invoke('project-local-settings:set', projectId, settings),
+  deleteProjectLocalSettings: (projectId) => ipcRenderer.invoke('project-local-settings:delete', projectId),
   localOpen: (payload) => ipcRenderer.invoke('local:open', payload),
   localOpenWith: (payload) => ipcRenderer.invoke('local:open-with', payload),
   localMkdir: (payload) => ipcRenderer.invoke('local:mkdir', payload),
@@ -72,6 +83,11 @@ contextBridge.exposeInMainWorld('deployerx', {
     const handler = (_event, message) => callback(message);
     ipcRenderer.on('ui:confirm-request', handler);
     return () => ipcRenderer.removeListener('ui:confirm-request', handler);
+  },
+  onAppUpdateEvent: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('app:update-event', handler);
+    return () => ipcRenderer.removeListener('app:update-event', handler);
   },
   onDeploymentEvent: (callback) => {
     const handler = (_event, message) => callback(message);

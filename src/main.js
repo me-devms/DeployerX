@@ -4,22 +4,618 @@ const fs = require('fs/promises');
 const crypto = require('crypto');
 const http = require('http');
 const { execFile } = require('child_process');
+const { autoUpdater } = require('electron-updater');
 const { Client } = require('ssh2');
+const appPackage = require('../package.json');
 
 const STORE_FILE = 'projects.json';
 const SETTINGS_FILE = 'settings.json';
 const APP_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'deployerx-logo.ico' : 'deployerx-logo.png');
+const AUTO_UPDATE_CHECK_DELAY_MS = 12000;
+const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 let mainWindow;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
 const activeFtpSessions = new Map();
-const TEMPLATE_CATEGORIES = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance'];
+const activeTerminalUploads = new Map();
+const TEMPLATE_CATEGORIES = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance', 'Security', 'Hosting', 'Web Server', 'Cache', 'Control Panel', 'PaaS'];
 const FIREBASE_AUTH_URL = 'https://identitytoolkit.googleapis.com/v1';
 const FIREBASE_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
 let settingsCache = null;
 let firebaseConfigCache = null;
 let cloudUnlock = { teamId: '', key: null };
 const pendingConfirmations = new Map();
+const BUILT_IN_TEMPLATE_PREFIX = 'builtin:';
+const githubReleaseSource = resolveGitHubReleaseSource();
+const updateState = createDefaultUpdateState();
+let updaterInitialized = false;
+let autoUpdateTimer = null;
+const BUILT_IN_TEMPLATES = [
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}ubuntu-host-bootstrap`,
+    name: 'Ubuntu Direct Host Bootstrap',
+    category: 'Server',
+    commands: [
+      'export DEBIAN_FRONTEND=noninteractive',
+      'sudo apt-get update -y',
+      'sudo apt-get upgrade -y',
+      'sudo apt-get install -y curl git unzip ufw fail2ban software-properties-common',
+      'sudo timedatectl set-timezone {{timezone}}',
+      'sudo adduser --disabled-password --gecos "" {{deploy_user}} || true',
+      'sudo usermod -aG sudo {{deploy_user}}',
+      'sudo mkdir -p /home/{{deploy_user}}/.ssh',
+      'sudo cp /root/.ssh/authorized_keys /home/{{deploy_user}}/.ssh/authorized_keys || true',
+      'sudo chown -R {{deploy_user}}:{{deploy_user}} /home/{{deploy_user}}/.ssh',
+      'sudo chmod 700 /home/{{deploy_user}}/.ssh',
+      'sudo chmod 600 /home/{{deploy_user}}/.ssh/authorized_keys || true',
+      'sudo ufw allow OpenSSH',
+      'sudo ufw allow {{app_port}}/tcp',
+      'sudo ufw --force enable',
+      'sudo systemctl enable fail2ban',
+      'sudo systemctl restart fail2ban'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}nodejs-pm2-nginx`,
+    name: 'Node.js 22 + PM2 Direct Deploy',
+    category: 'Node.js',
+    commands: [
+      'curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -',
+      'sudo apt-get install -y nodejs',
+      'sudo npm install -g pm2',
+      'cd {{app_path}}',
+      'git fetch --all --prune',
+      'git checkout {{branch}}',
+      'git pull origin {{branch}}',
+      'npm ci --omit=dev || npm install --omit=dev',
+      'npm run migrate || true',
+      'pm2 describe {{pm2_name}} >/dev/null 2>&1 && pm2 reload {{pm2_name}} --update-env || pm2 start {{start_command}} --name {{pm2_name}}',
+      'pm2 save'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}laravel-queue-nginx`,
+    name: 'Laravel Deploy + Queue Restart',
+    category: 'Laravel',
+    commands: [
+      'cd {{app_path}}',
+      'git fetch --all --prune',
+      'git checkout {{branch}}',
+      'git pull origin {{branch}}',
+      'composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev',
+      'php artisan down || true',
+      'php artisan migrate --force',
+      'php artisan config:cache',
+      'php artisan route:cache',
+      'php artisan view:cache',
+      'php artisan queue:restart',
+      'php artisan up',
+      'sudo systemctl reload php{{php_version}}-fpm',
+      'sudo systemctl reload nginx'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}docker-engine-compose-install`,
+    name: 'Docker Engine + Compose Install (Ubuntu)',
+    category: 'Docker',
+    commands: [
+      'sudo apt-get update -y',
+      'sudo apt-get install -y ca-certificates curl',
+      'sudo install -m 0755 -d /etc/apt/keyrings',
+      'sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc',
+      'sudo chmod a+r /etc/apt/keyrings/docker.asc',
+      'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo ${UBUNTU_CODENAME:-$VERSION_CODENAME}) stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null',
+      'sudo apt-get update -y',
+      'sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin',
+      'sudo usermod -aG docker {{ssh_username}}',
+      'docker --version',
+      'docker compose version'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}docker-compose-refresh`,
+    name: 'Docker Compose Pull + Recreate',
+    category: 'Docker',
+    commands: [
+      'cd {{app_path}}',
+      'docker compose pull',
+      'docker compose up -d --remove-orphans',
+      'docker image prune -f'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}postgres-backup-rotate`,
+    name: 'PostgreSQL Backup + Retention',
+    category: 'Database',
+    commands: [
+      'mkdir -p {{backup_dir}}',
+      'export PGPASSWORD="{{db_password}}"',
+      'pg_dump -h {{db_host}} -p {{db_port}} -U {{db_user}} -d {{db_name}} -F c -b -v -f {{backup_dir}}/{{db_name}}-$(date +%F-%H%M).dump',
+      'find {{backup_dir}} -type f -name "*.dump" -mtime +{{retention_days}} -delete'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}mysql-backup-rotate`,
+    name: 'MySQL Backup + Retention',
+    category: 'Database',
+    commands: [
+      'mkdir -p {{backup_dir}}',
+      'mysqldump -u {{db_user}} -p\'{{db_password}}\' {{db_name}} > {{backup_dir}}/{{db_name}}-$(date +%F-%H%M).sql',
+      'find {{backup_dir}} -type f -name "*.sql" -mtime +{{retention_days}} -delete'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}mysql-create-db-user`,
+    name: 'MySQL Create Database + User',
+    category: 'Database',
+    commands: [
+      'sudo mysql -e "CREATE DATABASE IF NOT EXISTS \\`{{db_name}}\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"',
+      'sudo mysql -e "CREATE USER IF NOT EXISTS \'{{db_user}}\'@\'localhost\' IDENTIFIED BY \'{{db_password}}\';"',
+      'sudo mysql -e "GRANT ALL PRIVILEGES ON \\`{{db_name}}\\`.* TO \'{{db_user}}\'@\'localhost\'; FLUSH PRIVILEGES;"'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}postgres-create-db-user`,
+    name: 'PostgreSQL Create Database + User',
+    category: 'Database',
+    commands: [
+      'sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = \'{{db_user}}\'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER {{db_user}} WITH PASSWORD \'{{db_password}}\';"',
+      'sudo -u postgres psql -lqt | cut -d \\| -f 1 | grep -qw {{db_name}} || sudo -u postgres createdb -O {{db_user}} {{db_name}}'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}caddy-install`,
+    name: 'Caddy Install (Ubuntu/Debian)',
+    category: 'Web Server',
+    commands: [
+      'sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl',
+      'curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg',
+      'curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt | sudo tee /etc/apt/sources.list.d/caddy-stable.list',
+      'sudo chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg',
+      'sudo chmod o+r /etc/apt/sources.list.d/caddy-stable.list',
+      'sudo apt update',
+      'sudo apt install -y caddy'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}caddy-reverse-proxy`,
+    name: 'Caddy Reverse Proxy App',
+    category: 'Web Server',
+    commands: [
+      'echo "{{domain}} { reverse_proxy 127.0.0.1:{{upstream_port}} }" | sudo tee /etc/caddy/Caddyfile',
+      'sudo systemctl reload caddy'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}redis-install`,
+    name: 'Redis Install (Official Repo)',
+    category: 'Cache',
+    commands: [
+      'sudo apt-get install -y lsb-release curl gpg',
+      'curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg',
+      'sudo chmod 644 /usr/share/keyrings/redis-archive-keyring.gpg',
+      'echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list',
+      'sudo apt-get update',
+      'sudo apt-get install -y redis',
+      'sudo systemctl enable redis-server',
+      'sudo systemctl start redis-server'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}redis-local-hardening`,
+    name: 'Redis Local Hardening',
+    category: 'Cache',
+    commands: [
+      'sudo sed -i "s/^bind .*/bind 127.0.0.1 ::1/" /etc/redis/redis.conf || true',
+      'sudo sed -i "s/^protected-mode .*/protected-mode yes/" /etc/redis/redis.conf || true',
+      'sudo systemctl restart redis-server'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}letsencrypt-nginx`,
+    name: "Let's Encrypt SSL Install (Nginx)",
+    category: 'Security',
+    commands: [
+      'sudo apt-get update -y',
+      'sudo apt-get install -y certbot python3-certbot-nginx',
+      'sudo certbot --nginx -d {{domain}} --non-interactive --agree-tos -m {{email}} --redirect',
+      'sudo systemctl reload nginx'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}certbot-renew-dry-run`,
+    name: "Let's Encrypt Renew Dry Run",
+    category: 'Security',
+    commands: ['sudo certbot renew --dry-run']
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}wordpress-softaculous-prep`,
+    name: 'Softaculous / WordPress Host Prep',
+    category: 'Hosting',
+    commands: [
+      'sudo apt-get update -y',
+      'sudo apt-get install -y nginx mysql-server php-fpm php-mysql php-curl php-xml php-mbstring php-zip unzip rsync',
+      'sudo mkdir -p {{site_root}}',
+      'sudo chown -R {{ssh_username}}:{{ssh_username}} {{site_root}}',
+      'curl -fsSL https://wordpress.org/latest.zip -o /tmp/wordpress.zip',
+      'unzip -o /tmp/wordpress.zip -d /tmp',
+      'rsync -av /tmp/wordpress/ {{site_root}}/',
+      'sudo systemctl enable nginx',
+      'sudo systemctl enable mysql',
+      'sudo systemctl restart nginx',
+      'sudo systemctl restart mysql'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}softaculous-wordpress-cli`,
+    name: 'Softaculous CLI Install WordPress',
+    category: 'Hosting',
+    commands: [
+      'php {{softaculous_php_bin}} {{softaculous_cli_path}} --install --panel_user=\'{{panel_user}}\' --panel_pass=\'{{panel_pass}}\' --soft=26 --softdirectory=\'{{soft_directory}}\' --admin_username=\'{{admin_username}}\' --admin_pass=\'{{admin_password}}\' --site_name=\'{{site_name}}\' --emailto=\'{{email}}\''
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}cloudpanel-install`,
+    name: 'CloudPanel Install',
+    category: 'Control Panel',
+    commands: [
+      'sudo apt update -y',
+      'sudo apt -y upgrade',
+      'sudo apt -y install curl wget sudo',
+      'curl -sS https://installer.cloudpanel.io/ce/v2/install.sh -o install.sh',
+      'echo "6eac061df80f08b75224fcd7fce2f115e201696d8a6122e31abf7259a813b462 install.sh" | sha256sum -c',
+      'sudo DB_ENGINE={{cloudpanel_db_engine}} bash install.sh',
+      'echo "Open https://$(hostname -I | awk \'{print $1}\'):8443 quickly to create the CloudPanel admin user."'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}hestiacp-install`,
+    name: 'HestiaCP Install (Interactive)',
+    category: 'Control Panel',
+    commands: [
+      'sudo apt-get update',
+      'sudo apt-get install -y ca-certificates wget',
+      'wget https://raw.githubusercontent.com/hestiacp/hestiacp/release/install/hst-install.sh',
+      'sudo bash hst-install.sh'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}cwp-install-el9`,
+    name: 'CWP Install (EL9 / AlmaLinux 9)',
+    category: 'Control Panel',
+    commands: [
+      'sudo hostnamectl set-hostname {{server_hostname}}',
+      'sudo dnf install epel-release -y',
+      'sudo dnf -y install wget',
+      'sudo dnf -y update',
+      'echo "CWP official docs recommend a fresh OS and a reboot after update before installation. Continue only if this server is clean."',
+      'cd /usr/local/src',
+      'sudo wget http://centos-webpanel.com/cwp-el9-latest',
+      'sudo sh cwp-el9-latest -r yes',
+      'echo "After install, login at http://$(hostname -I | awk \'{print $1}\'):2030/ with root and the server root password."'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}coolify-install`,
+    name: 'Coolify Install',
+    category: 'PaaS',
+    commands: [
+      'curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash',
+      'echo "Open http://$(hostname -I | awk \'{print $1}\'):8000 and create the admin account immediately."'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}dokploy-install`,
+    name: 'Dokploy Install',
+    category: 'PaaS',
+    commands: [
+      'curl -sSL https://dokploy.com/install.sh | sh',
+      'echo "Open http://$(hostname -I | awk \'{print $1}\'):3000 to finish Dokploy setup."'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}dokku-install`,
+    name: 'Dokku Install',
+    category: 'PaaS',
+    commands: [
+      'wget -NP . https://dokku.com/install/v0.38.5/bootstrap.sh',
+      'sudo DOKKU_TAG=v0.38.5 bash bootstrap.sh',
+      'cat ~/.ssh/authorized_keys | sudo dokku ssh-keys:add admin || true',
+      'sudo dokku domains:set-global {{dokku_domain}}'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}caprover-install`,
+    name: 'CapRover Install',
+    category: 'PaaS',
+    commands: [
+      'command -v docker >/dev/null 2>&1 && docker run -d --restart unless-stopped --name captain-captain -p 80:80 -p 443:443 -p 3000:3000 -e ACCEPTED_TERMS=true -v /var/run/docker.sock:/var/run/docker.sock -v /captain:/captain caprover/caprover || echo "Install Docker first with the Docker Engine + Compose template."',
+      'echo "Login at http://$(hostname -I | awk \'{print $1}\'):3000 with the default password captain42, then complete CapRover server setup."'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}server-hardening-basics`,
+    name: 'Server Hardening Basics',
+    category: 'Security',
+    commands: [
+      'sudo apt-get update -y',
+      'sudo apt-get install -y fail2ban unattended-upgrades',
+      'sudo sed -i \'s/^#*PasswordAuthentication .*/PasswordAuthentication no/\' /etc/ssh/sshd_config',
+      'sudo sed -i \'s/^#*PermitRootLogin .*/PermitRootLogin prohibit-password/\' /etc/ssh/sshd_config',
+      'sudo systemctl restart ssh || sudo systemctl restart sshd',
+      'sudo dpkg-reconfigure -f noninteractive unattended-upgrades',
+      'sudo systemctl enable fail2ban',
+      'sudo systemctl restart fail2ban'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}ufw-web-profile`,
+    name: 'UFW Web Profile',
+    category: 'Security',
+    commands: [
+      'sudo ufw allow OpenSSH',
+      'sudo ufw allow 80/tcp',
+      'sudo ufw allow 443/tcp',
+      'sudo ufw --force enable',
+      'sudo ufw status'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}swapfile-setup`,
+    name: 'Swapfile Setup',
+    category: 'Server',
+    commands: [
+      'sudo fallocate -l {{swap_size}} /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count={{swap_size_mb}}',
+      'sudo chmod 600 /swapfile',
+      'sudo mkswap /swapfile',
+      'sudo swapon /swapfile',
+      'grep -q "^/swapfile " /etc/fstab || echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab',
+      'swapon --show'
+    ]
+  },
+  {
+    id: `${BUILT_IN_TEMPLATE_PREFIX}maintenance-cleanup`,
+    name: 'Maintenance Cleanup + Health Check',
+    category: 'Maintenance',
+    commands: [
+      'df -h',
+      'free -m',
+      'sudo apt-get autoremove -y',
+      'sudo apt-get autoclean -y',
+      'sudo journalctl --vacuum-time={{journal_retention}}',
+      'sudo systemctl --failed',
+      'uptime'
+    ]
+  }
+];
+
+function resolveGitHubReleaseSource(repository = appPackage.repository) {
+  const rawUrl = typeof repository === 'string' ? repository : repository?.url;
+  const normalized = String(rawUrl || '')
+    .trim()
+    .replace(/^git\+/, '')
+    .replace(/\.git$/i, '');
+  const match = normalized.match(/github\.com[/:]([^/]+)\/([^/]+)$/i);
+  if (!match) return null;
+  const owner = match[1];
+  const repo = match[2];
+  return {
+    owner,
+    repo,
+    releasesUrl: `https://github.com/${owner}/${repo}/releases`
+  };
+}
+
+function createDefaultUpdateState() {
+  return {
+    enabled: false,
+    status: 'idle',
+    currentVersion: appPackage.version || '0.0.0',
+    availableVersion: '',
+    downloadedVersion: '',
+    releaseName: '',
+    releaseDate: '',
+    downloadPercent: 0,
+    lastCheckedAt: '',
+    releasePageUrl: githubReleaseSource?.releasesUrl || '',
+    message: '',
+    error: ''
+  };
+}
+
+function publicUpdateState() {
+  const status = updateState.status || 'idle';
+  return {
+    ...updateState,
+    currentVersion: app.getVersion(),
+    releasePageUrl: githubReleaseSource?.releasesUrl || '',
+    canCheck: Boolean(updateState.enabled) && !['checking', 'downloading'].includes(status),
+    canInstall: status === 'downloaded'
+  };
+}
+
+function sendUpdateStateToRenderer() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('app:update-event', publicUpdateState());
+}
+
+function syncUpdateState(nextState = {}, notify = true) {
+  Object.assign(updateState, nextState, {
+    currentVersion: app.getVersion(),
+    releasePageUrl: githubReleaseSource?.releasesUrl || ''
+  });
+  if (notify) sendUpdateStateToRenderer();
+  return publicUpdateState();
+}
+
+function isPortableWindowsBuild() {
+  return process.platform === 'win32' && Boolean(process.env.PORTABLE_EXECUTABLE_FILE || process.env.PORTABLE_EXECUTABLE_DIR);
+}
+
+function markUpdaterUnavailable(status, message) {
+  return syncUpdateState({
+    enabled: false,
+    status,
+    availableVersion: '',
+    downloadedVersion: '',
+    releaseName: '',
+    releaseDate: '',
+    downloadPercent: 0,
+    message,
+    error: ''
+  });
+}
+
+async function checkForAppUpdates({ manual = false } = {}) {
+  if (!updaterInitialized) initializeAutoUpdater();
+  if (!updateState.enabled) return publicUpdateState();
+  if (['checking', 'downloading'].includes(updateState.status)) return publicUpdateState();
+  try {
+    if (manual) {
+      syncUpdateState({
+        error: '',
+        message: 'Checking GitHub releases for updates...'
+      });
+    }
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    syncUpdateState({
+      status: 'error',
+      lastCheckedAt: new Date().toISOString(),
+      downloadPercent: 0,
+      message: 'Could not check GitHub releases.',
+      error: error?.message || String(error || 'Unknown error')
+    });
+  }
+  return publicUpdateState();
+}
+
+function scheduleAutoUpdateChecks() {
+  if (autoUpdateTimer) clearInterval(autoUpdateTimer);
+  setTimeout(() => {
+    checkForAppUpdates().catch(() => {});
+    autoUpdateTimer = setInterval(() => {
+      checkForAppUpdates().catch(() => {});
+    }, AUTO_UPDATE_INTERVAL_MS);
+  }, AUTO_UPDATE_CHECK_DELAY_MS);
+}
+
+function initializeAutoUpdater() {
+  if (updaterInitialized) {
+    sendUpdateStateToRenderer();
+    return;
+  }
+  updaterInitialized = true;
+
+  if (!githubReleaseSource) {
+    markUpdaterUnavailable('unconfigured', 'GitHub release tracking is not configured for this app yet.');
+    return;
+  }
+
+  if (!app.isPackaged) {
+    markUpdaterUnavailable('development', 'Auto updates are available in packaged builds. Use a packaged setup build to test release tracking.');
+    return;
+  }
+
+  if (process.platform !== 'win32') {
+    markUpdaterUnavailable('unsupported', 'Automatic updates are enabled for the Windows setup build only.');
+    return;
+  }
+
+  if (isPortableWindowsBuild()) {
+    markUpdaterUnavailable('portable', 'Portable builds cannot install updates automatically. Open GitHub releases to download the latest setup build.');
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    syncUpdateState({
+      enabled: true,
+      status: 'checking',
+      availableVersion: '',
+      downloadedVersion: '',
+      downloadPercent: 0,
+      lastCheckedAt: new Date().toISOString(),
+      message: 'Checking GitHub releases for updates...',
+      error: ''
+    });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    syncUpdateState({
+      enabled: true,
+      status: 'available',
+      availableVersion: info?.version || '',
+      downloadedVersion: '',
+      releaseName: info?.releaseName || '',
+      releaseDate: info?.releaseDate || '',
+      downloadPercent: 0,
+      lastCheckedAt: new Date().toISOString(),
+      message: `Update ${info?.version || 'available'} found. Downloading now...`,
+      error: ''
+    });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    syncUpdateState({
+      enabled: true,
+      status: 'downloading',
+      downloadPercent: Number(progress?.percent || 0),
+      message: `Downloading version ${updateState.availableVersion || 'update'}...`,
+      error: ''
+    });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    syncUpdateState({
+      enabled: true,
+      status: 'up-to-date',
+      availableVersion: '',
+      downloadedVersion: '',
+      releaseName: '',
+      releaseDate: '',
+      downloadPercent: 0,
+      lastCheckedAt: new Date().toISOString(),
+      message: 'You are already on the latest published release.',
+      error: ''
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    syncUpdateState({
+      enabled: true,
+      status: 'downloaded',
+      downloadedVersion: info?.version || updateState.availableVersion || '',
+      releaseName: info?.releaseName || updateState.releaseName || '',
+      releaseDate: info?.releaseDate || updateState.releaseDate || '',
+      downloadPercent: 100,
+      lastCheckedAt: new Date().toISOString(),
+      message: `Version ${info?.version || updateState.availableVersion || 'update'} is ready. Restart DeployerX to install it.`,
+      error: ''
+    });
+  });
+
+  autoUpdater.on('error', (error) => {
+    syncUpdateState({
+      enabled: true,
+      status: 'error',
+      downloadPercent: 0,
+      lastCheckedAt: new Date().toISOString(),
+      message: 'Could not reach the GitHub release feed.',
+      error: error?.message || String(error || 'Unknown error')
+    });
+  });
+
+  syncUpdateState({
+    enabled: true,
+    status: 'idle',
+    message: 'GitHub release tracking is enabled for this installed build.',
+    error: ''
+  });
+  scheduleAutoUpdateChecks();
+}
 
 function requestInAppConfirmation({ message, detail = '', confirmLabel = 'Confirm' }) {
   if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(false);
@@ -71,8 +667,44 @@ function normalizeStoredTemplate(template = {}) {
     ...template,
     category: normalizeTemplateCategory(template.category),
     commands,
-    variables
+    variables,
+    builtIn: Boolean(template.builtIn),
+    readOnly: Boolean(template.readOnly),
+    source: template.source ? String(template.source) : template.builtIn ? 'library' : 'user'
   };
+}
+
+function buildBuiltInTemplates() {
+  return BUILT_IN_TEMPLATES.map((template) =>
+    normalizeStoredTemplate({
+      ...template,
+      builtIn: true,
+      readOnly: true,
+      source: 'library',
+      updatedAt: '2026-05-16T00:00:00.000Z'
+    })
+  );
+}
+
+function mergeBuiltInTemplates(templates = []) {
+  const items = (Array.isArray(templates) ? templates : [])
+    .map(normalizeStoredTemplate)
+    .filter((template) => !template.builtIn && !String(template.id || '').startsWith(BUILT_IN_TEMPLATE_PREFIX));
+
+  return [...buildBuiltInTemplates(), ...items];
+}
+
+function stripBuiltInTemplates(templates = []) {
+  return (Array.isArray(templates) ? templates : [])
+    .map(normalizeStoredTemplate)
+    .filter((template) => !template.builtIn && !String(template.id || '').startsWith(BUILT_IN_TEMPLATE_PREFIX))
+    .map((template) => {
+      const copy = { ...template };
+      delete copy.builtIn;
+      delete copy.readOnly;
+      if (copy.source === 'user') delete copy.source;
+      return copy;
+    });
 }
 
 function getStorePath() {
@@ -92,8 +724,65 @@ function defaultSettings() {
     setupComplete: false,
     mode: '',
     activeTeamId: '',
-    auth: null
+    auth: null,
+    projectLocalSettings: {}
   };
+}
+
+function normalizeProjectLocalSettings(projectLocalSettings = {}) {
+  return {
+    ftpLocalPath: String(projectLocalSettings?.ftpLocalPath || '').trim()
+  };
+}
+
+function projectLocalSettingsMap(settings = {}) {
+  if (!settings?.projectLocalSettings || typeof settings.projectLocalSettings !== 'object') return {};
+
+  return Object.fromEntries(
+    Object.entries(settings.projectLocalSettings).map(([projectId, value]) => [
+      String(projectId || '').trim(),
+      normalizeProjectLocalSettings(value)
+    ])
+  );
+}
+
+async function getProjectLocalSettings(projectId) {
+  const id = String(projectId || '').trim();
+  if (!id) return normalizeProjectLocalSettings();
+  const settings = await readSettings();
+  return normalizeProjectLocalSettings(projectLocalSettingsMap(settings)[id]);
+}
+
+async function setProjectLocalSettings(projectId, nextSettings = {}) {
+  const id = String(projectId || '').trim();
+  if (!id) return normalizeProjectLocalSettings();
+  const settings = await readSettings();
+  const projectLocalSettings = projectLocalSettingsMap(settings);
+  const normalized = normalizeProjectLocalSettings(nextSettings);
+
+  if (normalized.ftpLocalPath) projectLocalSettings[id] = normalized;
+  else delete projectLocalSettings[id];
+
+  await writeSettings({
+    ...settings,
+    projectLocalSettings
+  });
+
+  return normalizeProjectLocalSettings(projectLocalSettings[id]);
+}
+
+async function deleteProjectLocalSettings(projectId) {
+  const id = String(projectId || '').trim();
+  if (!id) return false;
+  const settings = await readSettings();
+  const projectLocalSettings = projectLocalSettingsMap(settings);
+  if (!Object.prototype.hasOwnProperty.call(projectLocalSettings, id)) return false;
+  delete projectLocalSettings[id];
+  await writeSettings({
+    ...settings,
+    projectLocalSettings
+  });
+  return true;
 }
 
 async function readSettings() {
@@ -162,7 +851,11 @@ async function readStore() {
 }
 
 async function writeStore(data) {
-  await fs.writeFile(getStorePath(), JSON.stringify(data, null, 2));
+  const payload = {
+    ...data,
+    templates: stripBuiltInTemplates(data.templates)
+  };
+  await fs.writeFile(getStorePath(), JSON.stringify(payload, null, 2));
 }
 
 function nowIso() {
@@ -1033,7 +1726,7 @@ async function readCloudStore() {
 async function writeCloudStore(data) {
   const teamId = await ensureActiveTeamUnlocked();
   const projects = Array.isArray(data.projects) ? data.projects : [];
-  const templates = Array.isArray(data.templates) ? data.templates : [];
+  const templates = stripBuiltInTemplates(Array.isArray(data.templates) ? data.templates : []);
   const existingProjects = await listCollection(['teams', teamId, 'projects']);
   const existingTemplates = await listCollection(['teams', teamId, 'templates']);
   const nextProjectIds = new Set(projects.map((project) => String(project.id)));
@@ -1087,11 +1780,13 @@ async function deleteProjectFromCurrentStore(id) {
   if (settings.mode === 'cloud') {
     const teamId = await ensureActiveTeamUnlocked();
     await deleteDoc(['teams', teamId, 'projects', id]);
+    await deleteProjectLocalSettings(id);
     return;
   }
   const data = await readStore();
   data.projects = data.projects.filter((project) => project.id !== id);
   await writeStore(data);
+  await deleteProjectLocalSettings(id);
 }
 
 async function deleteTemplateFromCurrentStore(id) {
@@ -1279,6 +1974,9 @@ function createWindow() {
 
   mainWindow.setMenu(null);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.webContents.once('did-finish-load', () => {
+    sendUpdateStateToRenderer();
+  });
 }
 
 function toConnectionConfig(project) {
@@ -1295,6 +1993,37 @@ function toConnectionConfig(project) {
     if (ssh.passphrase) config.passphrase = ssh.passphrase;
   } else {
     config.password = ssh.password;
+  }
+
+  return config;
+}
+
+function toFtpConnectionConfig(project) {
+  const ssh = project.ssh || {};
+  const ftp = project.ftp || {};
+  const hasFtpKey = String(ftp.privateKey || '').trim() !== '';
+  const hasFtpPassword = String(ftp.password || '').trim() !== '';
+  const hasSshKey = String(ssh.privateKey || '').trim() !== '';
+  const hasSshPassword = String(ssh.password || '').trim() !== '';
+  let authType = ssh.authType || 'password';
+
+  if (ftp.authType === 'key') authType = hasFtpKey || hasSshKey ? 'key' : hasSshPassword ? 'password' : 'key';
+  else if (ftp.authType === 'password') authType = hasFtpPassword || hasSshPassword ? 'password' : hasSshKey ? 'key' : 'password';
+  else if (hasFtpKey) authType = 'key';
+  else if (hasFtpPassword) authType = 'password';
+
+  const config = {
+    host: ftp.host || ssh.host,
+    port: Number(ftp.port || ssh.port || 22),
+    username: ftp.username || ssh.username,
+    readyTimeout: Number(ssh.timeout || 20000)
+  };
+
+  if (authType === 'key') {
+    config.privateKey = ftp.privateKey || ssh.privateKey;
+    if (ftp.passphrase || ssh.passphrase) config.passphrase = ftp.passphrase || ssh.passphrase;
+  } else {
+    config.password = ftp.password || ssh.password;
   }
 
   return config;
@@ -1338,6 +2067,7 @@ function normalizeProjectImport(project) {
           .filter(Boolean)
       : [];
   const ssh = project?.ssh || {};
+  const ftp = project?.ftp || {};
 
   return {
     ...project,
@@ -1355,6 +2085,15 @@ function normalizeProjectImport(project) {
       privateKey: ssh.privateKey || '',
       passphrase: ssh.passphrase || '',
       timeout: Number(ssh.timeout || 20000)
+    },
+    ftp: {
+      host: ftp.host || '',
+      port: ftp.port === '' || ftp.port == null ? '' : Number(ftp.port || 22),
+      username: ftp.username || '',
+      authType: ftp.authType || '',
+      password: ftp.password || '',
+      privateKey: ftp.privateKey || '',
+      passphrase: ftp.passphrase || ''
     },
     updatedAt: new Date().toISOString()
   };
@@ -1665,6 +2404,42 @@ function resizeTerminal(sessionId, cols, rows) {
   return true;
 }
 
+function terminalSessionOrThrow(sessionId) {
+  const terminal = activeTerminals.get(sessionId);
+  if (!terminal?.connection) throw new Error('SSH session is not connected.');
+  return terminal;
+}
+
+function execOnTerminalConnection(connection, command) {
+  return new Promise((resolve, reject) => {
+    connection.exec(command, (error, stream) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      let stdout = '';
+      let stderr = '';
+      stream.on('data', (data) => {
+        stdout += data.toString();
+      });
+      if (stream.stderr) {
+        stream.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+      }
+      stream.on('close', (code) => {
+        if (code === 0) {
+          resolve({ stdout, stderr });
+          return;
+        }
+
+        reject(new Error(stderr.trim() || stdout.trim() || `Command exited with code ${code}.`));
+      });
+    });
+  });
+}
+
 function normalizeRemotePath(remotePath = '.') {
   const value = String(remotePath || '.').trim().replace(/\\/g, '/').replace(/\/+/g, '/');
   return value || '.';
@@ -1799,9 +2574,9 @@ function sftpReaddir(sftp, remotePath) {
   });
 }
 
-function sftpFastPut(sftp, localPath, remotePath) {
+function sftpFastPut(sftp, localPath, remotePath, options = {}) {
   return new Promise((resolve, reject) => {
-    sftp.fastPut(localPath, remotePath, (error) => {
+    sftp.fastPut(localPath, remotePath, options, (error) => {
       if (error) reject(error);
       else resolve();
     });
@@ -1952,7 +2727,7 @@ function connectFtp(project, sessionId) {
     connection.on('close', () => {
       activeFtpSessions.delete(sessionId);
     });
-    connection.connect(toConnectionConfig(project));
+    connection.connect(toFtpConnectionConfig(project));
   });
 }
 
@@ -1989,6 +2764,118 @@ async function uploadFtpFile(sessionId, localPath, remoteDirectory) {
   if (!fileName) throw new Error('Choose a local file to upload.');
   const remotePath = await uploadLocalPath(sftp, localPath, remoteDirectory || '.');
   return { remotePath };
+}
+
+async function readTerminalHomeDirectory(sessionId) {
+  const { connection } = terminalSessionOrThrow(sessionId);
+  const result = await execOnTerminalConnection(connection, 'pwd');
+  const currentPath = String(result.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .pop();
+
+  if (!currentPath) throw new Error('Could not determine the SSH home directory.');
+  return { path: normalizeRemotePath(currentPath) };
+}
+
+async function uploadTerminalFile(sessionId, localPath, remoteDirectory) {
+  const terminal = terminalSessionOrThrow(sessionId);
+  if (activeTerminalUploads.has(sessionId)) throw new Error('An upload is already in progress.');
+  const normalizedLocalPath = path.resolve(String(localPath || ''));
+  const fileName = path.basename(normalizedLocalPath);
+  if (!fileName) throw new Error('Choose a local file to upload.');
+
+  const stats = await fs.stat(normalizedLocalPath);
+  if (!stats.isFile()) throw new Error('Choose a file to upload.');
+
+  const remotePath = joinRemotePath(remoteDirectory || '.', fileName);
+  const uploadState = {
+    sessionId,
+    fileName,
+    remotePath,
+    canceled: false,
+    sftp: null
+  };
+  activeTerminalUploads.set(sessionId, uploadState);
+  emitTerminal(sessionId, 'upload-started', {
+    fileName,
+    remotePath,
+    totalBytes: stats.size
+  });
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      if (uploadState.sftp) {
+        try {
+          uploadState.sftp.end();
+        } catch {}
+      }
+      activeTerminalUploads.delete(sessionId);
+    };
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(result);
+    };
+
+    terminal.connection.sftp((error, sftp) => {
+      if (error) {
+        finish(error);
+        return;
+      }
+
+      uploadState.sftp = sftp;
+      if (uploadState.canceled) {
+        finish(new Error('Upload canceled.'));
+        return;
+      }
+
+      sftpFastPut(sftp, normalizedLocalPath, remotePath, {
+        step: (transferredBytes, _chunk, totalBytes) => {
+          const total = Number(totalBytes || stats.size || 0);
+          const transferred = Number(transferredBytes || 0);
+          emitTerminal(sessionId, 'upload-progress', {
+            fileName,
+            remotePath,
+            transferredBytes: transferred,
+            totalBytes: total,
+            percent: total > 0 ? Math.min(100, Math.round((transferred / total) * 100)) : 0
+          });
+        }
+      })
+        .then(() => {
+          if (uploadState.canceled) {
+            finish(new Error('Upload canceled.'));
+            return;
+          }
+          emitTerminal(sessionId, 'upload-complete', {
+            fileName,
+            remotePath,
+            totalBytes: stats.size
+          });
+          finish(null, { remotePath });
+        })
+        .catch((uploadError) => {
+          finish(uploadState.canceled ? new Error('Upload canceled.') : uploadError);
+        });
+    });
+  });
+}
+
+function cancelTerminalUpload(sessionId) {
+  const upload = activeTerminalUploads.get(sessionId);
+  if (!upload) return false;
+  upload.canceled = true;
+  if (upload.sftp) {
+    try {
+      upload.sftp.end();
+    } catch {}
+  }
+  return true;
 }
 
 async function downloadFtpFile(sessionId, remotePath, localPath) {
@@ -2080,6 +2967,7 @@ function stopDeployment(runId) {
 }
 
 function stopTerminal(sessionId) {
+  cancelTerminalUpload(sessionId);
   const terminal = activeTerminals.get(sessionId);
   if (!terminal) return false;
   if (terminal.stream) terminal.stream.close();
@@ -2096,6 +2984,9 @@ function emergencyStop() {
   for (const sessionId of [...activeTerminals.keys()]) {
     stopTerminal(sessionId);
   }
+  for (const sessionId of [...activeTerminalUploads.keys()]) {
+    cancelTerminalUpload(sessionId);
+  }
   for (const sessionId of [...activeFtpSessions.keys()]) {
     disconnectFtp(sessionId);
   }
@@ -2104,6 +2995,7 @@ function emergencyStop() {
 app.whenReady().then(async () => {
   await ensureStore();
   createWindow();
+  initializeAutoUpdater();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -2114,10 +3006,33 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+app.on('before-quit', () => {
+  if (autoUpdateTimer) clearInterval(autoUpdateTimer);
+});
+
 ipcMain.handle('app:metadata', async () => ({
   name: app.getName(),
-  version: app.getVersion()
+  version: app.getVersion(),
+  updates: publicUpdateState()
 }));
+
+ipcMain.handle('app:update-state', async () => publicUpdateState());
+
+ipcMain.handle('app:update-check', async () => checkForAppUpdates({ manual: true }));
+
+ipcMain.handle('app:update-open-releases', async () => {
+  if (!githubReleaseSource?.releasesUrl) return false;
+  await shell.openExternal(githubReleaseSource.releasesUrl);
+  return true;
+});
+
+ipcMain.handle('app:update-install', async () => {
+  if (updateState.status !== 'downloaded') {
+    throw new Error('There is no downloaded update ready to install yet.');
+  }
+  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  return true;
+});
 
 ipcMain.handle('setup:get', async () => {
   const settings = await readSettings();
@@ -2436,7 +3351,7 @@ ipcMain.handle('cloud:import-local', async () => {
   await ensureActiveTeamUnlocked();
   const localData = await readStore();
   if (!localData.projects.length && !localData.templates.length) {
-    return { projectCount: 0, templateCount: 0, projects: [], templates: [] };
+    return { projectCount: 0, templateCount: 0, projects: [], templates: buildBuiltInTemplates() };
   }
   await mergeLocalStoreIntoCloud(localData);
   const cloudData = await readCloudStore();
@@ -2444,11 +3359,17 @@ ipcMain.handle('cloud:import-local', async () => {
     projectCount: localData.projects.length,
     templateCount: localData.templates.length,
     projects: cloudData.projects,
-    templates: cloudData.templates
+    templates: mergeBuiltInTemplates(cloudData.templates)
   };
 });
 
-ipcMain.handle('projects:list', async () => readCurrentStore());
+ipcMain.handle('projects:list', async () => {
+  const data = await readCurrentStore();
+  return {
+    ...data,
+    templates: mergeBuiltInTemplates(data.templates)
+  };
+});
 
 ipcMain.handle('projects:save', async (_event, project) => {
   const settings = await readSettings();
@@ -2545,7 +3466,7 @@ ipcMain.handle('account:export', async () => {
     type: 'account',
     exportedAt: nowIso(),
     projects: data.projects || [],
-    templates: (data.templates || []).map(normalizeStoredTemplate)
+    templates: stripBuiltInTemplates(data.templates || []).map(normalizeStoredTemplate)
   };
 
   await fs.writeFile(result.filePath, JSON.stringify(payload, null, 2));
@@ -2573,7 +3494,7 @@ ipcMain.handle('account:import', async () => {
     'project'
   );
   const mergedTemplates = await mergeImportsByName(
-    Array.isArray(data.templates) ? data.templates.map(normalizeStoredTemplate) : [],
+    stripBuiltInTemplates(Array.isArray(data.templates) ? data.templates.map(normalizeStoredTemplate) : []),
     imported.templates,
     'template',
     normalizeStoredTemplate
@@ -2600,13 +3521,17 @@ ipcMain.handle('account:import', async () => {
 
 ipcMain.handle('templates:save', async (_event, template) => {
   const settings = await readSettings();
-  const id = template.id || `${Date.now()}`;
+  const incomingId = String(template.id || '');
+  const id = !incomingId || incomingId.startsWith(BUILT_IN_TEMPLATE_PREFIX) ? `${Date.now()}` : incomingId;
   const category = TEMPLATE_CATEGORIES.includes(String(template.category || '').trim()) ? String(template.category).trim() : '';
   if (!category) throw new Error('Template category is required.');
   const normalized = normalizeStoredTemplate({
     ...template,
     id,
     category,
+    builtIn: false,
+    readOnly: false,
+    source: 'user',
     updatedAt: new Date().toISOString()
   });
   if (settings.mode === 'cloud') {
@@ -2623,6 +3548,9 @@ ipcMain.handle('templates:save', async (_event, template) => {
 });
 
 ipcMain.handle('templates:delete', async (_event, id) => {
+  if (String(id || '').startsWith(BUILT_IN_TEMPLATE_PREFIX)) {
+    throw new Error('Built-in library templates cannot be deleted. Duplicate one to customize it.');
+  }
   await deleteTemplateFromCurrentStore(id);
   return true;
 });
@@ -2631,8 +3559,8 @@ ipcMain.handle('templates:export', async (_event, templateIds) => {
   const data = await readCurrentStore();
   const selectedIds = Array.isArray(templateIds) ? new Set(templateIds.map(String)) : null;
   const templates = selectedIds
-    ? (data.templates || []).filter((template) => selectedIds.has(String(template.id)))
-    : data.templates || [];
+    ? stripBuiltInTemplates((data.templates || []).filter((template) => selectedIds.has(String(template.id))))
+    : stripBuiltInTemplates(data.templates || []);
   const result = await dialog.showSaveDialog(mainWindow, {
     title: 'Export Command Templates',
     defaultPath: 'deployerx-command-templates.json',
@@ -2666,7 +3594,7 @@ ipcMain.handle('templates:import', async () => {
 
   const data = await readCurrentStore();
   const mergedTemplates = await mergeImportsByName(
-    Array.isArray(data.templates) ? data.templates.map(normalizeStoredTemplate) : [],
+    stripBuiltInTemplates(Array.isArray(data.templates) ? data.templates.map(normalizeStoredTemplate) : []),
     importedTemplates,
     'template',
     normalizeStoredTemplate
@@ -2714,6 +3642,17 @@ ipcMain.handle('dialog:select-ftp-upload', async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle('dialog:select-local-folder', async (_event, defaultPath = '') => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Local Folder',
+    defaultPath: String(defaultPath || '').trim() || undefined,
+    properties: ['openDirectory', 'createDirectory']
+  });
+
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
 ipcMain.handle('dialog:select-ftp-download', async (_event, defaultName = 'download') => {
   const result = await dialog.showSaveDialog(mainWindow, {
     title: 'Save FTP Download',
@@ -2738,6 +3677,14 @@ ipcMain.handle('terminal:start', async (_event, payload) => {
   return { sessionId };
 });
 
+ipcMain.handle('terminal:home-directory', async (_event, sessionId) => readTerminalHomeDirectory(sessionId));
+
+ipcMain.handle('terminal:upload', async (_event, payload) =>
+  uploadTerminalFile(payload.sessionId, payload.localPath, payload.remoteDirectory)
+);
+
+ipcMain.handle('terminal:upload-cancel', async (_event, sessionId) => cancelTerminalUpload(sessionId));
+
 ipcMain.handle('terminal:input', async (_event, payload) => {
   const terminal = activeTerminals.get(payload.sessionId);
   if (!terminal || !terminal.stream) return false;
@@ -2756,6 +3703,14 @@ ipcMain.handle('terminal:resize', async (_event, payload) => resizeTerminal(payl
 ipcMain.handle('terminal:stop', async (_event, sessionId) => stopTerminal(sessionId));
 
 ipcMain.handle('local:list', async (_event, payload = {}) => listLocalDirectory(payload.path || app.getPath('home')));
+
+ipcMain.handle('project-local-settings:get', async (_event, projectId) => getProjectLocalSettings(projectId));
+
+ipcMain.handle('project-local-settings:set', async (_event, projectId, payload = {}) =>
+  setProjectLocalSettings(projectId, payload)
+);
+
+ipcMain.handle('project-local-settings:delete', async (_event, projectId) => deleteProjectLocalSettings(projectId));
 
 ipcMain.handle('local:open', async (_event, payload = {}) => openLocalEntry(payload.entry));
 

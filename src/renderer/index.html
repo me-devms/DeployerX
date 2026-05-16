@@ -347,6 +347,35 @@
             </section>
 
             <aside class="script-rail">
+              <section id="sshUploadPanel" class="script-panel ssh-upload-panel hidden">
+                <div class="section-heading compact">
+                  <h2>Upload file</h2>
+                  <p>Upload files to the current SSH terminal path.</p>
+                </div>
+                <div id="sshUploadPath" class="ssh-upload-path">Current path: waiting for SSH shell...</div>
+                <button id="sshUploadButton" class="button outline full-width" type="button">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-folder-open"></use>
+                  </svg>
+                  Upload file
+                </button>
+                <div id="sshUploadProgress" class="ssh-upload-progress hidden" role="status" aria-live="polite">
+                  <div class="ssh-upload-progress-meta">
+                    <strong id="sshUploadProgressFile">Uploading...</strong>
+                    <span id="sshUploadProgressPercent">0%</span>
+                  </div>
+                  <div class="ssh-upload-progress-track" aria-hidden="true">
+                    <span id="sshUploadProgressBar" class="ssh-upload-progress-fill"></span>
+                  </div>
+                  <span id="sshUploadProgressDetail" class="ssh-upload-progress-detail">0 B of 0 B</span>
+                  <div class="ssh-upload-actions">
+                    <button id="sshUploadCancelButton" class="button outline danger compact" type="button">
+                      Cancel upload
+                    </button>
+                  </div>
+                </div>
+              </section>
+
               <section class="script-panel">
                 <div class="section-heading compact">
                   <h2>Scripts</h2>
@@ -406,10 +435,20 @@
                       <use href="#icon-chevron-right"></use>
                     </svg>
                   </button>
-                  <label class="field ftp-path-field">
-                    <span>Local path</span>
-                    <input id="ftpLocalPathInput" type="text" spellcheck="false" />
-                  </label>
+                  <div class="field ftp-path-field ftp-path-field-local">
+                    <input id="ftpLocalPathInput" type="text" spellcheck="false" aria-label="Local path" />
+                    <button
+                      id="ftpLocalPathPickerButton"
+                      class="button outline compact icon-only ftp-path-picker-button"
+                      type="button"
+                      aria-label="Choose local folder"
+                      title="Choose local folder"
+                    >
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-folder-open"></use>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <div id="ftpRemoteBrowser" class="ftp-browser" aria-label="Server files. Drop files or folders here to upload.">
                   <div class="ftp-table-header" aria-hidden="true">
@@ -463,10 +502,9 @@
                       <use href="#icon-chevron-right"></use>
                     </svg>
                   </button>
-                  <label class="field ftp-path-field">
-                    <span>Server path</span>
-                    <input id="ftpPathInput" type="text" value="." spellcheck="false" />
-                  </label>
+                  <div class="field ftp-path-field">
+                    <input id="ftpPathInput" type="text" value="." spellcheck="false" aria-label="Server path" />
+                  </div>
                 </div>
                 <div class="ftp-browser">
                   <div class="ftp-table-header" aria-hidden="true">
@@ -546,6 +584,7 @@
                   <textarea id="templateCommands" rows="14" placeholder="cd {{app_path}}&#10;git pull origin {{branch}}&#10;npm install&#10;pm2 restart {{pm2_name}}"></textarea>
                 </label>
                 <div id="templateVariableSummary" class="template-variable-summary"></div>
+                <div id="templateEditorNote" class="template-editor-note hidden"></div>
               </section>
 
               <footer class="template-editor-actions">
@@ -752,6 +791,39 @@
               <section id="settingsBackupPanel" class="settings-panel" data-settings-panel="backup">
                 <div class="settings-panel-body">
                   <div class="settings-card">
+                    <div class="app-update-header">
+                      <div>
+                        <h2>App Updates</h2>
+                        <p id="settingsAppVersion" class="settings-muted">Installed version 0.1.0</p>
+                      </div>
+                      <span id="appUpdateStatus" class="app-update-pill" data-status="idle">Idle</span>
+                    </div>
+                    <p id="appUpdateDetail" class="settings-muted">
+                      Automatic GitHub release tracking is standing by.
+                    </p>
+                    <div id="appUpdateMeta" class="app-update-meta"></div>
+                    <div class="backup-actions">
+                      <button id="appUpdateOpenReleasesButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-export"></use>
+                        </svg>
+                        View releases
+                      </button>
+                      <button id="appUpdateCheckButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-search"></use>
+                        </svg>
+                        Check now
+                      </button>
+                      <button id="appUpdateRestartButton" class="button solid hidden" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-rocket"></use>
+                        </svg>
+                        Restart to install
+                      </button>
+                    </div>
+                  </div>
+                  <div class="settings-card">
                     <h2>Backup & Restore</h2>
                     <p class="settings-muted">Export a full account backup or restore projects and templates from a saved file.</p>
                     <div class="backup-actions">
@@ -948,7 +1020,7 @@
         <header class="modal-header">
           <div>
             <h2 id="projectModalTitle">Create project</h2>
-            <p id="projectModalSubtitle">Add project and SSH details. Commands are managed inside the project.</p>
+            <p id="projectModalSubtitle">Add project, SSH, and optional FTP details. Commands are managed inside the project.</p>
           </div>
           <button id="projectModalCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -1047,6 +1119,53 @@
                 <label class="field">
                   <span>Passphrase</span>
                   <input id="modalKeyPassphrase" type="password" autocomplete="off" />
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading compact">
+              <h3>FTP</h3>
+            </div>
+            <p class="project-section-note">Leave these optional fields blank to reuse the SSH details for the FTP tab.</p>
+            <div class="field-grid modal-columns">
+              <label class="field ssh-host-field">
+                <span>FTP host / IP</span>
+                <input id="modalFtpHost" type="text" placeholder="Use SSH host" />
+              </label>
+              <label class="field">
+                <span>FTP port</span>
+                <input id="modalFtpPort" type="number" min="1" placeholder="Use SSH port" />
+              </label>
+              <label class="field">
+                <span>FTP username</span>
+                <input id="modalFtpUsername" type="text" placeholder="Use SSH username" />
+              </label>
+              <label class="field span-2">
+                <span>Authentication</span>
+                <select id="modalFtpAuthType">
+                  <option value="">Use SSH authentication</option>
+                  <option value="password">Password</option>
+                  <option value="key">SSH private key</option>
+                </select>
+              </label>
+            </div>
+
+            <label id="modalFtpPasswordField" class="field modal-secret hidden">
+              <span>FTP password</span>
+              <input id="modalFtpPassword" type="password" autocomplete="off" />
+            </label>
+
+            <div id="modalFtpKeyFields" class="key-grid hidden">
+              <label class="field">
+                <span>FTP private key</span>
+                <textarea id="modalFtpPrivateKey" rows="5" placeholder="Paste FTP private key"></textarea>
+              </label>
+              <div class="key-actions">
+                <label class="field">
+                  <span>FTP passphrase</span>
+                  <input id="modalFtpKeyPassphrase" type="password" autocomplete="off" />
                 </label>
               </div>
             </div>
@@ -1217,6 +1336,49 @@
               <use href="#icon-save"></use>
             </svg>
             Save duplicate
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div
+      id="variablePromptModal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="variablePromptTitle"
+      aria-describedby="variablePromptDetail"
+    >
+      <div class="modal-backdrop"></div>
+      <form class="modal-card small" id="variablePromptForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="variablePromptTitle">Set script variables</h2>
+            <p id="variablePromptDetail">Enter the missing values to finish this script.</p>
+          </div>
+          <button id="variablePromptCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <div id="variablePromptList" class="variable-prompt-list"></div>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="variablePromptCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="variablePromptSaveButton" class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-save"></use>
+            </svg>
+            <span id="variablePromptSaveLabel">Save and continue</span>
           </button>
         </footer>
       </form>

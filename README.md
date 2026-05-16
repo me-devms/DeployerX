@@ -232,6 +232,12 @@ Current template categories:
 - Database
 - Docker
 - Maintenance
+- Security
+- Hosting
+- Web Server
+- Cache
+- Control Panel
+- PaaS
 
 Template commands can include variables using this format:
 
