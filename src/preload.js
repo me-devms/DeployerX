@@ -61,6 +61,10 @@ contextBridge.exposeInMainWorld('deployerx', {
   getProjectLocalSettings: (projectId) => ipcRenderer.invoke('project-local-settings:get', projectId),
   setProjectLocalSettings: (projectId, settings) => ipcRenderer.invoke('project-local-settings:set', projectId, settings),
   deleteProjectLocalSettings: (projectId) => ipcRenderer.invoke('project-local-settings:delete', projectId),
+  getUptimeProjectState: (projectId) => ipcRenderer.invoke('uptime:getProjectState', projectId),
+  getUptimeMonitorHistory: (payload) => ipcRenderer.invoke('uptime:getMonitorHistory', payload),
+  getUptimeServiceStatus: () => ipcRenderer.invoke('uptime:getServiceStatus'),
+  runUptimeNow: (payload) => ipcRenderer.invoke('uptime:runNow', payload),
   localOpen: (payload) => ipcRenderer.invoke('local:open', payload),
   localOpenWith: (payload) => ipcRenderer.invoke('local:open-with', payload),
   localMkdir: (payload) => ipcRenderer.invoke('local:mkdir', payload),
@@ -98,5 +102,10 @@ contextBridge.exposeInMainWorld('deployerx', {
     const handler = (_event, message) => callback(message);
     ipcRenderer.on('terminal:event', handler);
     return () => ipcRenderer.removeListener('terminal:event', handler);
+  },
+  onUptimeEvent: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('uptime:event', handler);
+    return () => ipcRenderer.removeListener('uptime:event', handler);
   }
 });

@@ -1,6 +1,6 @@
 {
   "name": "deployerx",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Windows desktop deployment helper for SSH based servers.",
   "author": "Manish K",
   "repository": {

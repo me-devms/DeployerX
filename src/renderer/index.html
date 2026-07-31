@@ -91,6 +91,9 @@
         <path d="M15 7a4 4 0 1 0-4 4l-6 6v3h3l1-1h2v-2h2l3-3a4 4 0 0 0-1-7Z" />
         <circle cx="16" cy="8" r="1" />
       </symbol>
+      <symbol id="icon-heart" viewBox="0 0 24 24">
+        <path d="M12 20.5 4.9 13.8a4.8 4.8 0 0 1 6.8-6.8L12 8l.3-.3a4.8 4.8 0 0 1 6.8 6.8L12 20.5Z" />
+      </symbol>
       <symbol id="icon-folder-open" viewBox="0 0 24 24">
         <path d="M3 7h6l2 2h10v2" />
         <path d="M3 7v11a2 2 0 0 0 2 2h12.5a2 2 0 0 0 1.9-1.4L22 11H6.5a2 2 0 0 0-1.9 1.4L3 18" />
@@ -124,6 +127,16 @@
         <rect x="4" y="11" width="16" height="10" rx="2" />
         <path d="M8 11V7a4 4 0 0 1 8 0v4" />
       </symbol>
+      <symbol id="icon-eye" viewBox="0 0 24 24">
+        <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z" />
+        <circle cx="12" cy="12" r="3" />
+      </symbol>
+      <symbol id="icon-eye-off" viewBox="0 0 24 24">
+        <path d="M3 3 21 21" />
+        <path d="M10.6 6.2A10.6 10.6 0 0 1 12 6c6.4 0 10 6 10 6a18.7 18.7 0 0 1-4 4.7" />
+        <path d="M6.1 6.1A18.4 18.4 0 0 0 2 12s3.6 6 10 6c1.6 0 3.1-.4 4.4-1" />
+        <path d="M9.9 9.9A3 3 0 0 0 12 15a3 3 0 0 0 2.1-.9" />
+      </symbol>
       <symbol id="icon-log-out" viewBox="0 0 24 24">
         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
         <path d="m16 17 5-5-5-5" />
@@ -147,7 +160,7 @@
           </div>
         </div>
         <p class="startup-loader-copy">
-          Manage projects, run deployment scripts, browse FTP files, and keep server commands organized from one focused desktop workspace.
+          Manage servers, run deployment scripts, browse FTP files, and keep command groups organized from one focused desktop workspace.
         </p>
         <div class="startup-feature-list" aria-label="Startup highlights">
           <span>SSH runner</span>
@@ -166,7 +179,6 @@
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="team-switcher">
-            <img class="brand-mark" src="../../assets/deployerx-logo.png" alt="" />
             <span class="team-copy">
               <strong>DeployerX</strong>
               <small>Deployment console</small>
@@ -183,6 +195,22 @@
             </span>
             <span>Dashboard</span>
           </button>
+          <button id="uptimeButton" class="sidebar-action" type="button">
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-rocket"></use>
+              </svg>
+            </span>
+            <span>Uptime</span>
+          </button>
+          <button id="serversButton" class="sidebar-action" type="button">
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                <use href="#icon-server"></use>
+              </svg>
+            </span>
+            <span>Servers</span>
+          </button>
           <button id="templatesButton" class="sidebar-action" type="button">
             <span class="nav-icon" aria-hidden="true">
               <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
@@ -194,7 +222,7 @@
           <button id="teamButton" class="sidebar-action" type="button">
             <span class="nav-icon" aria-hidden="true">
               <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
-                <use href="#icon-key"></use>
+                <use href="#icon-heart"></use>
               </svg>
             </span>
             <span>Settings</span>
@@ -216,7 +244,10 @@
             <span>Export Account</span>
           </button>
           <div class="sidebar-section">
-            <p class="sidebar-heading">Projects</p>
+            <div class="sidebar-heading-row">
+              <p class="sidebar-heading">Servers</p>
+              <span id="sidebarServerCount" class="sidebar-heading-count">0</span>
+            </div>
             <div id="projectList" class="project-list"></div>
           </div>
         </nav>
@@ -244,7 +275,59 @@
         <section id="dashboardView" class="view">
           <header class="view-header">
             <div>
-              <h1>Projects</h1>
+              <h1>Dashboard</h1>
+            </div>
+            <div class="header-actions">
+              <button id="dashboardTemplatesButton" class="button outline" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-templates"></use>
+                </svg>
+                Templates
+              </button>
+              <button id="dashboardServersButton" class="button solid" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-server"></use>
+                </svg>
+                Open servers
+              </button>
+            </div>
+          </header>
+
+          <div class="dashboard-body">
+            <div id="dashboardStatsGrid" class="dashboard-stats-grid"></div>
+
+            <div class="dashboard-panel-grid">
+              <section class="dashboard-panel">
+                <div class="section-heading compact">
+                  <h2>System health</h2>
+                  <p>Connection coverage across every saved server.</p>
+                </div>
+                <div id="dashboardHealthSummary" class="dashboard-health-summary"></div>
+              </section>
+
+              <section class="dashboard-panel">
+                <div class="section-heading compact">
+                  <h2>Groups</h2>
+                  <p>Organize servers by product, environment, or owner.</p>
+                </div>
+                <div id="dashboardGroupSummary" class="dashboard-group-summary"></div>
+              </section>
+            </div>
+
+            <section class="dashboard-panel">
+              <div class="section-heading compact">
+                <h2>All servers</h2>
+                <p>Grouped infrastructure overview with connection status and command coverage.</p>
+              </div>
+              <div id="dashboardServerSections" class="dashboard-server-sections"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="serversView" class="view hidden">
+          <header class="view-header">
+            <div>
+              <h1>Servers</h1>
             </div>
             <div class="header-actions">
               <button id="dashboardImportProjectsButton" class="button outline" type="button">
@@ -259,17 +342,11 @@
                 </svg>
                 Export
               </button>
-              <button id="dashboardTemplatesButton" class="button outline" type="button">
-                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <use href="#icon-templates"></use>
-                </svg>
-                Templates
-              </button>
               <button id="dashboardCreateButton" class="button solid" type="button">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-folder-plus"></use>
                 </svg>
-                Create project
+                Add server
               </button>
             </div>
           </header>
@@ -277,17 +354,160 @@
           <div id="projectGrid" class="project-grid"></div>
         </section>
 
+        <section id="uptimeView" class="view hidden">
+          <header class="view-header">
+            <div>
+              <h1>Uptime</h1>
+            </div>
+          </header>
+
+          <div id="uptimeWorkspace" class="uptime-workspace">
+            <section class="uptime-header-card">
+              <div class="section-heading compact">
+                <h2>Uptime monitors</h2>
+                <p>Manage HTTP and TCP checks for every server from one place.</p>
+              </div>
+              <div class="uptime-toolbar">
+                <label class="field uptime-project-field">
+                  <span>Server</span>
+                  <select id="uptimeProjectSelect"></select>
+                </label>
+                <div class="uptime-header-actions">
+                  <button id="uptimeAddMonitorButton" class="button outline" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-plus"></use>
+                    </svg>
+                    Add monitor
+                  </button>
+                  <button id="uptimeRunAllButton" class="button solid" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-play"></use>
+                    </svg>
+                    Run now
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="uptime-summary-grid">
+              <article class="uptime-summary-card">
+                <span class="uptime-summary-label">Service</span>
+                <strong id="uptimeServiceStatus">Checking...</strong>
+                <span id="uptimeServiceMeta" class="uptime-summary-meta">Waiting for worker status.</span>
+              </article>
+              <article class="uptime-summary-card">
+                <span class="uptime-summary-label">Healthy</span>
+                <strong id="uptimeHealthyCount">0</strong>
+                <span class="uptime-summary-meta">Monitors currently up</span>
+              </article>
+              <article class="uptime-summary-card">
+                <span class="uptime-summary-label">Attention</span>
+                <strong id="uptimeAttentionCount">0</strong>
+                <span class="uptime-summary-meta">Down or degraded monitors</span>
+              </article>
+              <article class="uptime-summary-card">
+                <span class="uptime-summary-label">Paused</span>
+                <strong id="uptimePausedCount">0</strong>
+                <span class="uptime-summary-meta">Monitors not currently checking</span>
+              </article>
+            </section>
+
+            <div class="uptime-layout">
+              <section class="uptime-list-panel">
+                <div class="section-heading compact">
+                  <h2>Monitors</h2>
+                  <p id="uptimeMonitorListMeta">No monitor selected.</p>
+                </div>
+                <div id="uptimeMonitorList" class="uptime-monitor-list"></div>
+              </section>
+
+              <section class="uptime-detail-panel">
+                <div id="uptimeEmptyState" class="uptime-empty-state">
+                  <strong>No monitor selected</strong>
+                  <span>Create a monitor or choose one from the list to view history, incidents, and live status.</span>
+                </div>
+
+                <div id="uptimeDetailContent" class="uptime-detail-content hidden">
+                  <header class="uptime-detail-header">
+                    <div>
+                      <div id="uptimeSelectedMonitorStatus" class="uptime-status-pill">Idle</div>
+                      <h2 id="uptimeSelectedMonitorName">Monitor</h2>
+                      <p id="uptimeSelectedMonitorMeta" class="settings-muted">Configuration details</p>
+                    </div>
+                    <div class="uptime-monitor-actions">
+                      <button id="uptimeRunMonitorButton" class="button solid compact" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-play"></use>
+                        </svg>
+                        Run now
+                      </button>
+                      <button id="uptimeToggleMonitorButton" class="button outline compact" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-stop"></use>
+                        </svg>
+                        Pause
+                      </button>
+                      <button id="uptimeEditMonitorButton" class="button outline compact" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-edit"></use>
+                        </svg>
+                        Edit
+                      </button>
+                      <button id="uptimeDeleteMonitorButton" class="button plain danger compact" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-trash"></use>
+                        </svg>
+                        Delete
+                      </button>
+                    </div>
+                  </header>
+
+                  <div class="uptime-detail-grid">
+                    <section class="uptime-detail-card">
+                      <div class="section-heading compact">
+                        <h3>Overview</h3>
+                      </div>
+                      <dl id="uptimeOverviewList" class="uptime-kv-list"></dl>
+                    </section>
+
+                    <section class="uptime-detail-card">
+                      <div class="section-heading compact">
+                        <h3>Configuration</h3>
+                      </div>
+                      <dl id="uptimeConfigList" class="uptime-kv-list"></dl>
+                    </section>
+                  </div>
+
+                  <section class="uptime-detail-card">
+                    <div class="section-heading compact">
+                      <h3>Incident log</h3>
+                    </div>
+                    <div id="uptimeIncidentList" class="uptime-timeline"></div>
+                  </section>
+
+                  <section class="uptime-detail-card">
+                    <div class="section-heading compact">
+                      <h3>Recent checks</h3>
+                    </div>
+                    <div id="uptimeHistoryList" class="uptime-history-list"></div>
+                  </section>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
         <section id="projectView" class="view hidden">
           <header class="view-header">
             <div class="title-row">
-              <button id="backToDashboardButton" class="button outline compact icon-only" type="button" aria-label="Back to dashboard" title="Back to dashboard">
+              <button id="backToDashboardButton" class="button outline compact icon-only" type="button" aria-label="Back to servers" title="Back to servers">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-arrow-left"></use>
                 </svg>
               </button>
               <div class="project-title-block">
-                <h1 id="activeProjectName">Project</h1>
-                <nav class="project-tabs" aria-label="Project tools">
+                <h1 id="activeProjectName">Server</h1>
+                <nav class="project-tabs" aria-label="Server tools">
                   <button id="projectSshTab" class="project-tab active" type="button" aria-selected="true">SSH</button>
                   <button id="projectFtpTab" class="project-tab" type="button" aria-selected="false">FTP</button>
                 </nav>
@@ -304,7 +524,7 @@
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-edit"></use>
                 </svg>
-                Edit details
+                Edit server
               </button>
               <button id="deleteProjectButton" class="button plain danger" type="button">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -379,12 +599,12 @@
               <section class="script-panel">
                 <div class="section-heading compact">
                   <h2>Scripts</h2>
-                  <p>Choose saved project commands or a template, then run in this SSH terminal.</p>
+                  <p>Choose saved server commands or a template, then run them in this SSH terminal.</p>
                 </div>
                 <label class="field">
                   <span>Script template</span>
                   <select id="projectTemplateSelect">
-                    <option value="">Project commands</option>
+                    <option value="">Server commands</option>
                   </select>
                 </label>
                 <label class="field script-editor">
@@ -402,7 +622,7 @@
                     <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                       <use href="#icon-save"></use>
                     </svg>
-                    Save project script
+                    Save server commands
                   </button>
                 </div>
               </section>
@@ -518,6 +738,7 @@
               </div>
             </section>
           </div>
+
         </section>
 
         <section id="templateView" class="view hidden">
@@ -706,7 +927,7 @@
                   <div id="teamCloudWarning" class="cloud-warning hidden" role="status"></div>
                   <div class="settings-card">
                     <h2>Workspace</h2>
-                    <p id="teamHeaderCopy" class="settings-muted">Select or create a workspace to sync encrypted projects, templates, and SSH secrets.</p>
+                    <p id="teamHeaderCopy" class="settings-muted">Select or create a workspace to sync encrypted servers, templates, and SSH secrets.</p>
                     <label class="field">
                       <span>Name</span>
                       <input id="settingsWorkspaceName" type="text" value="DeployerX" />
@@ -735,7 +956,7 @@
                     <div class="danger-zone-row">
                       <span>
                         <strong>Delete workspace</strong>
-                        <small>Permanently delete this workspace, members, invites, projects, and templates.</small>
+                        <small>Permanently delete this workspace, members, invites, servers, and templates.</small>
                       </span>
                       <button id="deleteWorkspaceButton" class="button solid-danger" type="button">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -825,7 +1046,7 @@
                   </div>
                   <div class="settings-card">
                     <h2>Backup & Restore</h2>
-                    <p class="settings-muted">Export a full account backup or restore projects and templates from a saved file.</p>
+                    <p class="settings-muted">Export a full account backup or restore servers and templates from a saved file.</p>
                     <div class="backup-actions">
                       <button id="settingsImportAccountButton" class="button outline" type="button">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -943,7 +1164,7 @@
                 <img class="workspace-brand-mark" src="../../assets/deployerx-logo.png" alt="" />
               </div>
               <h3 class="cloud-auth-title">Workspace</h3>
-              <p id="workspaceSetupCopy" class="workspace-auth-copy">Create a workspace to keep projects, templates, and team members in cloud sync.</p>
+              <p id="workspaceSetupCopy" class="workspace-auth-copy">Create a workspace to keep servers, templates, and team members in cloud sync.</p>
 
               <label class="field">
                 <span>Workspace</span>
@@ -1019,8 +1240,8 @@
       <form class="modal-card project-modal-card" id="projectModalForm">
         <header class="modal-header">
           <div>
-            <h2 id="projectModalTitle">Create project</h2>
-            <p id="projectModalSubtitle">Add project, SSH, and optional FTP details. Commands are managed inside the project.</p>
+            <h2 id="projectModalTitle">Add server</h2>
+            <p id="projectModalSubtitle">Add server, SSH, and optional FTP details. Commands are managed inside the server.</p>
           </div>
           <button id="projectModalCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -1032,15 +1253,27 @@
         <div class="modal-body">
           <section class="form-section">
             <div class="section-heading compact">
-              <h3>Project</h3>
+              <h3>Server</h3>
             </div>
             <div class="field-grid project-fields">
               <label class="field span-2">
-                <span>Project name</span>
+                <span>Server name</span>
                 <input id="modalProjectName" type="text" placeholder="Production API" required />
               </label>
               <label class="field">
-                <span>Server type</span>
+                <span>Group</span>
+                <input
+                  id="modalProjectGroup"
+                  type="text"
+                  list="projectGroupOptions"
+                  autocomplete="off"
+                  placeholder="Production"
+                />
+                <datalist id="projectGroupOptions"></datalist>
+                <small class="field-note">Select an existing group or type a new one.</small>
+              </label>
+              <label class="field">
+                <span>System type</span>
                 <select id="modalServerType">
                   <option value="ubuntu">Ubuntu</option>
                   <option value="centos">CentOS</option>
@@ -1051,7 +1284,7 @@
                   <option value="custom">Custom Linux</option>
                 </select>
               </label>
-              <label class="field">
+              <label class="field span-2">
                 <span>Command template</span>
                 <select id="modalTemplateSelect">
                   <option value="">No template</option>
@@ -1101,7 +1334,22 @@
 
             <label id="modalPasswordField" class="field modal-secret">
               <span>Password</span>
-              <input id="modalSshPassword" type="password" autocomplete="off" />
+              <div class="secret-input">
+                <input id="modalSshPassword" type="password" autocomplete="off" />
+                <button
+                  class="button outline icon-only secret-toggle"
+                  type="button"
+                  data-secret-toggle
+                  data-secret-target="modalSshPassword"
+                  data-show-label="Show SSH password"
+                  data-hide-label="Hide SSH password"
+                  aria-controls="modalSshPassword"
+                >
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-eye"></use>
+                  </svg>
+                </button>
+              </div>
             </label>
 
             <div id="modalKeyFields" class="key-grid hidden">
@@ -1118,7 +1366,22 @@
                 </button>
                 <label class="field">
                   <span>Passphrase</span>
-                  <input id="modalKeyPassphrase" type="password" autocomplete="off" />
+                  <div class="secret-input">
+                    <input id="modalKeyPassphrase" type="password" autocomplete="off" />
+                    <button
+                      class="button outline icon-only secret-toggle"
+                      type="button"
+                      data-secret-toggle
+                      data-secret-target="modalKeyPassphrase"
+                      data-show-label="Show SSH key passphrase"
+                      data-hide-label="Hide SSH key passphrase"
+                      aria-controls="modalKeyPassphrase"
+                    >
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-eye"></use>
+                      </svg>
+                    </button>
+                  </div>
                 </label>
               </div>
             </div>
@@ -1154,7 +1417,22 @@
 
             <label id="modalFtpPasswordField" class="field modal-secret hidden">
               <span>FTP password</span>
-              <input id="modalFtpPassword" type="password" autocomplete="off" />
+              <div class="secret-input">
+                <input id="modalFtpPassword" type="password" autocomplete="off" />
+                <button
+                  class="button outline icon-only secret-toggle"
+                  type="button"
+                  data-secret-toggle
+                  data-secret-target="modalFtpPassword"
+                  data-show-label="Show FTP password"
+                  data-hide-label="Hide FTP password"
+                  aria-controls="modalFtpPassword"
+                >
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-eye"></use>
+                  </svg>
+                </button>
+              </div>
             </label>
 
             <div id="modalFtpKeyFields" class="key-grid hidden">
@@ -1165,7 +1443,22 @@
               <div class="key-actions">
                 <label class="field">
                   <span>FTP passphrase</span>
-                  <input id="modalFtpKeyPassphrase" type="password" autocomplete="off" />
+                  <div class="secret-input">
+                    <input id="modalFtpKeyPassphrase" type="password" autocomplete="off" />
+                    <button
+                      class="button outline icon-only secret-toggle"
+                      type="button"
+                      data-secret-toggle
+                      data-secret-target="modalFtpKeyPassphrase"
+                      data-show-label="Show FTP key passphrase"
+                      data-hide-label="Hide FTP key passphrase"
+                      aria-controls="modalFtpKeyPassphrase"
+                    >
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-eye"></use>
+                      </svg>
+                    </button>
+                  </div>
                 </label>
               </div>
             </div>
@@ -1183,7 +1476,134 @@
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-save"></use>
             </svg>
-            Save project
+            Save server
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div id="uptimeMonitorModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="uptimeMonitorModalTitle">
+      <div class="modal-backdrop"></div>
+      <form class="modal-card project-modal-card" id="uptimeMonitorForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="uptimeMonitorModalTitle">Add monitor</h2>
+            <p id="uptimeMonitorModalSubtitle">Configure background HTTP or TCP checks for this server.</p>
+          </div>
+          <button id="uptimeMonitorCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <section class="form-section">
+            <div class="section-heading compact">
+              <h3>Basics</h3>
+            </div>
+            <div class="field-grid project-fields">
+              <label class="field span-2">
+                <span>Monitor name</span>
+                <input id="uptimeMonitorName" type="text" placeholder="Production API homepage" required />
+              </label>
+              <label class="field">
+                <span>Type</span>
+                <select id="uptimeMonitorType">
+                  <option value="http">HTTP / HTTPS</option>
+                  <option value="tcp">TCP port</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Status</span>
+                <select id="uptimeMonitorEnabled">
+                  <option value="true">Enabled</option>
+                  <option value="false">Paused</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Interval (seconds)</span>
+                <input id="uptimeMonitorInterval" type="number" min="30" value="300" required />
+              </label>
+              <label class="field">
+                <span>Timeout (ms)</span>
+                <input id="uptimeMonitorTimeout" type="number" min="1000" value="10000" required />
+              </label>
+              <label class="field span-2">
+                <span>Latency budget (ms)</span>
+                <input id="uptimeMonitorLatencyBudget" type="number" min="0" value="0" />
+              </label>
+            </div>
+          </section>
+
+          <section id="uptimeHttpFields" class="form-section">
+            <div class="section-heading compact">
+              <h3>HTTP</h3>
+            </div>
+            <div class="field-grid modal-columns">
+              <label class="field span-2">
+                <span>URL</span>
+                <input id="uptimeHttpUrl" type="url" placeholder="https://example.com/health" />
+              </label>
+              <label class="field">
+                <span>Method</span>
+                <select id="uptimeHttpMethod">
+                  <option value="GET">GET</option>
+                  <option value="HEAD">HEAD</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Expected status codes</span>
+                <input id="uptimeHttpStatusCodes" type="text" placeholder="200,204" />
+              </label>
+              <label class="field span-2">
+                <span>Headers (JSON object)</span>
+                <textarea id="uptimeHttpHeaders" rows="4" placeholder='{"Authorization":"Bearer token"}'></textarea>
+              </label>
+              <label class="field span-2">
+                <span>Header assertions (JSON array)</span>
+                <textarea id="uptimeHttpHeaderAssertions" rows="4" placeholder='[{"key":"content-type","expected":"application/json","mode":"contains"}]'></textarea>
+              </label>
+              <label class="field span-2">
+                <span>Body must contain (one per line)</span>
+                <textarea id="uptimeHttpBodyMustContain" rows="3" placeholder="ok"></textarea>
+              </label>
+              <label class="field span-2">
+                <span>Body must not contain (one per line)</span>
+                <textarea id="uptimeHttpBodyMustNotContain" rows="3" placeholder="error"></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section id="uptimeTcpFields" class="form-section hidden">
+            <div class="section-heading compact">
+              <h3>TCP</h3>
+            </div>
+            <div class="field-grid modal-columns">
+              <label class="field span-2">
+                <span>Host</span>
+                <input id="uptimeTcpHost" type="text" placeholder="db.internal.example.com" />
+              </label>
+              <label class="field">
+                <span>Port</span>
+                <input id="uptimeTcpPort" type="number" min="1" max="65535" value="80" />
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="uptimeMonitorCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="uptimeMonitorSaveButton" class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-save"></use>
+            </svg>
+            Save monitor
           </button>
         </footer>
       </form>

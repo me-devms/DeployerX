@@ -1,6 +1,7 @@
 const blankProject = () => ({
   id: '',
   name: '',
+  group: '',
   serverType: 'ubuntu',
   ssh: {
     host: '',
@@ -22,8 +23,72 @@ const blankProject = () => ({
     passphrase: ''
   },
   commands: [],
-  variables: {}
+  variables: {},
+  uptimeMonitors: []
 });
+
+function blankUptimeMonitor() {
+  return {
+    id: '',
+    name: '',
+    type: 'http',
+    enabled: true,
+    intervalSec: 300,
+    timeoutMs: 10000,
+    latencyBudgetMs: 0,
+    http: {
+      method: 'GET',
+      url: '',
+      headers: {},
+      expectedStatusCodes: [200],
+      bodyMustContain: [],
+      bodyMustNotContain: [],
+      headerAssertions: []
+    },
+    tcp: {
+      host: '',
+      port: 80
+    }
+  };
+}
+
+function defaultUptimeState() {
+  return {
+    projectId: '',
+    projectName: '',
+    summary: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, idle: 0 },
+    service: {
+      active: false,
+      mode: 'window',
+      syncWarning: '',
+      autostartEnabled: false,
+      startedAt: '',
+      lastHeartbeatAt: '',
+      lastConfigRefreshAt: '',
+      pid: 0
+    },
+    monitors: []
+  };
+}
+
+function defaultUptimeRuntimeMonitor() {
+  return {
+    status: 'idle',
+    consecutiveFailures: 0,
+    lastCheckAt: '',
+    lastSuccessAt: '',
+    lastFailureAt: '',
+    lastLatencyMs: null,
+    lastError: '',
+    nextCheckAt: '',
+    activeIncidentId: '',
+    incidentOpenSince: '',
+    syncWarning: '',
+    pausedAt: '',
+    summary: '',
+    checkCount: 0
+  };
+}
 
 function defaultAppUpdateState() {
   return {
@@ -83,6 +148,15 @@ const state = {
   templates: [],
   activeProject: null,
   activeProjectTab: 'ssh',
+  uptime: {
+    project: defaultUptimeState(),
+    selectedProjectId: '',
+    selectedMonitorId: '',
+    selectedMonitorHistory: [],
+    selectedMonitorIncidents: [],
+    modalMode: 'create',
+    modalMonitorId: ''
+  },
   activeRunId: null,
   terminalSessions: {},
   terminalSessionProjectIds: {},
@@ -155,7 +229,7 @@ const terminal = new Terminal({
 const fitAddon = new FitAddon.FitAddon();
 terminal.loadAddon(fitAddon);
 
-const builtInVariableNames = new Set(['project_name', 'server_type', 'ssh_host', 'ssh_port', 'ssh_username']);
+const builtInVariableNames = new Set(['project_name', 'server_group', 'server_type', 'ssh_host', 'ssh_port', 'ssh_username']);
 const templateCategories = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance', 'Security', 'Hosting', 'Web Server', 'Cache', 'Control Panel', 'PaaS'];
 const terminalReplayLimit = 160000;
 
@@ -588,23 +662,33 @@ const els = {
   workspaceContinueButton: document.getElementById('workspaceContinueButton'),
   workspaceLogoutButton: document.getElementById('workspaceLogoutButton'),
   dashboardView: document.getElementById('dashboardView'),
+  uptimeView: document.getElementById('uptimeView'),
+  serversView: document.getElementById('serversView'),
   projectView: document.getElementById('projectView'),
   templateView: document.getElementById('templateView'),
   teamView: document.getElementById('teamView'),
   projectGrid: document.getElementById('projectGrid'),
   projectList: document.getElementById('projectList'),
   dashboardButton: document.getElementById('dashboardButton'),
+  uptimeButton: document.getElementById('uptimeButton'),
+  serversButton: document.getElementById('serversButton'),
   templatesButton: document.getElementById('templatesButton'),
   goOnlineButton: document.getElementById('goOnlineButton'),
   teamButton: document.getElementById('teamButton'),
   sidebarWorkspaceName: document.getElementById('sidebarWorkspaceName'),
   sidebarWorkspaceMeta: document.getElementById('sidebarWorkspaceMeta'),
+  sidebarServerCount: document.getElementById('sidebarServerCount'),
   dashboardImportAccountButton: document.getElementById('dashboardImportAccountButton'),
   dashboardExportAccountButton: document.getElementById('dashboardExportAccountButton'),
   dashboardImportProjectsButton: document.getElementById('dashboardImportProjectsButton'),
   dashboardExportProjectsButton: document.getElementById('dashboardExportProjectsButton'),
   dashboardTemplatesButton: document.getElementById('dashboardTemplatesButton'),
+  dashboardServersButton: document.getElementById('dashboardServersButton'),
   dashboardCreateButton: document.getElementById('dashboardCreateButton'),
+  dashboardStatsGrid: document.getElementById('dashboardStatsGrid'),
+  dashboardHealthSummary: document.getElementById('dashboardHealthSummary'),
+  dashboardGroupSummary: document.getElementById('dashboardGroupSummary'),
+  dashboardServerSections: document.getElementById('dashboardServerSections'),
   backToDashboardButton: document.getElementById('backToDashboardButton'),
   backFromTemplatesButton: document.getElementById('backFromTemplatesButton'),
   activeProjectName: document.getElementById('activeProjectName'),
@@ -612,6 +696,30 @@ const els = {
   projectFtpTab: document.getElementById('projectFtpTab'),
   sshWorkspace: document.getElementById('sshWorkspace'),
   ftpWorkspace: document.getElementById('ftpWorkspace'),
+  uptimeWorkspace: document.getElementById('uptimeWorkspace'),
+  uptimeProjectSelect: document.getElementById('uptimeProjectSelect'),
+  uptimeServiceStatus: document.getElementById('uptimeServiceStatus'),
+  uptimeServiceMeta: document.getElementById('uptimeServiceMeta'),
+  uptimeHealthyCount: document.getElementById('uptimeHealthyCount'),
+  uptimeAttentionCount: document.getElementById('uptimeAttentionCount'),
+  uptimePausedCount: document.getElementById('uptimePausedCount'),
+  uptimeMonitorListMeta: document.getElementById('uptimeMonitorListMeta'),
+  uptimeMonitorList: document.getElementById('uptimeMonitorList'),
+  uptimeAddMonitorButton: document.getElementById('uptimeAddMonitorButton'),
+  uptimeRunAllButton: document.getElementById('uptimeRunAllButton'),
+  uptimeEmptyState: document.getElementById('uptimeEmptyState'),
+  uptimeDetailContent: document.getElementById('uptimeDetailContent'),
+  uptimeSelectedMonitorStatus: document.getElementById('uptimeSelectedMonitorStatus'),
+  uptimeSelectedMonitorName: document.getElementById('uptimeSelectedMonitorName'),
+  uptimeSelectedMonitorMeta: document.getElementById('uptimeSelectedMonitorMeta'),
+  uptimeOverviewList: document.getElementById('uptimeOverviewList'),
+  uptimeConfigList: document.getElementById('uptimeConfigList'),
+  uptimeIncidentList: document.getElementById('uptimeIncidentList'),
+  uptimeHistoryList: document.getElementById('uptimeHistoryList'),
+  uptimeRunMonitorButton: document.getElementById('uptimeRunMonitorButton'),
+  uptimeToggleMonitorButton: document.getElementById('uptimeToggleMonitorButton'),
+  uptimeEditMonitorButton: document.getElementById('uptimeEditMonitorButton'),
+  uptimeDeleteMonitorButton: document.getElementById('uptimeDeleteMonitorButton'),
   ftpLocalStatus: document.getElementById('ftpLocalStatus'),
   ftpLocalFilter: document.getElementById('ftpLocalFilter'),
   ftpLocalPathInput: document.getElementById('ftpLocalPathInput'),
@@ -651,7 +759,33 @@ const els = {
   projectModalCloseButton: document.getElementById('projectModalCloseButton'),
   projectModalCancelButton: document.getElementById('projectModalCancelButton'),
   projectModalSaveButton: document.getElementById('projectModalSaveButton'),
+  uptimeMonitorModal: document.getElementById('uptimeMonitorModal'),
+  uptimeMonitorForm: document.getElementById('uptimeMonitorForm'),
+  uptimeMonitorModalTitle: document.getElementById('uptimeMonitorModalTitle'),
+  uptimeMonitorModalSubtitle: document.getElementById('uptimeMonitorModalSubtitle'),
+  uptimeMonitorCloseButton: document.getElementById('uptimeMonitorCloseButton'),
+  uptimeMonitorCancelButton: document.getElementById('uptimeMonitorCancelButton'),
+  uptimeMonitorSaveButton: document.getElementById('uptimeMonitorSaveButton'),
+  uptimeMonitorName: document.getElementById('uptimeMonitorName'),
+  uptimeMonitorType: document.getElementById('uptimeMonitorType'),
+  uptimeMonitorEnabled: document.getElementById('uptimeMonitorEnabled'),
+  uptimeMonitorInterval: document.getElementById('uptimeMonitorInterval'),
+  uptimeMonitorTimeout: document.getElementById('uptimeMonitorTimeout'),
+  uptimeMonitorLatencyBudget: document.getElementById('uptimeMonitorLatencyBudget'),
+  uptimeHttpFields: document.getElementById('uptimeHttpFields'),
+  uptimeHttpUrl: document.getElementById('uptimeHttpUrl'),
+  uptimeHttpMethod: document.getElementById('uptimeHttpMethod'),
+  uptimeHttpStatusCodes: document.getElementById('uptimeHttpStatusCodes'),
+  uptimeHttpHeaders: document.getElementById('uptimeHttpHeaders'),
+  uptimeHttpHeaderAssertions: document.getElementById('uptimeHttpHeaderAssertions'),
+  uptimeHttpBodyMustContain: document.getElementById('uptimeHttpBodyMustContain'),
+  uptimeHttpBodyMustNotContain: document.getElementById('uptimeHttpBodyMustNotContain'),
+  uptimeTcpFields: document.getElementById('uptimeTcpFields'),
+  uptimeTcpHost: document.getElementById('uptimeTcpHost'),
+  uptimeTcpPort: document.getElementById('uptimeTcpPort'),
   modalProjectName: document.getElementById('modalProjectName'),
+  modalProjectGroup: document.getElementById('modalProjectGroup'),
+  projectGroupOptions: document.getElementById('projectGroupOptions'),
   modalServerType: document.getElementById('modalServerType'),
   modalTemplateSelect: document.getElementById('modalTemplateSelect'),
   modalVariablesList: document.getElementById('modalVariablesList'),
@@ -862,6 +996,8 @@ function appUpdateStatusLabel(status) {
       return 'Checking';
     case 'available':
       return 'Found';
+    case 'manual-update':
+      return 'Manual update';
     case 'downloading':
       return 'Downloading';
     case 'downloaded':
@@ -886,6 +1022,9 @@ function appUpdateStatusLabel(status) {
 function appUpdateDetail(update) {
   if (update.error) return update.error;
   if (update.message) return update.message;
+  if (update.status === 'manual-update' && update.availableVersion) {
+    return `Version ${update.availableVersion} is available. Open Releases to download the latest setup build manually.`;
+  }
   if (update.status === 'downloading' && update.availableVersion) return `Downloading version ${update.availableVersion}.`;
   if (update.status === 'downloaded' && (update.downloadedVersion || update.availableVersion)) {
     return `Version ${update.downloadedVersion || update.availableVersion} is downloaded and ready to install.`;
@@ -924,6 +1063,8 @@ function renderAppUpdateCard() {
 }
 
 let toastTimer = null;
+let uptimeRefreshTimer = null;
+let uptimeRefreshInFlight = false;
 let confirmModalResolve = null;
 let variablePromptResolve = null;
 const pendingActions = new Set();
@@ -1002,6 +1143,7 @@ function projectVariableMap(project) {
   const customVariables = normalizeVariables(project?.variables);
   const builtInVariables = {
     project_name: project?.name || '',
+    server_group: project?.group || '',
     server_type: project?.serverType || '',
     ssh_host: project?.ssh?.host || '',
     ssh_port: String(project?.ssh?.port || 22),
@@ -1036,11 +1178,75 @@ function missingTemplateVariables(commands, project) {
   );
 }
 
+function normalizeUptimeMonitor(monitor = {}) {
+  const blank = blankUptimeMonitor();
+  const type = monitor.type === 'tcp' ? 'tcp' : 'http';
+  const http = monitor.http || {};
+  const tcp = monitor.tcp || {};
+  return {
+    ...blank,
+    ...monitor,
+    id: String(monitor.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    name: String(monitor.name || '').trim() || `${type.toUpperCase()} monitor`,
+    type,
+    enabled: monitor.enabled !== false,
+    intervalSec: Math.max(30, Number(monitor.intervalSec || blank.intervalSec) || blank.intervalSec),
+    timeoutMs: Math.max(1000, Number(monitor.timeoutMs || blank.timeoutMs) || blank.timeoutMs),
+    latencyBudgetMs: Math.max(0, Number(monitor.latencyBudgetMs || 0) || 0),
+    http: {
+      ...blank.http,
+      ...http,
+      method: String(http.method || 'GET').toUpperCase() === 'HEAD' ? 'HEAD' : 'GET',
+      url: String(http.url || '').trim(),
+      headers: http.headers && typeof http.headers === 'object' ? http.headers : {},
+      expectedStatusCodes: Array.isArray(http.expectedStatusCodes) ? http.expectedStatusCodes.map((item) => Number(item)).filter(Boolean) : [200],
+      bodyMustContain: Array.isArray(http.bodyMustContain) ? http.bodyMustContain.map(String).filter(Boolean) : [],
+      bodyMustNotContain: Array.isArray(http.bodyMustNotContain) ? http.bodyMustNotContain.map(String).filter(Boolean) : [],
+      headerAssertions: Array.isArray(http.headerAssertions) ? http.headerAssertions : []
+    },
+    tcp: {
+      ...blank.tcp,
+      ...tcp,
+      host: String(tcp.host || '').trim(),
+      port: Math.max(1, Math.min(65535, Number(tcp.port || blank.tcp.port) || blank.tcp.port))
+    }
+  };
+}
+
+function normalizeUptimeRuntimeMonitor(runtime = {}) {
+  return {
+    ...defaultUptimeRuntimeMonitor(),
+    ...(runtime && typeof runtime === 'object' ? runtime : {})
+  };
+}
+
+function normalizeUptimeProjectState(project = {}) {
+  return {
+    ...defaultUptimeState(),
+    ...(project && typeof project === 'object' ? project : {}),
+    summary: {
+      ...defaultUptimeState().summary,
+      ...(project?.summary && typeof project.summary === 'object' ? project.summary : {})
+    },
+    service: {
+      ...defaultUptimeState().service,
+      ...(project?.service && typeof project.service === 'object' ? project.service : {})
+    },
+    monitors: Array.isArray(project?.monitors)
+      ? project.monitors.map((monitor) => ({
+          ...normalizeUptimeMonitor(monitor),
+          runtime: normalizeUptimeRuntimeMonitor(monitor.runtime)
+        }))
+      : []
+  };
+}
+
 function normalizeProject(project = {}) {
   const blank = blankProject();
   return {
     ...blank,
     ...project,
+    group: String(project?.group || '').trim(),
     ssh: {
       ...blank.ssh,
       ...(project.ssh || {})
@@ -1050,7 +1256,8 @@ function normalizeProject(project = {}) {
       ...(project.ftp || {})
     },
     commands: Array.isArray(project.commands) ? project.commands : [],
-    variables: normalizeVariables(project.variables)
+    variables: normalizeVariables(project.variables),
+    uptimeMonitors: Array.isArray(project.uptimeMonitors) ? project.uptimeMonitors.map(normalizeUptimeMonitor) : []
   };
 }
 
@@ -1091,6 +1298,71 @@ function projectBadge(project) {
   return (project.name || 'DX').slice(0, 2).toUpperCase();
 }
 
+function serverGroupName(project = {}) {
+  return String(project?.group || '').trim() || 'Ungrouped';
+}
+
+function savedProjectGroups(projects = state.projects) {
+  const groups = new Map();
+  for (const project of projects) {
+    const name = String(project?.group || '').trim();
+    if (!name) continue;
+    const key = name.toLocaleLowerCase();
+    if (!groups.has(key)) groups.set(key, name);
+  }
+  return [...groups.values()].sort((first, second) => first.localeCompare(second));
+}
+
+function renderProjectGroupOptions() {
+  if (!els.projectGroupOptions) return;
+  els.projectGroupOptions.innerHTML = '';
+  for (const group of savedProjectGroups()) {
+    const option = document.createElement('option');
+    option.value = group;
+    els.projectGroupOptions.appendChild(option);
+  }
+}
+
+function groupProjects(projects = state.projects) {
+  const groups = new Map();
+  for (const project of projects) {
+    const name = serverGroupName(project);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(project);
+  }
+  return [...groups.entries()]
+    .sort((first, second) => first[0].localeCompare(second[0]))
+    .map(([name, items]) => ({
+      name,
+      items: [...items].sort((first, second) => (first.name || '').localeCompare(second.name || ''))
+    }));
+}
+
+function dashboardStats(projects = state.projects) {
+  const total = projects.length;
+  let sshConnected = 0;
+  let ftpConnected = 0;
+  let commands = 0;
+  const groups = new Set();
+
+  for (const project of projects) {
+    const connection = projectConnectionState(project.id);
+    if (connection.ssh) sshConnected += 1;
+    if (connection.ftp) ftpConnected += 1;
+    commands += project.commands?.length || 0;
+    groups.add(serverGroupName(project));
+  }
+
+  return {
+    total,
+    groups: groups.size,
+    sshConnected,
+    ftpConnected,
+    commands,
+    disconnected: total - sshConnected
+  };
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -1108,6 +1380,511 @@ function icon(name) {
   `;
 }
 
+function formatDateTime(value) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Never';
+  return date.toLocaleString();
+}
+
+function formatLatency(value) {
+  if (value == null || value === '') return '-';
+  return `${Number(value || 0)} ms`;
+}
+
+function uptimeStatusLabel(status) {
+  switch (status) {
+    case 'up':
+      return 'Up';
+    case 'down':
+      return 'Down';
+    case 'degraded':
+      return 'Degraded';
+    case 'queued':
+      return 'Queued';
+    case 'paused':
+      return 'Paused';
+    default:
+      return 'Idle';
+  }
+}
+
+function selectedUptimeProjectRecord() {
+  return state.projects.find((project) => String(project.id) === String(state.uptime.selectedProjectId)) || null;
+}
+
+function syncSelectedUptimeProject(preferredId = '') {
+  const preferred = String(preferredId || state.uptime.selectedProjectId || state.activeProject?.id || '').trim();
+  if (preferred && state.projects.some((project) => String(project.id) === preferred)) {
+    state.uptime.selectedProjectId = preferred;
+  } else {
+    state.uptime.selectedProjectId = state.projects[0]?.id || '';
+  }
+  return selectedUptimeProjectRecord();
+}
+
+function renderUptimeProjectSelect() {
+  if (!els.uptimeProjectSelect) return;
+  const selectedProject = syncSelectedUptimeProject();
+  els.uptimeProjectSelect.innerHTML = '';
+
+  if (!state.projects.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No servers available';
+    els.uptimeProjectSelect.appendChild(option);
+    els.uptimeProjectSelect.disabled = true;
+    return;
+  }
+
+  for (const project of state.projects) {
+    const option = document.createElement('option');
+    option.value = project.id;
+    option.textContent = `${project.name || 'Untitled Server'} · ${serverGroupName(project)} · ${project.uptimeMonitors.length} monitor${project.uptimeMonitors.length === 1 ? '' : 's'}`;
+    els.uptimeProjectSelect.appendChild(option);
+  }
+
+  els.uptimeProjectSelect.disabled = false;
+  els.uptimeProjectSelect.value = selectedProject?.id || state.uptime.selectedProjectId || '';
+}
+
+function markQueuedUptimeMonitors(projectId, monitorId = '') {
+  const currentProjectId = String(state.uptime.project.projectId || '').trim();
+  if (!currentProjectId || currentProjectId !== String(projectId || '').trim()) return;
+
+  const selectedMonitorId = String(monitorId || '').trim();
+  state.uptime.project = normalizeUptimeProjectState({
+    ...state.uptime.project,
+    monitors: (state.uptime.project.monitors || []).map((monitor) => {
+      const shouldQueue = monitor.enabled !== false && (!selectedMonitorId || String(monitor.id) === selectedMonitorId);
+      if (!shouldQueue) return monitor;
+      return {
+        ...monitor,
+        runtime: normalizeUptimeRuntimeMonitor({
+          ...(monitor.runtime || {}),
+          status: 'queued',
+          summary: 'Run queued. Waiting for worker.',
+          nextCheckAt: '',
+          lastError: ''
+        })
+      };
+    })
+  });
+  renderUptimeWorkspace();
+}
+
+function selectedUptimeMonitor() {
+  return state.uptime.project.monitors.find((monitor) => String(monitor.id) === String(state.uptime.selectedMonitorId)) || null;
+}
+
+function syncSelectedUptimeMonitor() {
+  const monitors = state.uptime.project.monitors || [];
+  if (!monitors.length) {
+    state.uptime.selectedMonitorId = '';
+    return null;
+  }
+  if (!monitors.some((monitor) => String(monitor.id) === String(state.uptime.selectedMonitorId))) {
+    state.uptime.selectedMonitorId = String(monitors[0].id);
+  }
+  return selectedUptimeMonitor();
+}
+
+function renderUptimeKeyValueList(target, items) {
+  target.innerHTML = items
+    .map(
+      ([label, value]) => `
+        <div class="uptime-kv-row">
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${escapeHtml(value)}</dd>
+        </div>
+      `
+    )
+    .join('');
+}
+
+function renderUptimeMonitorList() {
+  if (!state.uptime.project.projectId) {
+    els.uptimeMonitorListMeta.textContent = 'No server selected.';
+    els.uptimeMonitorList.innerHTML = `
+      <div class="uptime-empty-state compact">
+        <strong>No server available</strong>
+        <span>Add a server first, then manage its uptime monitors here.</span>
+      </div>
+    `;
+    return;
+  }
+
+  const monitors = state.uptime.project.monitors || [];
+  els.uptimeMonitorListMeta.textContent = `${state.uptime.project.projectName || 'Server'} · ${monitors.length} configured monitor${monitors.length === 1 ? '' : 's'}`;
+  if (!monitors.length) {
+    els.uptimeMonitorList.innerHTML = `
+      <div class="uptime-empty-state compact">
+        <strong>No monitors yet</strong>
+        <span>Add an HTTP or TCP check to start background uptime tracking for this server.</span>
+      </div>
+    `;
+    return;
+  }
+
+  els.uptimeMonitorList.innerHTML = monitors
+    .map((monitor) => {
+      const runtime = normalizeUptimeRuntimeMonitor(monitor.runtime);
+      const active = String(monitor.id) === String(state.uptime.selectedMonitorId);
+      const target =
+        monitor.type === 'tcp'
+          ? `${monitor.tcp?.host || '-'}:${monitor.tcp?.port || '-'}`
+          : `${monitor.http?.method || 'GET'} ${monitor.http?.url || '-'}`;
+      return `
+        <button class="uptime-monitor-row ${active ? 'active' : ''}" type="button" data-uptime-monitor-id="${escapeHtml(monitor.id)}">
+          <div class="uptime-monitor-row-top">
+            <strong>${escapeHtml(monitor.name)}</strong>
+            <span class="uptime-status-pill status-${escapeHtml(runtime.status || 'idle')}">${escapeHtml(uptimeStatusLabel(runtime.status))}</span>
+          </div>
+          <span class="uptime-monitor-target">${escapeHtml(target)}</span>
+          <span class="uptime-monitor-meta">${escapeHtml(runtime.summary || 'No checks yet.')}</span>
+        </button>
+      `;
+    })
+    .join('');
+}
+
+function renderUptimeMonitorDetail() {
+  const monitor = syncSelectedUptimeMonitor();
+  const service = state.uptime.project.service || defaultUptimeState().service;
+  els.uptimeServiceStatus.textContent = service.active ? 'Background online' : 'Worker offline';
+  els.uptimeServiceMeta.textContent = service.syncWarning
+    ? service.syncWarning
+    : service.lastConfigRefreshAt
+      ? `Last config refresh ${formatDateTime(service.lastConfigRefreshAt)}`
+      : 'Waiting for worker status.';
+  els.uptimeHealthyCount.textContent = String((state.uptime.project.summary.up || 0) + 0);
+  els.uptimeAttentionCount.textContent = String((state.uptime.project.summary.down || 0) + (state.uptime.project.summary.degraded || 0));
+  els.uptimePausedCount.textContent = String(state.uptime.project.summary.paused || 0);
+
+  if (!monitor) {
+    els.uptimeEmptyState.classList.remove('hidden');
+    els.uptimeDetailContent.classList.add('hidden');
+    return;
+  }
+
+  const runtime = normalizeUptimeRuntimeMonitor(monitor.runtime);
+  els.uptimeEmptyState.classList.add('hidden');
+  els.uptimeDetailContent.classList.remove('hidden');
+  els.uptimeSelectedMonitorStatus.className = `uptime-status-pill status-${runtime.status || 'idle'}`;
+  els.uptimeSelectedMonitorStatus.textContent = uptimeStatusLabel(runtime.status);
+  els.uptimeSelectedMonitorName.textContent = monitor.name;
+  els.uptimeSelectedMonitorMeta.textContent = `${monitor.type.toUpperCase()} monitor · ${monitor.enabled ? 'Enabled' : 'Paused'}`;
+  els.uptimeToggleMonitorButton.textContent = monitor.enabled ? 'Pause' : 'Resume';
+
+  renderUptimeKeyValueList(els.uptimeOverviewList, [
+    ['Last check', formatDateTime(runtime.lastCheckAt)],
+    ['Last success', formatDateTime(runtime.lastSuccessAt)],
+    ['Last failure', formatDateTime(runtime.lastFailureAt)],
+    ['Latency', formatLatency(runtime.lastLatencyMs)],
+    ['Consecutive failures', String(runtime.consecutiveFailures || 0)],
+    ['Total checks', String(runtime.checkCount || 0)],
+    ['Next check', formatDateTime(runtime.nextCheckAt)],
+    ['Current summary', runtime.summary || '-']
+  ]);
+
+  const configItems =
+    monitor.type === 'tcp'
+      ? [
+          ['Target', `${monitor.tcp?.host || '-'}:${monitor.tcp?.port || '-'}`],
+          ['Interval', `${monitor.intervalSec} sec`],
+          ['Timeout', `${monitor.timeoutMs} ms`],
+          ['Latency budget', monitor.latencyBudgetMs ? `${monitor.latencyBudgetMs} ms` : 'None']
+        ]
+      : [
+          ['URL', monitor.http?.url || '-'],
+          ['Method', monitor.http?.method || 'GET'],
+          ['Expected status', (monitor.http?.expectedStatusCodes || []).join(', ') || '200'],
+          ['Headers', Object.keys(monitor.http?.headers || {}).length ? JSON.stringify(monitor.http.headers) : 'None'],
+          ['Header assertions', (monitor.http?.headerAssertions || []).length ? JSON.stringify(monitor.http.headerAssertions) : 'None'],
+          ['Body must contain', (monitor.http?.bodyMustContain || []).join(', ') || 'None'],
+          ['Body must not contain', (monitor.http?.bodyMustNotContain || []).join(', ') || 'None'],
+          ['Interval', `${monitor.intervalSec} sec`],
+          ['Timeout', `${monitor.timeoutMs} ms`],
+          ['Latency budget', monitor.latencyBudgetMs ? `${monitor.latencyBudgetMs} ms` : 'None']
+        ];
+  renderUptimeKeyValueList(els.uptimeConfigList, configItems);
+
+  els.uptimeIncidentList.innerHTML = state.uptime.selectedMonitorIncidents.length
+    ? state.uptime.selectedMonitorIncidents
+        .slice()
+        .reverse()
+        .map(
+          (incident) => `
+            <article class="uptime-timeline-row">
+              <strong>${escapeHtml(incident.event === 'resolved' ? 'Resolved' : 'Opened')}</strong>
+              <span>${escapeHtml(formatDateTime(incident.at))}</span>
+              <p>${escapeHtml(incident.message || '-')}</p>
+            </article>
+          `
+        )
+        .join('')
+    : '<div class="settings-muted">No incidents logged yet.</div>';
+
+  els.uptimeHistoryList.innerHTML = state.uptime.selectedMonitorHistory.length
+    ? state.uptime.selectedMonitorHistory
+        .slice()
+        .reverse()
+        .map(
+          (entry) => `
+            <article class="uptime-history-row">
+              <div class="uptime-history-top">
+                <strong>${escapeHtml(uptimeStatusLabel(entry.status))}</strong>
+                <span>${escapeHtml(formatDateTime(entry.at))}</span>
+              </div>
+              <div class="uptime-history-meta">${escapeHtml(entry.summary || '-')}</div>
+              <div class="uptime-history-meta">${escapeHtml(formatLatency(entry.latencyMs))}${entry.error ? ` · ${escapeHtml(entry.error)}` : ''}</div>
+            </article>
+          `
+        )
+        .join('')
+    : '<div class="settings-muted">No checks recorded yet.</div>';
+}
+
+function renderUptimeWorkspace() {
+  renderUptimeProjectSelect();
+  const hasProject = Boolean(state.uptime.project.projectId);
+  els.uptimeAddMonitorButton.disabled = !hasProject;
+  els.uptimeRunAllButton.disabled = !hasProject;
+  renderUptimeMonitorList();
+  renderUptimeMonitorDetail();
+}
+
+async function loadSelectedUptimeMonitorHistory() {
+  const monitor = selectedUptimeMonitor();
+  if (!state.uptime.project.projectId || !monitor) {
+    state.uptime.selectedMonitorHistory = [];
+    state.uptime.selectedMonitorIncidents = [];
+    renderUptimeMonitorDetail();
+    return;
+  }
+  const history = await window.deployerx.getUptimeMonitorHistory({
+    projectId: state.uptime.project.projectId,
+    monitorId: monitor.id
+  });
+  state.uptime.selectedMonitorHistory = Array.isArray(history?.history) ? history.history : [];
+  state.uptime.selectedMonitorIncidents = Array.isArray(history?.incidents) ? history.incidents : [];
+  renderUptimeMonitorDetail();
+}
+
+async function refreshUptimeProjectState({ preserveSelection = true } = {}) {
+  const selectedProject = syncSelectedUptimeProject();
+  renderUptimeProjectSelect();
+  if (!selectedProject?.id) {
+    const service = await window.deployerx.getUptimeServiceStatus().catch(() => defaultUptimeState().service);
+    state.uptime.project = normalizeUptimeProjectState({
+      projectId: '',
+      projectName: '',
+      service,
+      summary: defaultUptimeState().summary,
+      monitors: []
+    });
+    if (!preserveSelection) state.uptime.selectedMonitorId = '';
+    state.uptime.selectedMonitorHistory = [];
+    state.uptime.selectedMonitorIncidents = [];
+    renderUptimeWorkspace();
+    return;
+  }
+  const nextProjectState = normalizeUptimeProjectState(await window.deployerx.getUptimeProjectState(selectedProject.id));
+  state.uptime.project = nextProjectState;
+  state.uptime.selectedProjectId = nextProjectState.projectId || selectedProject.id;
+  if (!preserveSelection) state.uptime.selectedMonitorId = '';
+  syncSelectedUptimeMonitor();
+  renderUptimeWorkspace();
+  await loadSelectedUptimeMonitorHistory();
+}
+
+function stopUptimeAutoRefresh() {
+  if (uptimeRefreshTimer) {
+    clearInterval(uptimeRefreshTimer);
+    uptimeRefreshTimer = null;
+  }
+}
+
+function startUptimeAutoRefresh() {
+  stopUptimeAutoRefresh();
+  uptimeRefreshTimer = setInterval(async () => {
+    if (state.currentView !== 'uptime' || uptimeRefreshInFlight) return;
+    uptimeRefreshInFlight = true;
+    try {
+      await refreshUptimeProjectState({ preserveSelection: true });
+    } catch {
+      // Keep the loop quiet; explicit actions already surface errors.
+    } finally {
+      uptimeRefreshInFlight = false;
+    }
+  }, 2500);
+}
+
+function updateUptimeMonitorTypeFields() {
+  const isTcp = els.uptimeMonitorType.value === 'tcp';
+  els.uptimeTcpFields.classList.toggle('hidden', !isTcp);
+  els.uptimeHttpFields.classList.toggle('hidden', isTcp);
+}
+
+function parseJsonField(rawValue, fallback, label) {
+  const value = String(rawValue || '').trim();
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+}
+
+function fillUptimeMonitorForm(monitor) {
+  const normalized = normalizeUptimeMonitor(monitor);
+  els.uptimeMonitorName.value = normalized.name;
+  els.uptimeMonitorType.value = normalized.type;
+  els.uptimeMonitorEnabled.value = normalized.enabled ? 'true' : 'false';
+  els.uptimeMonitorInterval.value = String(normalized.intervalSec);
+  els.uptimeMonitorTimeout.value = String(normalized.timeoutMs);
+  els.uptimeMonitorLatencyBudget.value = String(normalized.latencyBudgetMs || 0);
+  els.uptimeHttpUrl.value = normalized.http.url || '';
+  els.uptimeHttpMethod.value = normalized.http.method || 'GET';
+  els.uptimeHttpStatusCodes.value = (normalized.http.expectedStatusCodes || []).join(',');
+  els.uptimeHttpHeaders.value = Object.keys(normalized.http.headers || {}).length ? JSON.stringify(normalized.http.headers, null, 2) : '';
+  els.uptimeHttpHeaderAssertions.value = (normalized.http.headerAssertions || []).length
+    ? JSON.stringify(normalized.http.headerAssertions, null, 2)
+    : '';
+  els.uptimeHttpBodyMustContain.value = (normalized.http.bodyMustContain || []).join('\n');
+  els.uptimeHttpBodyMustNotContain.value = (normalized.http.bodyMustNotContain || []).join('\n');
+  els.uptimeTcpHost.value = normalized.tcp.host || '';
+  els.uptimeTcpPort.value = String(normalized.tcp.port || 80);
+  updateUptimeMonitorTypeFields();
+}
+
+function readUptimeMonitorFormValue() {
+  return normalizeUptimeMonitor({
+    id: state.uptime.modalMonitorId || '',
+    name: els.uptimeMonitorName.value,
+    type: els.uptimeMonitorType.value,
+    enabled: els.uptimeMonitorEnabled.value === 'true',
+    intervalSec: Number(els.uptimeMonitorInterval.value || 300),
+    timeoutMs: Number(els.uptimeMonitorTimeout.value || 10000),
+    latencyBudgetMs: Number(els.uptimeMonitorLatencyBudget.value || 0),
+    http: {
+      method: els.uptimeHttpMethod.value,
+      url: els.uptimeHttpUrl.value,
+      expectedStatusCodes: String(els.uptimeHttpStatusCodes.value || '')
+        .split(',')
+        .map((item) => Number(item.trim()))
+        .filter(Boolean),
+      headers: parseJsonField(els.uptimeHttpHeaders.value, {}, 'Headers'),
+      headerAssertions: parseJsonField(els.uptimeHttpHeaderAssertions.value, [], 'Header assertions'),
+      bodyMustContain: String(els.uptimeHttpBodyMustContain.value || '')
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      bodyMustNotContain: String(els.uptimeHttpBodyMustNotContain.value || '')
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    },
+    tcp: {
+      host: els.uptimeTcpHost.value,
+      port: Number(els.uptimeTcpPort.value || 80)
+    }
+  });
+}
+
+function openUptimeMonitorModal(mode = 'create', monitorId = '') {
+  const project = selectedUptimeProjectRecord();
+  if (!project) return;
+  const current = project.uptimeMonitors?.find((monitor) => String(monitor.id) === String(monitorId)) || blankUptimeMonitor();
+  state.uptime.modalMode = mode;
+  state.uptime.modalMonitorId = mode === 'edit' ? String(current.id || '') : '';
+  els.uptimeMonitorModalTitle.textContent = mode === 'edit' ? 'Edit monitor' : 'Add monitor';
+  els.uptimeMonitorModalSubtitle.textContent =
+    mode === 'edit' ? 'Update the uptime check and background monitoring rules.' : 'Configure a new HTTP or TCP monitor.';
+  fillUptimeMonitorForm(mode === 'edit' ? current : blankUptimeMonitor());
+  setModalVisible(true, els.uptimeMonitorModal);
+  els.uptimeMonitorName.focus();
+}
+
+async function saveUptimeMonitor(event) {
+  event.preventDefault();
+  const project = selectedUptimeProjectRecord();
+  if (!project) return;
+  try {
+    const monitor = readUptimeMonitorFormValue();
+    const current = Array.isArray(project.uptimeMonitors) ? [...project.uptimeMonitors] : [];
+    const index = current.findIndex((item) => String(item.id) === String(monitor.id));
+    if (index >= 0) current[index] = monitor;
+    else current.unshift(monitor);
+    const saved = await saveProject({
+      ...project,
+      uptimeMonitors: current
+    });
+    if (state.activeProject?.id === saved.id) {
+      state.activeProject = saved;
+      els.activeProjectName.textContent = saved.name || 'Untitled Server';
+      renderDetailsSummary(saved);
+    }
+    state.uptime.selectedProjectId = saved.id;
+    renderProjects();
+    state.uptime.selectedMonitorId = String(monitor.id);
+    setModalVisible(false, els.uptimeMonitorModal);
+    await refreshUptimeProjectState({ preserveSelection: true });
+    showToast(index >= 0 ? 'Monitor updated' : 'Monitor created');
+  } catch (error) {
+    showAlert(error.message || 'Could not save uptime monitor.');
+  }
+}
+
+async function deleteSelectedUptimeMonitor() {
+  const project = selectedUptimeProjectRecord();
+  if (!project) return;
+  const monitor = selectedUptimeMonitor();
+  if (!monitor) return;
+  const ok = await confirmDangerousAction(
+    `Delete monitor "${monitor.name}"?`,
+    'Its local history and incidents will be removed from this device.',
+    'Delete'
+  );
+  if (!ok) return;
+  const nextMonitors = project.uptimeMonitors.filter((item) => String(item.id) !== String(monitor.id));
+  const saved = await saveProject({
+    ...project,
+    uptimeMonitors: nextMonitors
+  });
+  if (state.activeProject?.id === saved.id) {
+    state.activeProject = saved;
+    renderDetailsSummary(saved);
+  }
+  state.uptime.selectedProjectId = saved.id;
+  state.uptime.selectedMonitorId = nextMonitors[0]?.id || '';
+  renderProjects();
+  await refreshUptimeProjectState({ preserveSelection: true });
+  showToast('Monitor deleted');
+}
+
+async function toggleSelectedUptimeMonitor() {
+  const project = selectedUptimeProjectRecord();
+  if (!project) return;
+  const monitor = selectedUptimeMonitor();
+  if (!monitor) return;
+  const nextMonitors = project.uptimeMonitors.map((item) =>
+    String(item.id) === String(monitor.id) ? { ...item, enabled: !item.enabled } : item
+  );
+  const saved = await saveProject({
+    ...project,
+    uptimeMonitors: nextMonitors
+  });
+  if (state.activeProject?.id === saved.id) {
+    state.activeProject = saved;
+    renderDetailsSummary(saved);
+  }
+  state.uptime.selectedProjectId = saved.id;
+  renderProjects();
+  await refreshUptimeProjectState({ preserveSelection: true });
+  showToast(monitor.enabled ? 'Monitor paused' : 'Monitor resumed');
+}
+
 function showView(view) {
   if (state.setup.mode === 'cloud' && !state.teams.activeTeamId && view !== 'team') {
     view = 'team';
@@ -1115,34 +1892,47 @@ function showView(view) {
   state.currentView = view;
   if (view === 'team') renderSettingsView();
   const isDashboard = view === 'dashboard';
+  const isUptime = view === 'uptime';
+  const isServers = view === 'servers';
   const isProject = view === 'project';
   const isTemplate = view === 'templates';
   const isTeam = view === 'team';
   els.dashboardView.classList.toggle('hidden', !isDashboard);
+  els.uptimeView.classList.toggle('hidden', !isUptime);
+  els.serversView.classList.toggle('hidden', !isServers);
   els.projectView.classList.toggle('hidden', !isProject);
   els.templateView.classList.toggle('hidden', !isTemplate);
   els.teamView.classList.toggle('hidden', !isTeam);
   els.dashboardButton.classList.toggle('active', isDashboard);
+  els.uptimeButton.classList.toggle('active', isUptime);
+  els.serversButton.classList.toggle('active', isServers);
   els.templatesButton.classList.toggle('active', isTemplate);
   els.teamButton.classList.toggle('active', isTeam);
-  if (isProject) {
+  if (isUptime) {
+    startUptimeAutoRefresh();
+    refreshUptimeProjectState({ preserveSelection: true }).catch((error) => showAlert(error.message || 'Could not load uptime monitors.'));
+  } else {
+    stopUptimeAutoRefresh();
+    if (isProject) {
     requestAnimationFrame(() => {
       if (state.activeProjectTab === 'ssh') {
         fitAddon.fit();
         if (state.terminalConnected) terminal.focus();
       }
     });
+    }
   }
 }
 
 function setProjectTab(tab) {
   state.activeProjectTab = tab === 'ftp' ? 'ftp' : 'ssh';
   const isFtp = state.activeProjectTab === 'ftp';
-  els.projectSshTab.classList.toggle('active', !isFtp);
+  const isSsh = !isFtp;
+  els.projectSshTab.classList.toggle('active', isSsh);
   els.projectFtpTab.classList.toggle('active', isFtp);
-  els.projectSshTab.setAttribute('aria-selected', String(!isFtp));
+  els.projectSshTab.setAttribute('aria-selected', String(isSsh));
   els.projectFtpTab.setAttribute('aria-selected', String(isFtp));
-  els.sshWorkspace.classList.toggle('hidden', isFtp);
+  els.sshWorkspace.classList.toggle('hidden', !isSsh);
   els.ftpWorkspace.classList.toggle('hidden', !isFtp);
   if (isFtp) {
     renderFtpBrowser();
@@ -1504,6 +2294,40 @@ function toggleConnectionAuthFields(authType, passwordField, keyFields) {
   keyFields.classList.toggle('hidden', authType !== 'key');
 }
 
+function syncSecretToggleButton(button, visible) {
+  const showLabel = button.dataset.showLabel || 'Show value';
+  const hideLabel = button.dataset.hideLabel || 'Hide value';
+  const label = visible ? hideLabel : showLabel;
+  const icon = button.querySelector('use');
+
+  button.dataset.secretVisible = visible ? 'true' : 'false';
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-pressed', visible ? 'true' : 'false');
+  button.setAttribute('title', label);
+  if (icon) icon.setAttribute('href', visible ? '#icon-eye-off' : '#icon-eye');
+}
+
+function setSecretVisibility(button, visible) {
+  const input = document.getElementById(button.dataset.secretTarget || '');
+  if (!input) return;
+  input.type = visible ? 'text' : 'password';
+  syncSecretToggleButton(button, visible);
+}
+
+function resetSecretVisibility(scope = document) {
+  scope.querySelectorAll('[data-secret-toggle]').forEach((button) => setSecretVisibility(button, false));
+}
+
+function initializeSecretVisibilityToggles() {
+  document.querySelectorAll('[data-secret-toggle]').forEach((button) => {
+    syncSecretToggleButton(button, false);
+    button.addEventListener('click', () => {
+      const visible = button.dataset.secretVisible === 'true';
+      setSecretVisibility(button, !visible);
+    });
+  });
+}
+
 function updateAuthFields() {
   toggleConnectionAuthFields(els.modalAuthType.value, els.modalPasswordField, els.modalKeyFields);
 }
@@ -1528,7 +2352,7 @@ function renderTemplateSelect() {
 }
 
 function renderProjectTemplateSelect() {
-  els.projectTemplateSelect.innerHTML = '<option value="">Project commands</option>';
+  els.projectTemplateSelect.innerHTML = '<option value="">Server commands</option>';
   for (const template of state.templates) {
     const option = document.createElement('option');
     option.value = template.id;
@@ -1662,7 +2486,7 @@ function renderTemplateVariableSummary(commands) {
   }
 
   els.templateVariableSummary.innerHTML = `
-    <span>Project variables used by this template</span>
+    <span>Server variables used by this template</span>
     <div class="template-variable-tags">
       ${variables.map((name) => `<code>{{${escapeHtml(name)}}}</code>`).join('')}
     </div>
@@ -2007,8 +2831,8 @@ function renderWorkspaceSetupPanel() {
   els.workspaceCreateForm.classList.toggle('hidden', hasTeams);
   els.workspaceContinueButton.classList.toggle('hidden', !hasTeams);
   els.workspaceSetupCopy.textContent = hasTeams
-    ? 'Choose a workspace to load encrypted projects, templates, and SSH secrets.'
-    : 'Create a workspace to keep projects, templates, and team members in cloud sync.';
+    ? 'Choose a workspace to load encrypted servers, templates, and SSH secrets.'
+    : 'Create a workspace to keep servers, templates, and team members in cloud sync.';
 }
 
 function showWorkspaceSetupPanel() {
@@ -2465,7 +3289,7 @@ async function deleteWorkspace() {
   if (!team) return;
   const ok = await confirmDangerousAction(
     `Delete ${team.name || 'this workspace'}?`,
-    'This permanently deletes the cloud workspace, members, invites, projects, and templates. This cannot be undone.',
+    'This permanently deletes the cloud workspace, members, invites, servers, and templates. This cannot be undone.',
     'Delete workspace'
   );
   if (!ok) return;
@@ -2486,7 +3310,7 @@ async function deleteWorkspace() {
 async function importLocalToCloud() {
   if (!state.teams.activeTeamId) return;
   const ok = await confirmDangerousAction(
-    'Import local projects and templates to this cloud team?',
+    'Import local servers and templates to this cloud team?',
     'Items with the same id will be overwritten in the active cloud team.',
     'Import'
   );
@@ -2637,7 +3461,10 @@ function syncModalVariablesForTemplate() {
 function fillModal(project) {
   const normalizedProject = normalizeProject(project);
   state.modalDraft = structuredClone(normalizedProject);
+  resetSecretVisibility(els.projectModal);
+  renderProjectGroupOptions();
   els.modalProjectName.value = normalizedProject.name || '';
+  els.modalProjectGroup.value = normalizedProject.group || '';
   els.modalServerType.value = normalizedProject.serverType || 'ubuntu';
   renderTemplateSelect();
   els.modalTemplateSelect.value = '';
@@ -2668,6 +3495,7 @@ function readModalProject() {
   const project = {
     ...state.modalDraft,
     name: els.modalProjectName.value.trim(),
+    group: els.modalProjectGroup.value.trim(),
     serverType: els.modalServerType.value,
     variables,
     ssh: {
@@ -2699,21 +3527,64 @@ function readModalProject() {
 function renderProjects() {
   els.projectList.innerHTML = '';
   els.projectGrid.innerHTML = '';
+  if (els.dashboardStatsGrid) els.dashboardStatsGrid.innerHTML = '';
+  if (els.dashboardHealthSummary) els.dashboardHealthSummary.innerHTML = '';
+  if (els.dashboardGroupSummary) els.dashboardGroupSummary.innerHTML = '';
+  if (els.dashboardServerSections) els.dashboardServerSections.innerHTML = '';
+  if (els.sidebarServerCount) els.sidebarServerCount.textContent = String(state.projects.length);
+  renderProjectGroupOptions();
+
+  const renderServerCard = (project) => {
+    const connectionState = projectConnectionState(project.id);
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'project-card';
+    card.innerHTML = `
+      <div class="project-card-top">
+        <span class="project-icon">${escapeHtml(projectBadge(project))}</span>
+        <div class="project-card-meta">
+          <strong>${escapeHtml(project.name || 'Untitled Server')}</strong>
+          <span>${escapeHtml(project.serverType || 'server')} · ${escapeHtml(project.ssh?.host || 'no host')}</span>
+        </div>
+        <span class="project-card-action">${icon('chevron-right')}</span>
+      </div>
+      <div class="project-card-status-row">
+        <span class="status-pill ${connectionState.ssh ? 'connected' : 'disconnected'}">SSH ${connectionState.ssh ? 'online' : 'offline'}</span>
+        <span class="status-pill ${connectionState.ftp ? 'connected' : 'disconnected'}">FTP ${connectionState.ftp ? 'online' : 'offline'}</span>
+      </div>
+      <div class="project-card-note">${project.commands?.length || 0} saved commands</div>
+    `;
+    card.addEventListener('click', () => openProject(project.id));
+    return card;
+  };
 
   if (!state.projects.length) {
+    const sidebarEmpty = document.createElement('div');
+    sidebarEmpty.className = 'empty-project';
+    sidebarEmpty.textContent = 'No servers yet';
+    els.projectList.appendChild(sidebarEmpty);
+
     const empty = document.createElement('div');
     empty.className = 'project-card';
     empty.innerHTML = `
       <div class="project-card-top">
         <span class="project-icon">DX</span>
         <div class="project-card-meta">
-          <strong>No projects yet</strong>
-          <span>Create one to start.</span>
+          <strong>No servers yet</strong>
+          <span>Add one to start.</span>
         </div>
       </div>
-      <div class="project-card-note">Use Create project to add SSH details and commands.</div>
+      <div class="project-card-note">Use Add server to save SSH details, groups, and deployment commands.</div>
     `;
     els.projectGrid.appendChild(empty);
+    if (els.dashboardStatsGrid) {
+      const emptyDashboard = document.createElement('div');
+      emptyDashboard.className = 'dashboard-empty';
+      emptyDashboard.innerHTML = '<strong>No servers saved</strong><span>Add your first server to start tracking stats and groups.</span>';
+      els.dashboardStatsGrid.appendChild(emptyDashboard);
+    }
+    if (els.dashboardHealthSummary) els.dashboardHealthSummary.innerHTML = '<div class="dashboard-empty-inline">Save a server to see connection coverage.</div>';
+    if (els.dashboardGroupSummary) els.dashboardGroupSummary.innerHTML = '<div class="dashboard-empty-inline">Groups appear here once servers are assigned.</div>';
     return;
   }
 
@@ -2731,9 +3602,8 @@ function renderProjects() {
     listItem.type = 'button';
     listItem.className = `project-item ${state.activeProject?.id === project.id ? 'active' : ''}`;
     listItem.innerHTML = `
-      <span class="project-icon">${escapeHtml(projectBadge(project))}</span>
       <span class="project-text">
-        <strong>${escapeHtml(project.name || 'Untitled Project')}</strong>
+        <strong>${escapeHtml(project.name || 'Untitled Server')}</strong>
         <span>${escapeHtml(project.serverType || 'server')} · ${escapeHtml(project.ssh?.host || 'no host')}</span>
       </span>
       ${connectionDots}
@@ -2749,7 +3619,7 @@ function renderProjects() {
       <div class="project-card-top">
         <span class="project-icon">${escapeHtml(projectBadge(project))}</span>
         <div class="project-card-meta">
-          <strong>${escapeHtml(project.name || 'Untitled Project')}</strong>
+          <strong>${escapeHtml(project.name || 'Untitled Server')}</strong>
           <span>${escapeHtml(project.serverType || 'server')} · ${escapeHtml(project.ssh?.host || 'no host')}</span>
         </div>
         <span class="project-card-action">${icon('chevron-right')}</span>
@@ -2758,6 +3628,125 @@ function renderProjects() {
     `;
     card.addEventListener('click', () => openProject(project.id));
     els.projectGrid.appendChild(card);
+  }
+
+  const groups = groupProjects();
+  const stats = dashboardStats();
+
+  els.projectList.innerHTML = '';
+  els.projectGrid.innerHTML = '';
+
+  if (els.dashboardStatsGrid) {
+    const statCards = [
+      ['Servers', stats.total, 'Total saved systems'],
+      ['Groups', stats.groups, 'Organized collections'],
+      ['SSH online', stats.sshConnected, 'Active SSH sessions'],
+      ['Saved commands', stats.commands, 'Deployment commands on hand']
+    ];
+    for (const [label, value, note] of statCards) {
+      const statCard = document.createElement('article');
+      statCard.className = 'dashboard-stat-card';
+      statCard.innerHTML = `
+        <span class="dashboard-stat-label">${escapeHtml(label)}</span>
+        <strong class="dashboard-stat-value">${escapeHtml(value)}</strong>
+        <span class="dashboard-stat-note">${escapeHtml(note)}</span>
+      `;
+      els.dashboardStatsGrid.appendChild(statCard);
+    }
+  }
+
+  if (els.dashboardHealthSummary) {
+    els.dashboardHealthSummary.innerHTML = `
+      <div class="dashboard-health-row">
+        <span>SSH connected</span>
+        <strong>${stats.sshConnected} / ${stats.total}</strong>
+      </div>
+      <div class="dashboard-health-row">
+        <span>FTP connected</span>
+        <strong>${stats.ftpConnected} / ${stats.total}</strong>
+      </div>
+      <div class="dashboard-health-row">
+        <span>Need attention</span>
+        <strong>${stats.disconnected}</strong>
+      </div>
+    `;
+  }
+
+  for (const group of groups) {
+    const summary = document.createElement('div');
+    summary.className = 'dashboard-group-chip';
+    summary.innerHTML = `
+      <strong>${escapeHtml(group.name)}</strong>
+      <span>${group.items.length} server${group.items.length === 1 ? '' : 's'}</span>
+    `;
+    if (els.dashboardGroupSummary) els.dashboardGroupSummary.appendChild(summary);
+
+    const sidebarGroup = document.createElement('section');
+    sidebarGroup.className = 'sidebar-server-group';
+    sidebarGroup.innerHTML = `
+      <div class="sidebar-server-group-header">
+        <strong>${escapeHtml(group.name)}</strong>
+        <span>${group.items.length}</span>
+      </div>
+    `;
+
+    const serverSection = document.createElement('section');
+    serverSection.className = 'server-group-section';
+    serverSection.innerHTML = `
+      <div class="server-group-header">
+        <div>
+          <h2>${escapeHtml(group.name)}</h2>
+          <p>${group.items.length} server${group.items.length === 1 ? '' : 's'} in this group</p>
+        </div>
+      </div>
+      <div class="server-group-grid"></div>
+    `;
+    const serverGrid = serverSection.querySelector('.server-group-grid');
+
+    const dashboardSection = document.createElement('section');
+    dashboardSection.className = 'server-group-section';
+    dashboardSection.innerHTML = `
+      <div class="server-group-header">
+        <div>
+          <h2>${escapeHtml(group.name)}</h2>
+          <p>${group.items.length} server${group.items.length === 1 ? '' : 's'} in this group</p>
+        </div>
+      </div>
+      <div class="server-group-grid"></div>
+    `;
+    const dashboardGrid = dashboardSection.querySelector('.server-group-grid');
+
+    for (const project of group.items) {
+      const connectionState = projectConnectionState(project.id);
+      const sshStatus = connectionState.ssh ? 'SSH connected' : 'SSH disconnected';
+      const ftpStatus = connectionState.ftp ? 'FTP connected' : 'FTP disconnected';
+      const connectionDots = `
+        <span class="project-connection-dots" aria-label="${sshStatus}. ${ftpStatus}.">
+          <span class="project-status-dot ${connectionState.ssh ? 'connected' : 'disconnected'}" title="${sshStatus}"></span>
+          <span class="project-status-dot ${connectionState.ftp ? 'connected' : 'disconnected'}" title="${ftpStatus}"></span>
+        </span>
+      `;
+      const listItem = document.createElement('button');
+      listItem.type = 'button';
+      listItem.className = `project-item ${state.activeProject?.id === project.id ? 'active' : ''}`;
+      listItem.innerHTML = `
+        <span class="project-text">
+          <strong>${escapeHtml(project.name || 'Untitled Server')}</strong>
+          <span>${escapeHtml(project.serverType || 'server')} · ${escapeHtml(project.ssh?.host || 'no host')}</span>
+        </span>
+        ${connectionDots}
+        <span class="project-item-action">${icon('chevron-right')}</span>
+      `;
+      listItem.addEventListener('click', () => openProject(project.id));
+      sidebarGroup.appendChild(listItem);
+
+      serverGrid.appendChild(renderServerCard(project));
+      dashboardGrid.appendChild(renderServerCard(project));
+    }
+
+    els.projectList.appendChild(sidebarGroup);
+    els.projectGrid.appendChild(serverSection);
+    if (els.dashboardServerSections) els.dashboardServerSections.appendChild(dashboardSection);
   }
 }
 
@@ -2911,6 +3900,7 @@ function closeTemplateEditor() {
 function renderDetailsSummary(project) {
   const ftpSummary = hasCustomFtpDetails(project) ? 'Custom FTP details saved' : 'Uses SSH details';
   const rows = [
+    ['Group', serverGroupName(project)],
     ['Server type', project.serverType || '-'],
     ['Host', project.ssh?.host || '-'],
     ['Port', project.ssh?.port || '22'],
@@ -3077,7 +4067,7 @@ function renderRemoteFtpBrowser() {
   if (!state.ftpConnected) {
     const empty = document.createElement('div');
     empty.className = 'ftp-empty';
-    empty.textContent = 'Connect FTP to browse this project server.';
+    empty.textContent = 'Connect FTP to browse this server.';
     empty.addEventListener('contextmenu', (event) => showFtpContextMenu(event, 'remote'));
     els.ftpFileList.appendChild(empty);
     return;
@@ -3629,7 +4619,7 @@ function populateProjectView(project) {
   getFtpSession(normalizedProject.id, true);
   applyTerminalSessionToState(normalizedProject.id);
   applyFtpSessionToState(normalizedProject.id);
-  els.activeProjectName.textContent = normalizedProject.name || 'Untitled Project';
+  els.activeProjectName.textContent = normalizedProject.name || 'Untitled Server';
   els.terminalProjectLabel.textContent = 'SSH';
   renderVisibleTerminalSession(terminalSession);
   updateTerminalStatus(terminalSession.status || (terminalSession.connected ? 'Connected' : 'Not connected'), terminalSession.connected);
@@ -3660,9 +4650,11 @@ async function refreshProjectsAndTemplates() {
   if (activeProjectId) {
     state.activeProject = state.projects.find((project) => project.id === activeProjectId) || null;
   }
+  syncSelectedUptimeProject(state.uptime.selectedProjectId || activeProjectId);
   renderTemplateCategories();
   renderTemplates();
   renderTemplateSelect();
+  renderUptimeProjectSelect();
   renderProjects();
 }
 
@@ -3686,8 +4678,8 @@ function exportPickerItems(type = state.exportPicker.type) {
   if (type === 'projects') {
     return state.projects.map((project) => ({
       id: String(project.id),
-      title: project.name || 'Untitled Project',
-      meta: `${project.serverType || 'server'} - ${project.ssh?.host || 'no host'} - ${project.commands?.length || 0} commands`
+      title: project.name || 'Untitled Server',
+      meta: `${serverGroupName(project)} - ${project.serverType || 'server'} - ${project.ssh?.host || 'no host'}`
     }));
   }
 
@@ -3756,7 +4748,7 @@ function renderExportPicker() {
 function openExportPicker(type) {
   const items = exportPickerItems(type);
   if (!items.length) {
-    showToast(type === 'projects' ? 'No projects to export' : 'No templates to export');
+    showToast(type === 'projects' ? 'No servers to export' : 'No templates to export');
     return;
   }
 
@@ -3764,10 +4756,10 @@ function openExportPicker(type) {
     type,
     selectedIds: new Set(items.map((item) => item.id))
   };
-  els.exportPickerTitle.textContent = type === 'projects' ? 'Export projects' : 'Export templates';
+  els.exportPickerTitle.textContent = type === 'projects' ? 'Export servers' : 'Export templates';
   els.exportPickerSubtitle.textContent =
-    type === 'projects' ? 'Choose the projects to include in this JSON export.' : 'Choose the templates to include in this JSON export.';
-  els.exportPickerSearch.placeholder = type === 'projects' ? 'Search projects' : 'Search templates';
+    type === 'projects' ? 'Choose the servers to include in this JSON export.' : 'Choose the templates to include in this JSON export.';
+  els.exportPickerSearch.placeholder = type === 'projects' ? 'Search servers' : 'Search templates';
   els.exportPickerSearch.value = '';
   setModalVisible(true, els.exportPickerModal);
   renderExportPicker();
@@ -3804,7 +4796,7 @@ async function confirmExportPicker(event) {
         ? await window.deployerx.exportProjects(selectedIds)
         : await window.deployerx.exportTemplates(selectedIds);
     if (result?.canceled) return;
-    const itemName = state.exportPicker.type === 'projects' ? 'project' : 'template';
+    const itemName = state.exportPicker.type === 'projects' ? 'server' : 'template';
     closeExportPicker();
     showToast(`Exported ${result.count} ${itemName}${result.count === 1 ? '' : 's'}`);
   } catch (error) {
@@ -3835,9 +4827,9 @@ async function importProjects() {
       state.activeProject = state.projects.find((project) => project.id === state.activeProject.id) || state.activeProject;
     }
     renderProjects();
-    showToast(`Imported ${result.count} project${result.count === 1 ? '' : 's'}${importResultDetail(result)}`);
+    showToast(`Imported ${result.count} server${result.count === 1 ? '' : 's'}${importResultDetail(result)}`);
   } catch (error) {
-    showAlert(error.message || 'Could not import projects.');
+    showAlert(error.message || 'Could not import servers.');
   }
 }
 
@@ -3845,8 +4837,8 @@ async function exportAccount() {
   try {
     const result = await window.deployerx.exportAccount();
     if (result?.canceled) return;
-    addBackupHistory('Account exported', `${result.projectCount} projects, ${result.templateCount} templates`);
-    showToast(`Exported ${result.projectCount} project${result.projectCount === 1 ? '' : 's'} and ${result.templateCount} template${result.templateCount === 1 ? '' : 's'}`);
+    addBackupHistory('Account exported', `${result.projectCount} servers, ${result.templateCount} templates`);
+    showToast(`Exported ${result.projectCount} server${result.projectCount === 1 ? '' : 's'} and ${result.templateCount} template${result.templateCount === 1 ? '' : 's'}`);
   } catch (error) {
     showAlert(error.message || 'Could not export account.');
   }
@@ -3861,11 +4853,11 @@ async function importAccount() {
     renderProjects();
     renderTemplates();
     renderTemplateSelect();
-    const projectDetail = importResultDetail(result, 'project');
+    const projectDetail = importResultDetail(result, 'server');
     const templateDetail = importResultDetail(result, 'template');
-    addBackupHistory('Account imported', `${result.projectCount} projects, ${result.templateCount} templates`);
+    addBackupHistory('Account imported', `${result.projectCount} servers, ${result.templateCount} templates`);
     showToast(
-      `Imported ${result.projectCount} project${result.projectCount === 1 ? '' : 's'}${projectDetail} and ${result.templateCount} template${result.templateCount === 1 ? '' : 's'}${templateDetail}`
+      `Imported ${result.projectCount} server${result.projectCount === 1 ? '' : 's'}${projectDetail} and ${result.templateCount} template${result.templateCount === 1 ? '' : 's'}${templateDetail}`
     );
   } catch (error) {
     showAlert(error.message || 'Could not import account.');
@@ -4014,8 +5006,8 @@ async function openProject(projectId) {
 function openCreateModal() {
   state.modalMode = 'create';
   state.modalDraft = blankProject();
-  els.projectModalTitle.textContent = 'Create project';
-  els.projectModalSubtitle.textContent = 'Add project, SSH, and optional FTP details. Commands are managed inside the project.';
+  els.projectModalTitle.textContent = 'Add server';
+  els.projectModalSubtitle.textContent = 'Add server, SSH, and optional FTP details. Commands are managed inside the server.';
   fillModal(state.modalDraft);
   setModalVisible(true, els.projectModal);
 }
@@ -4023,8 +5015,8 @@ function openCreateModal() {
 function openEditModal() {
   if (!state.activeProject) return;
   state.modalMode = 'edit';
-  els.projectModalTitle.textContent = 'Edit project';
-  els.projectModalSubtitle.textContent = 'Update project, SSH, and optional FTP details.';
+  els.projectModalTitle.textContent = 'Edit server';
+  els.projectModalSubtitle.textContent = 'Update server, group, SSH, and optional FTP details.';
   fillModal(state.activeProject);
   setModalVisible(true, els.projectModal);
 }
@@ -4050,9 +5042,9 @@ async function commitModalProject(event) {
   try {
     saved = await withButtonLoading('project:save', els.projectModalSaveButton, async () => {
       const hydratedProject = await ensureProjectVariables(project, project.commands, {
-        title: 'Set project variables',
-        detail: 'This template needs a few values before the project can be saved.',
-        confirmLabel: 'Save project'
+        title: 'Set server variables',
+        detail: 'This template needs a few values before the server can be saved.',
+        confirmLabel: 'Save server'
       });
       if (!hydratedProject) return null;
 
@@ -4063,7 +5055,7 @@ async function commitModalProject(event) {
     });
     if (!saved) return;
   } catch (error) {
-    showAlert(error.message || 'Could not save project.');
+    showAlert(error.message || 'Could not save server.');
     return;
   }
 
@@ -4084,7 +5076,7 @@ async function saveCommands() {
     saved = await withButtonLoading('project:commands', els.saveCommandsButton, () => saveProject(updated));
     if (!saved) return;
   } catch (error) {
-    showAlert(error.message || 'Could not save project script.');
+    showAlert(error.message || 'Could not save server commands.');
     return;
   }
 
@@ -4098,7 +5090,7 @@ async function deleteCurrentProject() {
   const projectId = state.activeProject.id;
   const projectName = state.activeProject.name;
   const ok = await confirmDangerousAction(
-    `Delete project "${projectName}"?`,
+    `Delete server "${projectName}"?`,
     'This action cannot be undone.',
     'Delete'
   );
@@ -4106,7 +5098,7 @@ async function deleteCurrentProject() {
   try {
     await withButtonLoading('project:delete', els.deleteProjectButton, () => window.deployerx.deleteProject(projectId));
   } catch (error) {
-    showAlert(error.message || 'Could not delete project.');
+    showAlert(error.message || 'Could not delete server.');
     return;
   }
 
@@ -4117,7 +5109,7 @@ async function deleteCurrentProject() {
   if (state.activeProject) {
     populateProjectView(state.activeProject);
   } else {
-    showView('dashboard');
+    showView('servers');
   }
 }
 
@@ -4632,6 +5624,7 @@ async function emergencyStop() {
 }
 
 els.dashboardButton.addEventListener('click', () => showView('dashboard'));
+els.serversButton.addEventListener('click', () => showView('servers'));
 document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') {
     event.preventDefault();
@@ -4671,6 +5664,7 @@ els.workspaceSetupSelect.addEventListener('change', async () => {
 els.workspaceContinueButton.addEventListener('click', enterCloudWorkspace);
 els.workspaceLogoutButton.addEventListener('click', logout);
 els.dashboardCreateButton.addEventListener('click', openCreateModal);
+els.uptimeButton.addEventListener('click', () => showView('uptime'));
 els.dashboardImportAccountButton.addEventListener('click', importAccount);
 els.dashboardExportAccountButton.addEventListener('click', exportAccount);
 els.dashboardImportProjectsButton.addEventListener('click', importProjects);
@@ -4682,10 +5676,58 @@ els.teamButton.addEventListener('click', () => {
   showView('team');
 });
 els.dashboardTemplatesButton.addEventListener('click', () => showView('templates'));
-els.backToDashboardButton.addEventListener('click', () => showView('dashboard'));
+els.dashboardServersButton.addEventListener('click', () => showView('servers'));
+els.backToDashboardButton.addEventListener('click', () => showView('servers'));
 els.backFromTemplatesButton.addEventListener('click', () => showView('dashboard'));
 els.projectSshTab.addEventListener('click', () => setProjectTab('ssh'));
 els.projectFtpTab.addEventListener('click', () => setProjectTab('ftp'));
+els.uptimeAddMonitorButton.addEventListener('click', () => openUptimeMonitorModal('create'));
+els.uptimeProjectSelect.addEventListener('change', () => {
+  state.uptime.selectedProjectId = els.uptimeProjectSelect.value;
+  state.uptime.selectedMonitorId = '';
+  refreshUptimeProjectState({ preserveSelection: false }).catch((error) => showAlert(error.message || 'Could not load uptime monitors.'));
+});
+els.uptimeRunAllButton.addEventListener('click', () => {
+  const project = selectedUptimeProjectRecord();
+  if (!project) return;
+  window.deployerx
+    .runUptimeNow({ projectId: project.id })
+    .then(() => {
+      markQueuedUptimeMonitors(project.id);
+      showToast('Run queued for all monitors');
+    })
+    .catch((error) => showAlert(error.message || 'Could not queue monitor run.'));
+});
+els.uptimeMonitorList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-uptime-monitor-id]');
+  if (!button) return;
+  state.uptime.selectedMonitorId = button.dataset.uptimeMonitorId;
+  renderUptimeWorkspace();
+  loadSelectedUptimeMonitorHistory().catch((error) => showAlert(error.message || 'Could not load monitor history.'));
+});
+els.uptimeRunMonitorButton.addEventListener('click', () => {
+  const monitor = selectedUptimeMonitor();
+  const project = selectedUptimeProjectRecord();
+  if (!project || !monitor) return;
+  window.deployerx
+    .runUptimeNow({ projectId: project.id, monitorId: monitor.id })
+    .then(() => {
+      markQueuedUptimeMonitors(project.id, monitor.id);
+      showToast('Run queued');
+    })
+    .catch((error) => showAlert(error.message || 'Could not queue monitor run.'));
+});
+els.uptimeToggleMonitorButton.addEventListener('click', () => {
+  toggleSelectedUptimeMonitor().catch((error) => showAlert(error.message || 'Could not update monitor.'));
+});
+els.uptimeEditMonitorButton.addEventListener('click', () => {
+  const monitor = selectedUptimeMonitor();
+  if (!monitor) return;
+  openUptimeMonitorModal('edit', monitor.id);
+});
+els.uptimeDeleteMonitorButton.addEventListener('click', () => {
+  deleteSelectedUptimeMonitor().catch((error) => showAlert(error.message || 'Could not delete monitor.'));
+});
 els.editProjectButton.addEventListener('click', openEditModal);
 els.deleteProjectButton.addEventListener('click', deleteCurrentProject);
 els.saveCommandsButton.addEventListener('click', saveCommands);
@@ -4770,6 +5812,7 @@ els.createTeamModal.addEventListener('click', (event) => {
 });
 
 els.projectModalForm.addEventListener('submit', commitModalProject);
+els.uptimeMonitorForm.addEventListener('submit', saveUptimeMonitor);
 els.templatePageForm.addEventListener('submit', saveTemplate);
 els.uploadModalForm.addEventListener('submit', startDeployment);
 els.exportPickerForm.addEventListener('submit', confirmExportPicker);
@@ -4777,6 +5820,14 @@ els.duplicateTemplateForm.addEventListener('submit', duplicateTemplate);
 els.variablePromptForm.addEventListener('submit', submitVariablePrompt);
 els.projectModalCloseButton.addEventListener('click', () => setModalVisible(false, els.projectModal));
 els.projectModalCancelButton.addEventListener('click', () => setModalVisible(false, els.projectModal));
+els.uptimeMonitorCloseButton.addEventListener('click', () => setModalVisible(false, els.uptimeMonitorModal));
+els.uptimeMonitorCancelButton.addEventListener('click', () => setModalVisible(false, els.uptimeMonitorModal));
+els.uptimeMonitorModal.addEventListener('click', (event) => {
+  if (event.target === els.uptimeMonitorModal || event.target.classList.contains('modal-backdrop')) {
+    setModalVisible(false, els.uptimeMonitorModal);
+  }
+});
+els.uptimeMonitorType.addEventListener('change', updateUptimeMonitorTypeFields);
 els.newTemplateButton.addEventListener('click', newTemplate);
 els.importTemplatesButton.addEventListener('click', importTemplates);
 els.exportTemplatesButton.addEventListener('click', exportTemplates);
@@ -4904,6 +5955,18 @@ window.deployerx.onTerminalEvent(async (event) => {
   }
 });
 
+window.deployerx.onUptimeEvent?.((event) => {
+  if (state.currentView !== 'uptime') return;
+  if (!['uptime', 'project-saved', 'run-queued', 'heartbeat', 'monitor-updated'].some((token) => String(event?.type || '').includes(token))) {
+    return;
+  }
+  if (String(event?.type || '').includes('run-queued')) {
+    markQueuedUptimeMonitors(event?.payload?.projectId, event?.payload?.monitorId);
+    return;
+  }
+  refreshUptimeProjectState({ preserveSelection: true }).catch(() => {});
+});
+
 terminal.open(els.terminal);
 terminal.write('Ready.\r\n');
 requestAnimationFrame(fitTerminal);
@@ -4943,7 +6006,10 @@ window.addEventListener('resize', () => {
   fitTerminal();
 });
 
+initializeSecretVisibilityToggles();
 renderTemplateCategories();
+updateUptimeMonitorTypeFields();
+renderUptimeWorkspace();
 showView('dashboard');
 initializeApp().catch((error) => {
   showAlert(error.message || 'Could not initialize DeployerX.');

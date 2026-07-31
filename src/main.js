@@ -1,8 +1,11 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
 const http = require('http');
+const https = require('https');
+const os = require('os');
+const net = require('net');
 const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const { Client } = require('ssh2');
@@ -13,6 +16,8 @@ const SETTINGS_FILE = 'settings.json';
 const APP_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'deployerx-logo.ico' : 'deployerx-logo.png');
 const AUTO_UPDATE_CHECK_DELAY_MS = 12000;
 const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const GITHUB_API_BASE_URL = 'https://api.github.com';
+const WINDOWS_UPDATE_MANIFEST = 'latest.yml';
 let mainWindow;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
@@ -21,6 +26,10 @@ const activeTerminalUploads = new Map();
 const TEMPLATE_CATEGORIES = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance', 'Security', 'Hosting', 'Web Server', 'Cache', 'Control Panel', 'PaaS'];
 const FIREBASE_AUTH_URL = 'https://identitytoolkit.googleapis.com/v1';
 const FIREBASE_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
+const UPTIME_HISTORY_LIMIT = 200;
+const UPTIME_CONFIG_REFRESH_MS = 60 * 1000;
+const UPTIME_COMMAND_POLL_MS = 4000;
+const UPTIME_RUNTIME_FILE = 'runtime.json';
 let settingsCache = null;
 let firebaseConfigCache = null;
 let cloudUnlock = { teamId: '', key: null };
@@ -30,6 +39,31 @@ const githubReleaseSource = resolveGitHubReleaseSource();
 const updateState = createDefaultUpdateState();
 let updaterInitialized = false;
 let autoUpdateTimer = null;
+const uptimeSubscribers = new Set();
+let uptimeRuntimeCache = null;
+let uptimeWorkerState = {
+  active: false,
+  mode: 'window',
+  startedAt: '',
+  lastHeartbeatAt: '',
+  lastConfigRefreshAt: '',
+  commandPollAt: '',
+  runLoopTickAt: '',
+  autostartEnabled: false,
+  syncWarning: '',
+  projectsLoaded: 0,
+  monitorCount: 0,
+  pid: process.pid
+};
+let uptimeWorkerInterval = null;
+let uptimeConfigRefreshTimer = null;
+let uptimeCommandPollTimer = null;
+const uptimeRunNowQueue = new Set();
+let uptimeWorkerOwnsLock = false;
+let uptimeWindowPollTimer = null;
+let uptimeWindowLastHeartbeat = '';
+let uptimeWorkerProjects = [];
+const uptimeMonitorRuns = new Set();
 const BUILT_IN_TEMPLATES = [
   {
     id: `${BUILT_IN_TEMPLATE_PREFIX}ubuntu-host-bootstrap`,
@@ -402,7 +436,8 @@ function resolveGitHubReleaseSource(repository = appPackage.repository) {
   return {
     owner,
     repo,
-    releasesUrl: `https://github.com/${owner}/${repo}/releases`
+    releasesUrl: `https://github.com/${owner}/${repo}/releases`,
+    latestReleaseApiUrl: `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/releases/latest`
   };
 }
 
@@ -418,6 +453,7 @@ function createDefaultUpdateState() {
     downloadPercent: 0,
     lastCheckedAt: '',
     releasePageUrl: githubReleaseSource?.releasesUrl || '',
+    downloadUrl: '',
     message: '',
     error: ''
   };
@@ -428,7 +464,7 @@ function publicUpdateState() {
   return {
     ...updateState,
     currentVersion: app.getVersion(),
-    releasePageUrl: githubReleaseSource?.releasesUrl || '',
+    releasePageUrl: updateState.releasePageUrl || githubReleaseSource?.releasesUrl || '',
     canCheck: Boolean(updateState.enabled) && !['checking', 'downloading'].includes(status),
     canInstall: status === 'downloaded'
   };
@@ -442,7 +478,7 @@ function sendUpdateStateToRenderer() {
 function syncUpdateState(nextState = {}, notify = true) {
   Object.assign(updateState, nextState, {
     currentVersion: app.getVersion(),
-    releasePageUrl: githubReleaseSource?.releasesUrl || ''
+    releasePageUrl: nextState.releasePageUrl || updateState.releasePageUrl || githubReleaseSource?.releasesUrl || ''
   });
   if (notify) sendUpdateStateToRenderer();
   return publicUpdateState();
@@ -461,9 +497,161 @@ function markUpdaterUnavailable(status, message) {
     releaseName: '',
     releaseDate: '',
     downloadPercent: 0,
+    downloadUrl: '',
     message,
     error: ''
   });
+}
+
+function normalizeVersion(version) {
+  return String(version || '')
+    .trim()
+    .replace(/^v/i, '')
+    .replace(/\+.*$/, '');
+}
+
+function parseVersion(version) {
+  const normalized = normalizeVersion(version);
+  const [main = '', preRelease = ''] = normalized.split('-', 2);
+  const parts = main
+    .split('.')
+    .map((part) => Number.parseInt(part, 10))
+    .filter((part) => Number.isFinite(part));
+  while (parts.length < 3) parts.push(0);
+  return { parts, preRelease };
+}
+
+function compareVersions(left, right) {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (a.parts[index] || 0) - (b.parts[index] || 0);
+    if (difference !== 0) return difference > 0 ? 1 : -1;
+  }
+
+  if (!a.preRelease && !b.preRelease) return 0;
+  if (!a.preRelease) return 1;
+  if (!b.preRelease) return -1;
+  return a.preRelease.localeCompare(b.preRelease, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function pickWindowsSetupAsset(assets = []) {
+  const candidates = Array.isArray(assets) ? assets : [];
+  return (
+    candidates.find((asset) => /setup.*\.exe$/i.test(asset?.name || '')) ||
+    candidates.find((asset) => /\.exe$/i.test(asset?.name || '') && !/portable/i.test(asset?.name || '')) ||
+    null
+  );
+}
+
+function friendlyUpdateError(error, fallback = 'Could not check GitHub releases.') {
+  const raw = String(error?.message || error || '').trim();
+  if (!raw) return fallback;
+
+  if (/cannot find latest\.yml/i.test(raw) || (/404/i.test(raw) && /latest\.yml/i.test(raw))) {
+    return 'This GitHub release is missing the latest.yml update manifest. Open Releases to download the latest setup build manually.';
+  }
+
+  let message = raw
+    .replace(/^Error:\s*/i, '')
+    .replace(/^HttpError:\s*/i, '')
+    .replace(/\\n/g, '\n')
+    .replace(/\s*Headers:\s*[\s\S]*$/i, '')
+    .replace(/\s+at\s+[\s\S]*$/i, '')
+    .replace(/\n+/g, ' ')
+    .trim();
+
+  if (/rate limit/i.test(message)) return 'GitHub rate limits prevented checking for updates right now. Please try again shortly.';
+  if (/unauthorized|forbidden|authentication token/i.test(message)) {
+    return 'GitHub release access is blocked for this build right now. Open Releases to download updates manually.';
+  }
+
+  return message || fallback;
+}
+
+async function fetchLatestGitHubRelease() {
+  if (!githubReleaseSource?.latestReleaseApiUrl) return null;
+
+  const response = await fetch(githubReleaseSource.latestReleaseApiUrl, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': `${app.getName()}/${app.getVersion()}`
+    }
+  });
+
+  if (response.status === 404) return null;
+
+  if (!response.ok) {
+    const body = await readJsonResponse(response);
+    const error = new Error(body?.message || `GitHub release check failed with status ${response.status}.`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const release = await readJsonResponse(response);
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const manifest = assets.find((asset) => String(asset?.name || '').toLowerCase() === WINDOWS_UPDATE_MANIFEST);
+  const setupAsset = pickWindowsSetupAsset(assets);
+
+  return {
+    version: normalizeVersion(release?.tag_name || release?.name || ''),
+    tagName: String(release?.tag_name || '').trim(),
+    releaseName: String(release?.name || '').trim(),
+    releaseDate: release?.published_at || release?.created_at || '',
+    releasePageUrl: String(release?.html_url || githubReleaseSource.releasesUrl || '').trim(),
+    downloadUrl: String(setupAsset?.browser_download_url || release?.html_url || githubReleaseSource.releasesUrl || '').trim(),
+    hasManifest: Boolean(manifest?.browser_download_url)
+  };
+}
+
+async function preflightGitHubReleaseCheck() {
+  const release = await fetchLatestGitHubRelease();
+  if (!release?.version) {
+    return {
+      mode: 'no-release',
+      state: {
+        enabled: true,
+        status: 'idle',
+        availableVersion: '',
+        downloadedVersion: '',
+        releaseName: '',
+        releaseDate: '',
+        downloadPercent: 0,
+        lastCheckedAt: new Date().toISOString(),
+        downloadUrl: '',
+        message: 'No published GitHub release was found yet.',
+        error: ''
+      }
+    };
+  }
+
+  const currentVersion = app.getVersion();
+  const isNewerRelease = compareVersions(release.version, currentVersion) > 0;
+
+  if (!release.hasManifest) {
+    return {
+      mode: 'manual',
+      state: {
+        enabled: true,
+        status: isNewerRelease ? 'manual-update' : 'up-to-date',
+        availableVersion: isNewerRelease ? release.version : '',
+        downloadedVersion: '',
+        releaseName: release.releaseName,
+        releaseDate: release.releaseDate,
+        downloadPercent: 0,
+        lastCheckedAt: new Date().toISOString(),
+        releasePageUrl: release.releasePageUrl,
+        downloadUrl: release.downloadUrl,
+        message: isNewerRelease
+          ? `Version ${release.version} is available, but this release is missing the Windows update manifest. Download the latest setup build from Releases.`
+          : 'This installed version matches the latest GitHub release. Automatic update metadata is missing for that release, so future updates may need to be downloaded from Releases.',
+        error: ''
+      }
+    };
+  }
+
+  return { mode: 'auto', release };
 }
 
 async function checkForAppUpdates({ manual = false } = {}) {
@@ -477,6 +665,12 @@ async function checkForAppUpdates({ manual = false } = {}) {
         message: 'Checking GitHub releases for updates...'
       });
     }
+
+    const preflight = await preflightGitHubReleaseCheck();
+    if (preflight?.mode === 'manual' || preflight?.mode === 'no-release') {
+      return syncUpdateState(preflight.state);
+    }
+
     await autoUpdater.checkForUpdates();
   } catch (error) {
     syncUpdateState({
@@ -484,7 +678,7 @@ async function checkForAppUpdates({ manual = false } = {}) {
       lastCheckedAt: new Date().toISOString(),
       downloadPercent: 0,
       message: 'Could not check GitHub releases.',
-      error: error?.message || String(error || 'Unknown error')
+      error: friendlyUpdateError(error)
     });
   }
   return publicUpdateState();
@@ -604,7 +798,7 @@ function initializeAutoUpdater() {
       downloadPercent: 0,
       lastCheckedAt: new Date().toISOString(),
       message: 'Could not reach the GitHub release feed.',
-      error: error?.message || String(error || 'Unknown error')
+      error: friendlyUpdateError(error, 'Could not reach the GitHub release feed.')
     });
   });
 
@@ -719,6 +913,319 @@ function getUserFirebaseConfigPath() {
   return path.join(app.getPath('userData'), 'firebase.config.json');
 }
 
+function getUptimeRootPath() {
+  return path.join(app.getPath('userData'), 'uptime');
+}
+
+function getUptimeRuntimePath() {
+  return path.join(getUptimeRootPath(), UPTIME_RUNTIME_FILE);
+}
+
+function getUptimeCommandsPath() {
+  return path.join(getUptimeRootPath(), 'commands.json');
+}
+
+function getUptimeConfigCachePath() {
+  return path.join(getUptimeRootPath(), 'config-cache.json');
+}
+
+function getUptimeWorkerLockPath() {
+  return path.join(getUptimeRootPath(), 'worker.lock');
+}
+
+function getUptimeProjectPath(projectId) {
+  return path.join(getUptimeRootPath(), 'projects', String(projectId || '').trim());
+}
+
+function getUptimeMonitorPath(projectId, monitorId) {
+  return path.join(getUptimeProjectPath(projectId), String(monitorId || '').trim());
+}
+
+function getUptimeHistoryPath(projectId, monitorId) {
+  return path.join(getUptimeMonitorPath(projectId, monitorId), 'history.ndjson');
+}
+
+function getUptimeIncidentPath(projectId, monitorId) {
+  return path.join(getUptimeMonitorPath(projectId, monitorId), 'incidents.ndjson');
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+function trimStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+function normalizeMonitorHeaders(headers = {}) {
+  if (!headers || typeof headers !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(headers)
+      .map(([key, value]) => [String(key || '').trim(), String(value || '').trim()])
+      .filter(([key, value]) => key && value)
+  );
+}
+
+function normalizeHeaderAssertions(assertions = []) {
+  if (!Array.isArray(assertions)) return [];
+  return assertions
+    .map((item = {}) => ({
+      key: String(item.key || item.name || '').trim(),
+      expected: String(item.expected || item.value || '').trim(),
+      mode: item.mode === 'contains' ? 'contains' : 'equals'
+    }))
+    .filter((item) => item.key && item.expected);
+}
+
+function normalizeExpectedStatuses(value) {
+  const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  const normalized = list
+    .map((item) => Number(String(item || '').trim()))
+    .filter((item) => Number.isInteger(item) && item >= 100 && item <= 599);
+  return normalized.length ? [...new Set(normalized)] : [200];
+}
+
+function blankHttpMonitorConfig() {
+  return {
+    method: 'GET',
+    url: '',
+    headers: {},
+    expectedStatusCodes: [200],
+    bodyMustContain: [],
+    bodyMustNotContain: [],
+    headerAssertions: []
+  };
+}
+
+function blankTcpMonitorConfig() {
+  return {
+    host: '',
+    port: 80
+  };
+}
+
+function blankUptimeMonitor() {
+  return {
+    id: '',
+    name: '',
+    type: 'http',
+    enabled: true,
+    intervalSec: 300,
+    timeoutMs: 10000,
+    latencyBudgetMs: 0,
+    http: blankHttpMonitorConfig(),
+    tcp: blankTcpMonitorConfig()
+  };
+}
+
+function normalizeUptimeMonitor(monitor = {}) {
+  const blank = blankUptimeMonitor();
+  const type = monitor.type === 'tcp' ? 'tcp' : 'http';
+  const httpConfig = monitor.http || monitor.config || {};
+  const tcpConfig = monitor.tcp || monitor.config || {};
+  return {
+    ...blank,
+    ...monitor,
+    id: String(monitor.id || createId('uptime')).trim(),
+    name: String(monitor.name || '').trim() || `${type.toUpperCase()} monitor`,
+    type,
+    enabled: monitor.enabled !== false,
+    intervalSec: Math.max(30, Number(monitor.intervalSec || blank.intervalSec) || blank.intervalSec),
+    timeoutMs: Math.max(1000, Number(monitor.timeoutMs || blank.timeoutMs) || blank.timeoutMs),
+    latencyBudgetMs: Math.max(0, Number(monitor.latencyBudgetMs || 0) || 0),
+    http: {
+      ...blankHttpMonitorConfig(),
+      ...httpConfig,
+      method: String(httpConfig.method || monitor.method || 'GET').toUpperCase() === 'HEAD' ? 'HEAD' : 'GET',
+      url: String(httpConfig.url || monitor.url || '').trim(),
+      headers: normalizeMonitorHeaders(httpConfig.headers || monitor.headers),
+      expectedStatusCodes: normalizeExpectedStatuses(httpConfig.expectedStatusCodes || monitor.expectedStatusCodes),
+      bodyMustContain: trimStringList(httpConfig.bodyMustContain || monitor.bodyMustContain),
+      bodyMustNotContain: trimStringList(httpConfig.bodyMustNotContain || monitor.bodyMustNotContain),
+      headerAssertions: normalizeHeaderAssertions(httpConfig.headerAssertions || monitor.headerAssertions)
+    },
+    tcp: {
+      ...blankTcpMonitorConfig(),
+      ...tcpConfig,
+      host: String(tcpConfig.host || monitor.host || '').trim(),
+      port: Math.max(1, Math.min(65535, Number(tcpConfig.port || monitor.port || 80) || 80))
+    }
+  };
+}
+
+function normalizeUptimeMonitors(monitors = []) {
+  if (!Array.isArray(monitors)) return [];
+  return monitors.map(normalizeUptimeMonitor);
+}
+
+function defaultRuntimeMonitorState() {
+  return {
+    status: 'idle',
+    consecutiveFailures: 0,
+    lastCheckAt: '',
+    lastSuccessAt: '',
+    lastFailureAt: '',
+    lastLatencyMs: null,
+    lastError: '',
+    nextCheckAt: '',
+    activeIncidentId: '',
+    incidentOpenSince: '',
+    syncWarning: '',
+    pausedAt: '',
+    summary: '',
+    checkCount: 0
+  };
+}
+
+function defaultUptimeRuntime() {
+  return {
+    version: 1,
+    heartbeatAt: '',
+    worker: {
+      active: false,
+      startedAt: '',
+      pid: process.pid,
+      mode: 'window',
+      lastConfigRefreshAt: '',
+      commandPollAt: '',
+      runLoopTickAt: '',
+      autostartEnabled: false,
+      syncWarning: ''
+    },
+    projects: {}
+  };
+}
+
+function normalizeRuntimeMonitorState(item = {}) {
+  return {
+    ...defaultRuntimeMonitorState(),
+    ...(item && typeof item === 'object' ? item : {}),
+    consecutiveFailures: Math.max(0, Number(item?.consecutiveFailures || 0) || 0),
+    checkCount: Math.max(0, Number(item?.checkCount || 0) || 0),
+    lastLatencyMs: item?.lastLatencyMs == null ? null : Math.max(0, Number(item.lastLatencyMs) || 0)
+  };
+}
+
+function normalizeUptimeRuntime(runtime = {}) {
+  const projects = runtime?.projects && typeof runtime.projects === 'object' ? runtime.projects : {};
+  return {
+    ...defaultUptimeRuntime(),
+    ...(runtime && typeof runtime === 'object' ? runtime : {}),
+    worker: {
+      ...defaultUptimeRuntime().worker,
+      ...(runtime?.worker && typeof runtime.worker === 'object' ? runtime.worker : {})
+    },
+    projects: Object.fromEntries(
+      Object.entries(projects).map(([projectId, projectState]) => [
+        String(projectId || '').trim(),
+        {
+          monitors: Object.fromEntries(
+            Object.entries(projectState?.monitors && typeof projectState.monitors === 'object' ? projectState.monitors : {}).map(
+              ([monitorId, monitorState]) => [String(monitorId || '').trim(), normalizeRuntimeMonitorState(monitorState)]
+            )
+          )
+        }
+      ])
+    )
+  };
+}
+
+async function ensureUptimeRoot() {
+  await fs.mkdir(path.join(getUptimeRootPath(), 'projects'), { recursive: true });
+}
+
+async function ensurePathDirectory(filePath) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+}
+
+async function readJsonFileSafe(filePath, fallback) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeJsonFilePretty(filePath, payload) {
+  await ensurePathDirectory(filePath);
+  await fs.writeFile(filePath, JSON.stringify(payload, null, 2));
+}
+
+async function readUptimeRuntime() {
+  if (uptimeRuntimeCache) return structuredClone(uptimeRuntimeCache);
+  await ensureUptimeRoot();
+  uptimeRuntimeCache = normalizeUptimeRuntime(await readJsonFileSafe(getUptimeRuntimePath(), defaultUptimeRuntime()));
+  return structuredClone(uptimeRuntimeCache);
+}
+
+async function writeUptimeRuntime(nextRuntime) {
+  uptimeRuntimeCache = normalizeUptimeRuntime(nextRuntime);
+  await writeJsonFilePretty(getUptimeRuntimePath(), uptimeRuntimeCache);
+  return structuredClone(uptimeRuntimeCache);
+}
+
+async function mutateUptimeRuntime(mutator) {
+  const current = await readUptimeRuntime();
+  const next = await mutator(structuredClone(current));
+  return writeUptimeRuntime(next || current);
+}
+
+function ensureProjectRuntimeState(runtime, projectId) {
+  const normalizedProjectId = String(projectId || '').trim();
+  if (!normalizedProjectId) return null;
+  if (!runtime.projects[normalizedProjectId]) runtime.projects[normalizedProjectId] = { monitors: {} };
+  return runtime.projects[normalizedProjectId];
+}
+
+function ensureRuntimeMonitorState(runtime, projectId, monitorId) {
+  const projectState = ensureProjectRuntimeState(runtime, projectId);
+  if (!projectState) return null;
+  const normalizedMonitorId = String(monitorId || '').trim();
+  if (!projectState.monitors[normalizedMonitorId]) {
+    projectState.monitors[normalizedMonitorId] = defaultRuntimeMonitorState();
+  } else {
+    projectState.monitors[normalizedMonitorId] = normalizeRuntimeMonitorState(projectState.monitors[normalizedMonitorId]);
+  }
+  return projectState.monitors[normalizedMonitorId];
+}
+
+async function appendNdjson(filePath, entry) {
+  await ensurePathDirectory(filePath);
+  await fs.appendFile(filePath, `${JSON.stringify(entry)}\n`, 'utf8');
+}
+
+async function readNdjsonTail(filePath, limit = UPTIME_HISTORY_LIMIT) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return raw
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-limit)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function isWorkerMode() {
+  return process.argv.includes('--uptime-worker');
+}
+
+function serviceModeLabel() {
+  return isWorkerMode() ? 'worker' : 'window';
+}
+
 function defaultSettings() {
   return {
     setupComplete: false,
@@ -732,6 +1239,14 @@ function defaultSettings() {
 function normalizeProjectLocalSettings(projectLocalSettings = {}) {
   return {
     ftpLocalPath: String(projectLocalSettings?.ftpLocalPath || '').trim()
+  };
+}
+
+function normalizeStoredProject(project = {}) {
+  const normalized = normalizeProjectImport(project);
+  return {
+    ...normalized,
+    uptimeMonitors: normalizeUptimeMonitors(project?.uptimeMonitors)
   };
 }
 
@@ -842,7 +1357,7 @@ async function readStore() {
   try {
     const data = JSON.parse(raw);
     return {
-      projects: Array.isArray(data.projects) ? data.projects : [],
+      projects: Array.isArray(data.projects) ? data.projects.map(normalizeStoredProject) : [],
       templates: Array.isArray(data.templates) ? data.templates.map(normalizeStoredTemplate) : []
     };
   } catch {
@@ -1653,7 +2168,7 @@ async function ensureTeamManager(teamId) {
 }
 
 function prepareCloudProjectForSave(project) {
-  const copy = JSON.parse(JSON.stringify(project || {}));
+  const copy = JSON.parse(JSON.stringify(normalizeStoredProject(project) || {}));
   return {
     id: String(copy.id || ''),
     updatedAt: copy.updatedAt || nowIso(),
@@ -1665,13 +2180,13 @@ function prepareCloudProjectForSave(project) {
 function prepareCloudProjectForRead(project) {
   if (project?.encryptedPayload && cloudUnlock.key) {
     try {
-      return normalizeProjectImport(decryptJsonWithKey(project.encryptedPayload, cloudUnlock.key));
+      return normalizeStoredProject(decryptJsonWithKey(project.encryptedPayload, cloudUnlock.key));
     } catch {
-      return normalizeProjectImport({ id: project.id, name: 'Encrypted project', commands: [] });
+      return normalizeStoredProject({ id: project.id, name: 'Encrypted project', commands: [] });
     }
   }
 
-  const copy = JSON.parse(JSON.stringify(project || {}));
+  const copy = JSON.parse(JSON.stringify(normalizeStoredProject(project) || {}));
   const ssh = { ...(copy.ssh || {}) };
   if (copy.encryptedSsh && cloudUnlock.key) {
     for (const field of ['password', 'privateKey', 'passphrase']) {
@@ -1775,18 +2290,769 @@ async function writeCurrentStore(data) {
   return writeStore(data);
 }
 
+function sanitizeUptimeProjects(projects = []) {
+  return (Array.isArray(projects) ? projects : [])
+    .map(normalizeStoredProject)
+    .filter((project) => Array.isArray(project.uptimeMonitors) && project.uptimeMonitors.length > 0)
+    .map((project) => ({
+      id: String(project.id || '').trim(),
+      name: String(project.name || 'Project').trim() || 'Project',
+      uptimeMonitors: normalizeUptimeMonitors(project.uptimeMonitors)
+    }))
+    .filter((project) => project.id);
+}
+
+function monitorRunKey(projectId, monitorId) {
+  return `${String(projectId || '').trim()}:${String(monitorId || '').trim()}`;
+}
+
+function countUptimeMonitors(projects = []) {
+  return sanitizeUptimeProjects(projects).reduce((count, project) => count + project.uptimeMonitors.length, 0);
+}
+
+async function isProcessRunning(pid) {
+  const numericPid = Number(pid || 0);
+  if (!numericPid) return false;
+  try {
+    process.kill(numericPid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function acquireUptimeWorkerLock() {
+  await ensureUptimeRoot();
+  const lockPath = getUptimeWorkerLockPath();
+  try {
+    const handle = await fs.open(lockPath, 'wx');
+    await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2));
+    await handle.close();
+    uptimeWorkerOwnsLock = true;
+    return true;
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+  }
+
+  const existing = await readJsonFileSafe(lockPath, null);
+  if (existing?.pid && (await isProcessRunning(existing.pid)) && Number(existing.pid) !== process.pid) {
+    return false;
+  }
+
+  await fs.rm(lockPath, { force: true });
+  const handle = await fs.open(lockPath, 'wx');
+  await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2));
+  await handle.close();
+  uptimeWorkerOwnsLock = true;
+  return true;
+}
+
+async function releaseUptimeWorkerLock() {
+  if (!uptimeWorkerOwnsLock) return;
+  uptimeWorkerOwnsLock = false;
+  await fs.rm(getUptimeWorkerLockPath(), { force: true }).catch(() => {});
+}
+
+function buildWorkerArgs() {
+  if (process.defaultApp || !app.isPackaged) return [app.getAppPath(), '--uptime-worker'];
+  return ['--uptime-worker'];
+}
+
+function quoteAutostartArg(value) {
+  return `"${String(value || '').replace(/"/g, '\\"')}"`;
+}
+
+async function isLinuxAutostartEnabled() {
+  const autostartPath = path.join(os.homedir(), '.config', 'autostart', 'deployerx-uptime-worker.desktop');
+  try {
+    await fs.access(autostartPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureWorkerAutostartEnabled() {
+  const args = buildWorkerArgs();
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      openAsHidden: true,
+      path: process.execPath,
+      args
+    });
+    uptimeWorkerState.autostartEnabled = Boolean(app.getLoginItemSettings().openAtLogin);
+    return uptimeWorkerState.autostartEnabled;
+  }
+
+  const autostartDir = path.join(os.homedir(), '.config', 'autostart');
+  const autostartPath = path.join(autostartDir, 'deployerx-uptime-worker.desktop');
+  const execParts = [quoteAutostartArg(process.execPath), ...args.map(quoteAutostartArg)];
+  const desktopEntry = [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Version=1.0',
+    'Name=DeployerX Uptime Worker',
+    'Comment=Run DeployerX uptime monitoring in the background',
+    `Exec=${execParts.join(' ')}`,
+    'Terminal=false',
+    'X-GNOME-Autostart-enabled=true'
+  ].join('\n');
+  await fs.mkdir(autostartDir, { recursive: true });
+  await fs.writeFile(autostartPath, `${desktopEntry}\n`, 'utf8');
+  uptimeWorkerState.autostartEnabled = true;
+  return true;
+}
+
+async function resolveWorkerAutostartEnabled() {
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    return Boolean(app.getLoginItemSettings().openAtLogin);
+  }
+  return isLinuxAutostartEnabled();
+}
+
+async function queueRunNowCommand(projectId, monitorId = '') {
+  await ensureUptimeRoot();
+  const queued = await readJsonFileSafe(getUptimeCommandsPath(), []);
+  const next = Array.isArray(queued) ? queued : [];
+  next.push({
+    id: createId('uptime-run'),
+    queuedAt: nowIso(),
+    projectId: String(projectId || '').trim(),
+    monitorId: String(monitorId || '').trim()
+  });
+  await writeJsonFilePretty(getUptimeCommandsPath(), next);
+}
+
+async function readAndClearRunNowCommands() {
+  const queued = await readJsonFileSafe(getUptimeCommandsPath(), []);
+  await writeJsonFilePretty(getUptimeCommandsPath(), []);
+  return Array.isArray(queued) ? queued : [];
+}
+
+async function cacheUptimeProjects(projects) {
+  await writeJsonFilePretty(getUptimeConfigCachePath(), {
+    updatedAt: nowIso(),
+    projects: sanitizeUptimeProjects(projects)
+  });
+}
+
+async function readCachedUptimeProjects() {
+  const cached = await readJsonFileSafe(getUptimeConfigCachePath(), { projects: [] });
+  return sanitizeUptimeProjects(cached.projects);
+}
+
+function parseHeaderMap(headers) {
+  if (!headers) return {};
+  if (typeof headers.entries === 'function') {
+    return Object.fromEntries([...headers.entries()].map(([key, value]) => [String(key).toLowerCase(), String(value)]));
+  }
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [String(key || '').toLowerCase(), Array.isArray(value) ? value.join(', ') : String(value || '')])
+  );
+}
+
+async function runHttpMonitorCheck(monitor) {
+  const url = String(monitor.http?.url || '').trim();
+  if (!url) {
+    return { ok: false, summary: 'HTTP URL is required.', error: 'Missing URL' };
+  }
+
+  const requestUrl = new URL(url);
+  const client = requestUrl.protocol === 'http:' ? http : https;
+  const startedAt = nowMs();
+  const body = await new Promise((resolve, reject) => {
+    const request = client.request(
+      requestUrl,
+      {
+        method: monitor.http.method || 'GET',
+        headers: normalizeMonitorHeaders(monitor.http.headers),
+        timeout: Number(monitor.timeoutMs || 10000)
+      },
+      (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => {
+          if ((monitor.http.method || 'GET') === 'HEAD') return;
+          chunks.push(chunk);
+        });
+        response.on('end', () => {
+          resolve({
+            statusCode: Number(response.statusCode || 0),
+            headers: parseHeaderMap(response.headers),
+            body: Buffer.concat(chunks).toString('utf8')
+          });
+        });
+      }
+    );
+
+    request.on('timeout', () => request.destroy(new Error('Request timed out.')));
+    request.on('error', reject);
+    request.end();
+  });
+
+  const latencyMs = nowMs() - startedAt;
+  const expectedStatuses = normalizeExpectedStatuses(monitor.http.expectedStatusCodes);
+  if (!expectedStatuses.includes(body.statusCode)) {
+    return {
+      ok: false,
+      latencyMs,
+      summary: `Expected status ${expectedStatuses.join(', ')} but received ${body.statusCode}.`,
+      error: `Unexpected status ${body.statusCode}`,
+      details: { statusCode: body.statusCode }
+    };
+  }
+
+  for (const assertion of normalizeHeaderAssertions(monitor.http.headerAssertions)) {
+    const actual = String(body.headers[String(assertion.key).toLowerCase()] || '');
+    const passed = assertion.mode === 'contains' ? actual.includes(assertion.expected) : actual === assertion.expected;
+    if (!passed) {
+      return {
+        ok: false,
+        latencyMs,
+        summary: `Header ${assertion.key} did not match ${assertion.mode} assertion.`,
+        error: `Header assertion failed for ${assertion.key}`,
+        details: { header: assertion.key, actual }
+      };
+    }
+  }
+
+  if ((monitor.http.method || 'GET') !== 'HEAD') {
+    for (const text of trimStringList(monitor.http.bodyMustContain)) {
+      if (!body.body.includes(text)) {
+        return {
+          ok: false,
+          latencyMs,
+          summary: `Response body did not contain required text: ${text}.`,
+          error: `Missing body text: ${text}`
+        };
+      }
+    }
+    for (const text of trimStringList(monitor.http.bodyMustNotContain)) {
+      if (body.body.includes(text)) {
+        return {
+          ok: false,
+          latencyMs,
+          summary: `Response body contained blocked text: ${text}.`,
+          error: `Blocked body text present: ${text}`
+        };
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    latencyMs,
+    summary: `${monitor.http.method || 'GET'} ${body.statusCode} in ${latencyMs} ms`,
+    details: { statusCode: body.statusCode }
+  };
+}
+
+async function runTcpMonitorCheck(monitor) {
+  const host = String(monitor.tcp?.host || '').trim();
+  const port = Number(monitor.tcp?.port || 0);
+  if (!host || !port) {
+    return { ok: false, summary: 'TCP host and port are required.', error: 'Missing TCP target' };
+  }
+
+  const startedAt = nowMs();
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let finished = false;
+    const finish = (payload) => {
+      if (finished) return;
+      finished = true;
+      socket.destroy();
+      resolve(payload);
+    };
+
+    socket.setTimeout(Number(monitor.timeoutMs || 10000));
+    socket.once('connect', () => {
+      const latencyMs = nowMs() - startedAt;
+      finish({
+        ok: true,
+        latencyMs,
+        summary: `TCP connect in ${latencyMs} ms`
+      });
+    });
+    socket.once('timeout', () => finish({ ok: false, summary: 'TCP connection timed out.', error: 'Connection timed out' }));
+    socket.once('error', (error) =>
+      finish({
+        ok: false,
+        summary: error.message || 'TCP connection failed.',
+        error: error.message || 'TCP connection failed'
+      })
+    );
+    socket.connect(port, host);
+  });
+}
+
+async function runUptimeMonitorCheck(monitor) {
+  const result = monitor.type === 'tcp' ? await runTcpMonitorCheck(monitor) : await runHttpMonitorCheck(monitor);
+  if (result.ok && Number(monitor.latencyBudgetMs || 0) > 0 && Number(result.latencyMs || 0) > Number(monitor.latencyBudgetMs)) {
+    return {
+      ok: false,
+      latencyMs: result.latencyMs,
+      summary: `Latency ${result.latencyMs} ms exceeded budget ${monitor.latencyBudgetMs} ms.`,
+      error: 'Latency budget exceeded',
+      details: result.details || {}
+    };
+  }
+  return result;
+}
+
+function summarizeProjectRuntime(monitors = []) {
+  const summary = { total: monitors.length, up: 0, degraded: 0, down: 0, paused: 0, idle: 0 };
+  for (const monitor of monitors) {
+    const status = monitor.runtime?.status || 'idle';
+    if (Object.prototype.hasOwnProperty.call(summary, status)) summary[status] += 1;
+    else summary.idle += 1;
+  }
+  return summary;
+}
+
+function buildUptimeServiceSnapshot(runtime = null) {
+  const workerRuntime = runtime?.worker || {};
+  return {
+    ...uptimeWorkerState,
+    ...workerRuntime,
+    pid: Number(workerRuntime.pid || uptimeWorkerState.pid || process.pid),
+    active: Boolean(workerRuntime.active || uptimeWorkerState.active),
+    autostartEnabled: Boolean(
+      Object.prototype.hasOwnProperty.call(workerRuntime, 'autostartEnabled') ? workerRuntime.autostartEnabled : uptimeWorkerState.autostartEnabled
+    )
+  };
+}
+
+async function getUptimeServiceStatus() {
+  const runtime = await readUptimeRuntime();
+  const snapshot = buildUptimeServiceSnapshot(runtime);
+  snapshot.autostartEnabled = await resolveWorkerAutostartEnabled().catch(() => snapshot.autostartEnabled);
+  snapshot.active = snapshot.active && (await isProcessRunning(snapshot.pid));
+  return snapshot;
+}
+
+function emitUptimeEvent(type, payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('uptime:event', {
+    type,
+    payload,
+    at: nowIso()
+  });
+}
+
+async function writeWorkerRuntimeStatus(extra = {}) {
+  const autostartEnabled = await resolveWorkerAutostartEnabled().catch(() => uptimeWorkerState.autostartEnabled);
+  const heartbeatAt = nowIso();
+  uptimeWorkerState.lastHeartbeatAt = heartbeatAt;
+  const runtime = await mutateUptimeRuntime((current) => {
+    current.heartbeatAt = heartbeatAt;
+    current.worker = {
+      ...current.worker,
+      ...uptimeWorkerState,
+      ...extra,
+      active: true,
+      pid: process.pid,
+      mode: serviceModeLabel(),
+      autostartEnabled,
+      startedAt: uptimeWorkerState.startedAt || current.worker.startedAt || heartbeatAt
+    };
+    return current;
+  });
+  uptimeWorkerState = buildUptimeServiceSnapshot(runtime);
+}
+
+async function deleteUptimeMonitorArtifacts(projectId, monitorId) {
+  const normalizedProjectId = String(projectId || '').trim();
+  const normalizedMonitorId = String(monitorId || '').trim();
+  if (!normalizedProjectId || !normalizedMonitorId) return;
+  await fs.rm(getUptimeMonitorPath(normalizedProjectId, normalizedMonitorId), { recursive: true, force: true }).catch(() => {});
+  const runtime = await mutateUptimeRuntime((current) => {
+    if (current.projects?.[normalizedProjectId]?.monitors) {
+      delete current.projects[normalizedProjectId].monitors[normalizedMonitorId];
+      if (!Object.keys(current.projects[normalizedProjectId].monitors).length) delete current.projects[normalizedProjectId];
+    }
+    return current;
+  });
+  emitUptimeEvent('uptime:monitor-removed', {
+    projectId: normalizedProjectId,
+    monitorId: normalizedMonitorId,
+    service: buildUptimeServiceSnapshot(runtime)
+  });
+}
+
+async function deleteUptimeProjectArtifacts(projectId) {
+  const normalizedProjectId = String(projectId || '').trim();
+  if (!normalizedProjectId) return;
+  await fs.rm(getUptimeProjectPath(normalizedProjectId), { recursive: true, force: true }).catch(() => {});
+  const runtime = await mutateUptimeRuntime((current) => {
+    delete current.projects[normalizedProjectId];
+    return current;
+  });
+  emitUptimeEvent('uptime:project-removed', {
+    projectId: normalizedProjectId,
+    service: buildUptimeServiceSnapshot(runtime)
+  });
+}
+
+async function pruneRemovedMonitorArtifacts(previousProject, nextProject) {
+  const previousMonitors = new Set(normalizeUptimeMonitors(previousProject?.uptimeMonitors).map((monitor) => String(monitor.id)));
+  const nextMonitors = new Set(normalizeUptimeMonitors(nextProject?.uptimeMonitors).map((monitor) => String(monitor.id)));
+  for (const monitorId of previousMonitors) {
+    if (!nextMonitors.has(monitorId)) {
+      await deleteUptimeMonitorArtifacts(nextProject?.id || previousProject?.id, monitorId);
+    }
+  }
+}
+
+function shouldOpenDownIncident(state) {
+  return state.consecutiveFailures >= 2 && !state.activeIncidentId;
+}
+
+function monitorSummaryText(result) {
+  if (result.summary) return String(result.summary);
+  if (result.ok) return 'Check passed.';
+  return result.error || 'Check failed.';
+}
+
+async function showUptimeNotification(title, body) {
+  if (!Notification.isSupported()) return;
+  try {
+    new Notification({
+      title,
+      body,
+      silent: false
+    }).show();
+  } catch {
+    // Notification support varies by platform/runtime.
+  }
+}
+
+async function recordMonitorCheck(project, monitor, result) {
+  const checkedAt = nowIso();
+  const runtime = await mutateUptimeRuntime((current) => {
+    const state = ensureRuntimeMonitorState(current, project.id, monitor.id);
+    state.lastCheckAt = checkedAt;
+    state.lastLatencyMs = result.latencyMs == null ? state.lastLatencyMs : Number(result.latencyMs || 0);
+    state.summary = monitorSummaryText(result);
+    state.lastError = result.ok ? '' : String(result.error || result.summary || 'Check failed');
+    state.checkCount = Number(state.checkCount || 0) + 1;
+    if (!monitor.enabled) {
+      state.status = 'paused';
+      state.pausedAt = checkedAt;
+      state.nextCheckAt = '';
+      return current;
+    }
+
+    if (result.ok) {
+      state.lastSuccessAt = checkedAt;
+      state.consecutiveFailures = 0;
+      state.status = 'up';
+      state.nextCheckAt = new Date(nowMs() + Number(monitor.intervalSec || 300) * 1000).toISOString();
+      const incidentId = state.activeIncidentId;
+      if (incidentId) {
+        appendNdjson(getUptimeIncidentPath(project.id, monitor.id), {
+          incidentId,
+          event: 'resolved',
+          projectId: project.id,
+          monitorId: monitor.id,
+          monitorName: monitor.name,
+          at: checkedAt,
+          message: state.summary
+        }).catch(() => {});
+        showUptimeNotification(`Recovered: ${monitor.name}`, `${project.name} is back up.`).catch(() => {});
+      }
+      state.activeIncidentId = '';
+      state.incidentOpenSince = '';
+    } else {
+      state.lastFailureAt = checkedAt;
+      state.consecutiveFailures = Number(state.consecutiveFailures || 0) + 1;
+      state.nextCheckAt = new Date(nowMs() + Number(monitor.intervalSec || 300) * 1000).toISOString();
+      state.status = state.consecutiveFailures >= 2 ? 'down' : 'degraded';
+      if (shouldOpenDownIncident(state)) {
+        const incidentId = createId('incident');
+        state.activeIncidentId = incidentId;
+        state.incidentOpenSince = state.lastFailureAt || checkedAt;
+        appendNdjson(getUptimeIncidentPath(project.id, monitor.id), {
+          incidentId,
+          event: 'opened',
+          projectId: project.id,
+          monitorId: monitor.id,
+          monitorName: monitor.name,
+          at: checkedAt,
+          message: state.summary
+        }).catch(() => {});
+        showUptimeNotification(`Down: ${monitor.name}`, `${project.name} requires attention.`).catch(() => {});
+      }
+    }
+
+    return current;
+  });
+
+  const runtimeState = runtime.projects?.[project.id]?.monitors?.[monitor.id] || defaultRuntimeMonitorState();
+  await appendNdjson(getUptimeHistoryPath(project.id, monitor.id), {
+    id: createId('check'),
+    projectId: project.id,
+    projectName: project.name,
+    monitorId: monitor.id,
+    monitorName: monitor.name,
+    type: monitor.type,
+    at: checkedAt,
+    ok: Boolean(result.ok),
+    status: runtimeState.status,
+    latencyMs: result.latencyMs == null ? null : Number(result.latencyMs || 0),
+    summary: monitorSummaryText(result),
+    error: result.ok ? '' : String(result.error || ''),
+    details: result.details || {}
+  });
+  emitUptimeEvent('uptime:monitor-updated', {
+    projectId: project.id,
+    monitorId: monitor.id,
+    runtime: runtimeState,
+    service: buildUptimeServiceSnapshot(runtime)
+  });
+  return runtimeState;
+}
+
+async function refreshUptimeWorkerProjects() {
+  try {
+    const store = await readCurrentStore();
+    uptimeWorkerProjects = sanitizeUptimeProjects(store.projects);
+    await cacheUptimeProjects(uptimeWorkerProjects);
+    uptimeWorkerState.syncWarning = '';
+    uptimeWorkerState.projectsLoaded = uptimeWorkerProjects.length;
+    uptimeWorkerState.monitorCount = countUptimeMonitors(uptimeWorkerProjects);
+    uptimeWorkerState.lastConfigRefreshAt = nowIso();
+  } catch (error) {
+    const cachedProjects = await readCachedUptimeProjects();
+    uptimeWorkerProjects = cachedProjects;
+    uptimeWorkerState.syncWarning = error.message || 'Could not refresh uptime monitor config.';
+    uptimeWorkerState.projectsLoaded = cachedProjects.length;
+    uptimeWorkerState.monitorCount = countUptimeMonitors(cachedProjects);
+    uptimeWorkerState.lastConfigRefreshAt = nowIso();
+  }
+  await writeWorkerRuntimeStatus({
+    lastConfigRefreshAt: uptimeWorkerState.lastConfigRefreshAt,
+    syncWarning: uptimeWorkerState.syncWarning,
+    projectsLoaded: uptimeWorkerState.projectsLoaded,
+    monitorCount: uptimeWorkerState.monitorCount
+  });
+}
+
+async function maybePrimePausedMonitorState(project, monitor) {
+  if (monitor.enabled) return;
+  await mutateUptimeRuntime((current) => {
+    const state = ensureRuntimeMonitorState(current, project.id, monitor.id);
+    state.status = 'paused';
+    state.pausedAt = state.pausedAt || nowIso();
+    state.nextCheckAt = '';
+    state.summary = 'Monitoring paused.';
+    return current;
+  });
+}
+
+async function runMonitorNow(project, monitor) {
+  const key = monitorRunKey(project.id, monitor.id);
+  if (uptimeMonitorRuns.has(key)) return;
+  uptimeMonitorRuns.add(key);
+  try {
+    await maybePrimePausedMonitorState(project, monitor);
+    if (!monitor.enabled) return;
+    let result;
+    try {
+      result = await runUptimeMonitorCheck(monitor);
+    } catch (error) {
+      result = {
+        ok: false,
+        summary: error.message || 'Monitor check failed.',
+        error: error.message || 'Monitor check failed'
+      };
+    }
+    await recordMonitorCheck(project, monitor, result);
+  } finally {
+    uptimeMonitorRuns.delete(key);
+  }
+}
+
+async function processRunNowCommands() {
+  const commands = await readAndClearRunNowCommands();
+  if (!commands.length) return;
+  const queuedKeys = new Set(
+    commands.map((command) => monitorRunKey(command.projectId, command.monitorId || '*'))
+  );
+  for (const command of commands) {
+    if (!command.projectId) continue;
+    if (!command.monitorId) {
+      for (const project of uptimeWorkerProjects) {
+        if (project.id !== command.projectId) continue;
+        for (const monitor of project.uptimeMonitors) {
+          uptimeRunNowQueue.add(monitorRunKey(project.id, monitor.id));
+        }
+      }
+      continue;
+    }
+    uptimeRunNowQueue.add(monitorRunKey(command.projectId, command.monitorId));
+  }
+  uptimeWorkerState.commandPollAt = nowIso();
+  await writeWorkerRuntimeStatus({
+    commandPollAt: uptimeWorkerState.commandPollAt,
+    projectsLoaded: uptimeWorkerState.projectsLoaded,
+    monitorCount: uptimeWorkerState.monitorCount
+  });
+  return queuedKeys;
+}
+
+async function runDueUptimeChecks() {
+  const runtime = await readUptimeRuntime();
+  const now = nowMs();
+  for (const project of uptimeWorkerProjects) {
+    for (const monitor of project.uptimeMonitors) {
+      const runtimeState = runtime.projects?.[project.id]?.monitors?.[monitor.id] || defaultRuntimeMonitorState();
+      if (!monitor.enabled) {
+        await maybePrimePausedMonitorState(project, monitor);
+        continue;
+      }
+
+      const queuedKey = monitorRunKey(project.id, monitor.id);
+      const isQueued = uptimeRunNowQueue.has(queuedKey);
+      const dueAt = runtimeState.nextCheckAt ? new Date(runtimeState.nextCheckAt).getTime() : 0;
+      const shouldRun = isQueued || !runtimeState.lastCheckAt || !dueAt || dueAt <= now;
+      if (!shouldRun) continue;
+      uptimeRunNowQueue.delete(queuedKey);
+      try {
+        await runMonitorNow(project, monitor);
+      } catch {
+        // The check itself records failure state; keep the scheduler moving.
+      }
+    }
+  }
+
+  uptimeWorkerState.runLoopTickAt = nowIso();
+  await writeWorkerRuntimeStatus({
+    runLoopTickAt: uptimeWorkerState.runLoopTickAt,
+    projectsLoaded: uptimeWorkerState.projectsLoaded,
+    monitorCount: uptimeWorkerState.monitorCount
+  });
+}
+
+async function startUptimeWindowPolling() {
+  if (uptimeWindowPollTimer) clearInterval(uptimeWindowPollTimer);
+  uptimeWindowLastHeartbeat = '';
+  uptimeWindowPollTimer = setInterval(async () => {
+    try {
+      const runtime = await readUptimeRuntime();
+      const heartbeat = `${runtime.heartbeatAt || ''}:${runtime.worker?.runLoopTickAt || ''}:${runtime.worker?.syncWarning || ''}`;
+      if (heartbeat && heartbeat !== uptimeWindowLastHeartbeat) {
+        uptimeWindowLastHeartbeat = heartbeat;
+        emitUptimeEvent('uptime:heartbeat', {
+          service: buildUptimeServiceSnapshot(runtime)
+        });
+      }
+    } catch {
+      // Ignore polling errors; explicit IPC calls surface details.
+    }
+  }, 4000);
+}
+
+async function maybeStartDetachedUptimeWorker() {
+  if (isWorkerMode()) return;
+  const serviceStatus = await getUptimeServiceStatus().catch(() => ({ active: false }));
+  if (serviceStatus.active && serviceStatus.pid && Number(serviceStatus.pid) !== process.pid) return;
+  const child = execFile(process.execPath, buildWorkerArgs(), {
+    detached: true,
+    windowsHide: true,
+    stdio: 'ignore'
+  });
+  child.unref();
+}
+
+async function initializeUptimeWorker() {
+  const hasLock = await acquireUptimeWorkerLock();
+  if (!hasLock) {
+    await app.quit();
+    return;
+  }
+  uptimeWorkerState = {
+    ...uptimeWorkerState,
+    active: true,
+    mode: 'worker',
+    startedAt: nowIso(),
+    lastHeartbeatAt: nowIso(),
+    pid: process.pid
+  };
+  await ensureWorkerAutostartEnabled().catch(() => {});
+  await refreshUptimeWorkerProjects();
+  await processRunNowCommands();
+  await runDueUptimeChecks();
+  uptimeWorkerInterval = setInterval(() => {
+    runDueUptimeChecks().catch(() => {});
+  }, UPTIME_COMMAND_POLL_MS);
+  uptimeConfigRefreshTimer = setInterval(() => {
+    refreshUptimeWorkerProjects().catch(() => {});
+  }, UPTIME_CONFIG_REFRESH_MS);
+  uptimeCommandPollTimer = setInterval(() => {
+    processRunNowCommands().catch(() => {});
+  }, UPTIME_COMMAND_POLL_MS);
+}
+
+async function getUptimeProjectState(projectId) {
+  const projectKey = String(projectId || '').trim();
+  let projects = [];
+  let syncWarning = '';
+  try {
+    const store = await readCurrentStore();
+    projects = sanitizeUptimeProjects(store.projects);
+  } catch (error) {
+    projects = await readCachedUptimeProjects();
+    syncWarning = error.message || 'Could not refresh live project data.';
+  }
+  const project = projects.find((item) => item.id === projectKey) || {
+    id: projectKey,
+    name: 'Project',
+    uptimeMonitors: []
+  };
+  const runtime = await readUptimeRuntime();
+  const service = buildUptimeServiceSnapshot(runtime);
+  if (syncWarning && !service.syncWarning) service.syncWarning = syncWarning;
+  const monitors = project.uptimeMonitors.map((monitor) => ({
+    ...monitor,
+    runtime: normalizeRuntimeMonitorState(runtime.projects?.[project.id]?.monitors?.[monitor.id])
+  }));
+  return {
+    projectId: project.id,
+    projectName: project.name,
+    service,
+    summary: summarizeProjectRuntime(monitors),
+    monitors
+  };
+}
+
+async function getUptimeMonitorHistory(projectId, monitorId) {
+  const normalizedProjectId = String(projectId || '').trim();
+  const normalizedMonitorId = String(monitorId || '').trim();
+  return {
+    history: await readNdjsonTail(getUptimeHistoryPath(normalizedProjectId, normalizedMonitorId), UPTIME_HISTORY_LIMIT),
+    incidents: await readNdjsonTail(getUptimeIncidentPath(normalizedProjectId, normalizedMonitorId), UPTIME_HISTORY_LIMIT)
+  };
+}
+
 async function deleteProjectFromCurrentStore(id) {
+  const existingStore = await readCurrentStore().catch(() => ({ projects: [] }));
+  const existingProject = Array.isArray(existingStore.projects)
+    ? existingStore.projects.find((project) => String(project.id) === String(id))
+    : null;
   const settings = await readSettings();
   if (settings.mode === 'cloud') {
     const teamId = await ensureActiveTeamUnlocked();
     await deleteDoc(['teams', teamId, 'projects', id]);
     await deleteProjectLocalSettings(id);
+    await deleteUptimeProjectArtifacts(id);
     return;
   }
   const data = await readStore();
   data.projects = data.projects.filter((project) => project.id !== id);
   await writeStore(data);
   await deleteProjectLocalSettings(id);
+  await deleteUptimeProjectArtifacts(existingProject?.id || id);
 }
 
 async function deleteTemplateFromCurrentStore(id) {
@@ -2040,7 +3306,7 @@ function validateProject(project) {
 
 function validateConnectionProject(project) {
   const ssh = project.ssh || {};
-  if (!project.name) return 'Project name is required.';
+  if (!project.name) return 'Server name is required.';
   if (!ssh.host) return 'Server host is required.';
   if (!ssh.username) return 'SSH username is required.';
   if (ssh.authType === 'key' && !ssh.privateKey) return 'SSH private key is required.';
@@ -2072,9 +3338,11 @@ function normalizeProjectImport(project) {
   return {
     ...project,
     id: project?.id ? String(project.id) : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    name: String(project?.name || 'Imported project').trim() || 'Imported project',
+    name: String(project?.name || 'Imported server').trim() || 'Imported server',
+    group: String(project?.group || '').trim(),
     serverType: project?.serverType || 'ubuntu',
     commands,
+    uptimeMonitors: normalizeUptimeMonitors(project?.uptimeMonitors),
     variables: project?.variables && typeof project.variables === 'object' ? project.variables : {},
     ssh: {
       host: ssh.host || '',
@@ -2102,7 +3370,7 @@ function normalizeProjectImport(project) {
 function readProjectImportFile(raw) {
   const parsed = JSON.parse(raw);
   const projects = Array.isArray(parsed) ? parsed : parsed.projects;
-  if (!Array.isArray(projects)) throw new Error('Import file must contain projects.');
+  if (!Array.isArray(projects)) throw new Error('Import file must contain servers.');
   return projects.map(normalizeProjectImport).filter((project) => project.name);
 }
 
@@ -2144,7 +3412,7 @@ function readAccountImportFile(raw) {
   const templates = Array.isArray(parsed?.templates) ? parsed.templates.map(normalizeTemplateImport) : [];
 
   if (!projects.length && !templates.length) {
-    throw new Error('Import file must contain projects or templates.');
+    throw new Error('Import file must contain servers or templates.');
   }
 
   return {
@@ -2994,8 +4262,17 @@ function emergencyStop() {
 
 app.whenReady().then(async () => {
   await ensureStore();
+  await ensureUptimeRoot();
+
+  if (isWorkerMode()) {
+    await initializeUptimeWorker();
+    return;
+  }
+
   createWindow();
   initializeAutoUpdater();
+  await maybeStartDetachedUptimeWorker().catch(() => {});
+  await startUptimeWindowPolling();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -3003,11 +4280,28 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  if (isWorkerMode()) return;
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', () => {
   if (autoUpdateTimer) clearInterval(autoUpdateTimer);
+  if (uptimeWindowPollTimer) clearInterval(uptimeWindowPollTimer);
+  if (uptimeWorkerInterval) clearInterval(uptimeWorkerInterval);
+  if (uptimeConfigRefreshTimer) clearInterval(uptimeConfigRefreshTimer);
+  if (uptimeCommandPollTimer) clearInterval(uptimeCommandPollTimer);
+  if (isWorkerMode()) {
+    mutateUptimeRuntime((current) => {
+      current.worker = {
+        ...current.worker,
+        active: false,
+        pid: process.pid,
+        lastHeartbeatAt: nowIso()
+      };
+      return current;
+    }).catch(() => {});
+    releaseUptimeWorkerLock().catch(() => {});
+  }
 });
 
 ipcMain.handle('app:metadata', async () => ({
@@ -3021,8 +4315,9 @@ ipcMain.handle('app:update-state', async () => publicUpdateState());
 ipcMain.handle('app:update-check', async () => checkForAppUpdates({ manual: true }));
 
 ipcMain.handle('app:update-open-releases', async () => {
-  if (!githubReleaseSource?.releasesUrl) return false;
-  await shell.openExternal(githubReleaseSource.releasesUrl);
+  const targetUrl = updateState.releasePageUrl || githubReleaseSource?.releasesUrl || '';
+  if (!targetUrl) return false;
+  await shell.openExternal(targetUrl);
   return true;
 });
 
@@ -3373,15 +4668,21 @@ ipcMain.handle('projects:list', async () => {
 
 ipcMain.handle('projects:save', async (_event, project) => {
   const settings = await readSettings();
+  const currentStore = await readCurrentStore().catch(() => ({ projects: [] }));
   const id = project.id || `${Date.now()}`;
   const normalized = {
-    ...project,
+    ...normalizeStoredProject(project),
     id,
     updatedAt: nowIso()
   };
+  const previousProject = Array.isArray(currentStore.projects)
+    ? currentStore.projects.find((item) => String(item.id) === String(id)) || null
+    : null;
   if (settings.mode === 'cloud') {
     const teamId = await ensureActiveTeamUnlocked();
     await patchDoc(['teams', teamId, 'projects', id], prepareCloudProjectForSave(normalized));
+    await pruneRemovedMonitorArtifacts(previousProject, normalized);
+    emitUptimeEvent('uptime:project-saved', { projectId: id });
     return normalized;
   }
   const data = await readStore();
@@ -3389,6 +4690,8 @@ ipcMain.handle('projects:save', async (_event, project) => {
   if (index >= 0) data.projects[index] = normalized;
   else data.projects.unshift(normalized);
   await writeStore(data);
+  await pruneRemovedMonitorArtifacts(previousProject, normalized);
+  emitUptimeEvent('uptime:project-saved', { projectId: id });
   return normalized;
 });
 
@@ -3402,8 +4705,8 @@ ipcMain.handle('projects:export', async (_event, projectIds) => {
   const selectedIds = Array.isArray(projectIds) ? new Set(projectIds.map(String)) : null;
   const projects = selectedIds ? (data.projects || []).filter((project) => selectedIds.has(String(project.id))) : data.projects || [];
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: 'Export Projects',
-    defaultPath: 'deployerx-projects.json',
+    title: 'Export Servers',
+    defaultPath: 'deployerx-servers.json',
     filters: [{ name: 'JSON', extensions: ['json'] }]
   });
 
@@ -3422,7 +4725,7 @@ ipcMain.handle('projects:export', async (_event, projectIds) => {
 
 ipcMain.handle('projects:import', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Import Projects',
+    title: 'Import Servers',
     properties: ['openFile'],
     filters: [{ name: 'JSON', extensions: ['json'] }]
   });
@@ -3430,7 +4733,7 @@ ipcMain.handle('projects:import', async () => {
   if (result.canceled || !result.filePaths.length) return { canceled: true };
 
   const importedProjects = readProjectImportFile(await fs.readFile(result.filePaths[0], 'utf8'));
-  if (!importedProjects.length) throw new Error('No projects were found in that file.');
+  if (!importedProjects.length) throw new Error('No servers were found in that file.');
 
   const data = await readCurrentStore();
   const mergedProjects = await mergeImportsByName(
@@ -3711,6 +5014,37 @@ ipcMain.handle('project-local-settings:set', async (_event, projectId, payload =
 );
 
 ipcMain.handle('project-local-settings:delete', async (_event, projectId) => deleteProjectLocalSettings(projectId));
+
+ipcMain.handle('uptime:getProjectState', async (_event, projectId) => getUptimeProjectState(projectId));
+
+ipcMain.handle('uptime:getMonitorHistory', async (_event, payload = {}) =>
+  getUptimeMonitorHistory(payload.projectId, payload.monitorId)
+);
+
+ipcMain.handle('uptime:getServiceStatus', async () => getUptimeServiceStatus());
+
+ipcMain.handle('uptime:runNow', async (_event, payload = {}) => {
+  const projectId = String(payload.projectId || '').trim();
+  const monitorId = String(payload.monitorId || '').trim();
+  if (!projectId) throw new Error('Project id is required.');
+  if (isWorkerMode()) {
+    if (!monitorId) {
+      for (const project of uptimeWorkerProjects) {
+        if (project.id !== projectId) continue;
+        for (const monitor of project.uptimeMonitors) {
+          uptimeRunNowQueue.add(monitorRunKey(project.id, monitor.id));
+        }
+      }
+    } else {
+      uptimeRunNowQueue.add(monitorRunKey(projectId, monitorId));
+    }
+  } else {
+    await queueRunNowCommand(projectId, monitorId);
+    await maybeStartDetachedUptimeWorker().catch(() => {});
+  }
+  emitUptimeEvent('uptime:run-queued', { projectId, monitorId });
+  return { queued: true };
+});
 
 ipcMain.handle('local:open', async (_event, payload = {}) => openLocalEntry(payload.entry));
 
