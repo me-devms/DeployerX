@@ -26,7 +26,7 @@
     "copyright": "Copyright (c) 2026 Manish K",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "asar": true,
-    "forceCodeSigning": true,
+    "forceCodeSigning": false,
     "directories": {
       "output": "dist"
     },
@@ -37,6 +37,7 @@
       "third_party_licenses/**/*",
       "package.json"
     ],
+    "npmRebuild": false,
     "extraResources": [
       {
         "from": "firebase.config.json",

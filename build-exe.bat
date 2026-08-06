@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 cd /d "%~dp0"
 
@@ -41,7 +41,7 @@ if not exist "node_modules" (
 
 if defined VERSION_ARG (
   set "PACKAGE_BACKUP=%TEMP%\deployerx-package.%RANDOM%%RANDOM%.json.bak"
-  copy /y "package.json" "%PACKAGE_BACKUP%" >nul
+  copy /y "package.json" "!PACKAGE_BACKUP!" >nul
   if errorlevel 1 (
     echo Failed to create a package.json backup.
     pause
@@ -52,8 +52,8 @@ if defined VERSION_ARG (
   node -e "const fs=require('fs');const path='package.json';const pkg=JSON.parse(fs.readFileSync(path,'utf8'));pkg.version=process.argv[1];fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');" "%VERSION_ARG%"
   if errorlevel 1 (
     echo Failed to update package.json version.
-    copy /y "%PACKAGE_BACKUP%" "package.json" >nul
-    del /q "%PACKAGE_BACKUP%" >nul 2>nul
+    copy /y "!PACKAGE_BACKUP!" "package.json" >nul
+    del /q "!PACKAGE_BACKUP!" >nul 2>nul
     pause
     exit /b 1
   )
@@ -69,13 +69,13 @@ call npm run package:win
 set "BUILD_EXIT=%ERRORLEVEL%"
 
 if defined PACKAGE_BACKUP (
-  copy /y "%PACKAGE_BACKUP%" "package.json" >nul
+  copy /y "!PACKAGE_BACKUP!" "package.json" >nul
   if errorlevel 1 (
     echo Warning: failed to restore the original package.json from backup.
     pause
     exit /b 1
   )
-  del /q "%PACKAGE_BACKUP%" >nul 2>nul
+  del /q "!PACKAGE_BACKUP!" >nul 2>nul
 )
 
 if not "%BUILD_EXIT%"=="0" (
