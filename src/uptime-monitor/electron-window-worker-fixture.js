@@ -16,7 +16,7 @@ async function main() {
   const window = new BrowserWindow({ show: false, width: 980, height: 640, x: -10000, y: -10000 });
   let closePrevented = false;
   window.on('close', (event) => {
-    const disposition = uptimeWindowCloseDisposition({ platform: process.platform, hasTray: true });
+    const disposition = uptimeWindowCloseDisposition({ platform: process.platform });
     if (!disposition.preventClose) return;
     event.preventDefault();
     closePrevented = true;

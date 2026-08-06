@@ -70,6 +70,8 @@ const THEMES = {
 
 function storedThemeId() {
   try {
+    const persisted = window.deployerx?.getTheme?.();
+    if (THEMES[persisted]) return persisted;
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
     const themeId = THEMES[stored] ? stored : DEFAULT_THEME_ID;
     if (!window.localStorage.getItem(THEME_DEFAULT_MIGRATION_KEY)) {
@@ -94,12 +96,14 @@ const blankProject = () => ({
   ssh: {
     host: '',
     port: 22,
-    username: '',
+    username: 'root',
     authType: 'password',
     password: '',
     privateKey: '',
     passphrase: '',
-    timeout: 20000
+    timeout: 20000,
+    users: [],
+    defaultUserId: ''
   },
   rdp: {
     host: '',
@@ -467,6 +471,15 @@ const state = {
   },
   activeProject: null,
   activeProjectTab: 'ssh',
+  serverMonitoring: {
+    selectedProjectId: '',
+    sessionId: '',
+    status: 'idle',
+    paused: false,
+    sample: null,
+    history: [],
+    error: ''
+  },
   uptime: {
     activeTab: 'overview',
     monitors: [],
@@ -487,6 +500,8 @@ const state = {
   activeRunId: null,
   terminalSessions: {},
   terminalSessionProjectIds: {},
+  activeTerminalTabIds: {},
+  terminalTabCounters: {},
   ftpSessions: {},
   activeTerminalSessionId: null,
   terminalConnected: false,
@@ -531,6 +546,8 @@ const state = {
   modalMode: 'create',
   modalDraft: blankProject(),
   modalStep: 0,
+  modalSshUsers: [],
+  modalSelectedSshUserId: '',
   activeTemplateId: '',
   activeTemplateCategory: 'All',
   duplicateTemplateDraft: null,
@@ -576,9 +593,12 @@ function blankTerminalUploadState() {
   };
 }
 
-function blankTerminalSession(projectId = '') {
+function blankTerminalSession(projectId = '', { tabId = '', label = '', startupDirectory = '' } = {}) {
   return {
     projectId,
+    tabId: tabId || `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    label: label || 'Terminal 1',
+    startupDirectory,
     sessionId: null,
     connected: false,
     status: 'Not connected',
@@ -629,15 +649,46 @@ function blankFtpSession(projectId = '') {
   };
 }
 
-function getTerminalSession(projectId = state.activeProject?.id, create = false) {
+function createTerminalTabSession(projectId, { startupDirectory = '' } = {}) {
+  const nextNumber = Number(state.terminalTabCounters[projectId] || 0) + 1;
+  const inheritedDirectory = String(startupDirectory || '').trim();
+  state.terminalTabCounters[projectId] = nextNumber;
+  return blankTerminalSession(projectId, {
+    label: `Terminal ${nextNumber}`,
+    startupDirectory: inheritedDirectory ? normalizeRemoteShellPath(inheritedDirectory) : ''
+  });
+}
+
+function getTerminalTabs(projectId = state.activeProject?.id, create = false) {
   if (!projectId) return null;
-  if (!state.terminalSessions[projectId] && create) state.terminalSessions[projectId] = blankTerminalSession(projectId);
+  const stored = state.terminalSessions[projectId];
+  if (stored && !Array.isArray(stored)) {
+    stored.tabId ||= `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    stored.label ||= 'Terminal 1';
+    stored.startupDirectory ||= '';
+    state.terminalSessions[projectId] = [stored];
+    state.terminalTabCounters[projectId] = Math.max(1, Number(state.terminalTabCounters[projectId] || 0));
+  }
+  if (!state.terminalSessions[projectId] && create) {
+    const session = createTerminalTabSession(projectId);
+    state.terminalSessions[projectId] = [session];
+    state.activeTerminalTabIds[projectId] = session.tabId;
+  }
   return state.terminalSessions[projectId] || null;
+}
+
+function getTerminalSession(projectId = state.activeProject?.id, create = false) {
+  const tabs = getTerminalTabs(projectId, create);
+  if (!tabs?.length) return null;
+  const activeTabId = state.activeTerminalTabIds[projectId];
+  const activeSession = tabs.find((session) => session.tabId === activeTabId) || tabs[0];
+  state.activeTerminalTabIds[projectId] = activeSession.tabId;
+  return activeSession;
 }
 
 function getTerminalSessionById(sessionId) {
   const projectId = state.terminalSessionProjectIds[sessionId];
-  return projectId ? getTerminalSession(projectId) : null;
+  return projectId ? getTerminalTabs(projectId)?.find((session) => session.sessionId === sessionId) || null : null;
 }
 
 function getFtpSession(projectId = state.activeProject?.id, create = false) {
@@ -647,17 +698,21 @@ function getFtpSession(projectId = state.activeProject?.id, create = false) {
 }
 
 function projectConnectionState(projectId) {
-  const terminalSession = getTerminalSession(projectId);
+  const terminalSessions = getTerminalTabs(projectId);
   const ftpSession = getFtpSession(projectId);
   return {
-    ssh: Boolean(terminalSession?.sessionId && terminalSession.connected),
+    ssh: Boolean(terminalSessions?.some((session) => session.sessionId && session.connected)),
     ftp: Boolean(ftpSession?.sessionId && ftpSession.connected),
     rdp: Boolean(state.rdpProjectId === projectId && state.rdpSessionId && state.rdpStatus === 'connected')
   };
 }
 
 function isVisibleTerminalSession(session) {
-  return Boolean(session?.projectId && state.activeProject?.id === session.projectId);
+  return Boolean(
+    session?.projectId &&
+    state.activeProject?.id === session.projectId &&
+    state.activeTerminalTabIds[session.projectId] === session.tabId
+  );
 }
 
 function normalizeRemoteShellPath(remotePath = '.') {
@@ -752,7 +807,7 @@ function renderSshUploadPanel(session = getTerminalSession()) {
   els.sshDirectoryUpButton.disabled = !connected || waitingForPathUpdate || !currentPath || currentPath === '/';
   els.sshDirectoryRefreshButton.disabled = !connected || waitingForPathUpdate || !currentPath;
   const selectedDirectoryEntry = session?.directoryEntries?.find((entry) => entry.path === session.directorySelectedPath);
-  els.sshDirectoryDownloadButton.disabled = !connected || waitingForPathUpdate || selectedDirectoryEntry?.type !== 'file';
+  els.sshDirectoryDownloadButton.disabled = !connected || waitingForPathUpdate || !selectedDirectoryEntry;
 
   const upload = session?.upload || blankTerminalUploadState();
   const uploadInFlight = Boolean(upload.active || pendingActions.has('terminal:upload'));
@@ -816,6 +871,8 @@ function renderSshDirectory(session = getTerminalSession()) {
     row.type = 'button';
     row.className = `ssh-directory-row ${entry.path === session.directorySelectedPath ? 'selected' : ''}`;
     row.dataset.entryPath = entry.path;
+    row.dataset.entryType = entry.type;
+    row.dataset.entryName = entry.name;
     row.innerHTML = `
       <span class="ssh-directory-name">${icon(entry.type === 'directory' ? 'folder-open' : 'file')}<strong>${escapeHtml(entry.name)}</strong></span>
       <span class="ssh-directory-meta">${entry.type === 'directory' ? 'Folder' : formatByteCount(entry.size)}</span>
@@ -828,6 +885,12 @@ function renderSshDirectory(session = getTerminalSession()) {
         session.directorySelectedPath = entry.path;
         openSshEditorFile(entry).catch((error) => showAlert(error.message || 'Could not open server file.'));
       }
+    });
+    row.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      session.directorySelectedPath = entry.path;
+      renderSshUploadPanel(session);
+      showSshDirectoryContextMenu(event, entry);
     });
     els.sshDirectoryList.appendChild(row);
   }
@@ -994,6 +1057,106 @@ async function downloadSshFile({ sessionId = '', path = '', name = '' } = {}) {
   showToast(`Downloaded ${name || remoteShellBaseName(remotePath)}`);
 }
 
+function selectedSshDirectoryEntry(session = getTerminalSession()) {
+  return session?.directoryEntries?.find((entry) => entry.path === session.directorySelectedPath) || null;
+}
+
+async function openSshDirectoryEntry(entry) {
+  if (!entry) return;
+  if (entry.type === 'directory') {
+    await openSshDirectoryPath(entry.path);
+    return;
+  }
+  await openSshEditorFile(entry);
+}
+
+async function openSshDirectoryEntryWith(entry) {
+  const session = getTerminalSession();
+  if (!entry || entry.type === 'directory' || !session?.sessionId || !session.connected) return;
+  await withFileActivity(`Opening ${entry.name}...`, () =>
+    window.deployerx.openTerminalEntryWith({ sessionId: session.sessionId, entry })
+  );
+}
+
+async function downloadSshDirectoryEntry(entry) {
+  const session = getTerminalSession();
+  if (!entry || !session?.sessionId || !session.connected) return;
+  if (entry.type !== 'directory') {
+    await downloadSshFile({ sessionId: session.sessionId, path: entry.path, name: entry.name });
+    return;
+  }
+
+  const localDirectory = await window.deployerx.selectLocalFolder();
+  if (!localDirectory) return;
+  const result = await withFileActivity(`Downloading ${entry.name}...`, () =>
+    window.deployerx.downloadTerminalEntryToDirectory({
+      sessionId: session.sessionId,
+      entry,
+      localDirectory
+    })
+  );
+  showToast(`Downloaded ${entry.name} to ${result.localPath}`);
+}
+
+async function renameSshDirectoryEntry(entry) {
+  const session = getTerminalSession();
+  if (!entry || !session?.sessionId || !session.connected) return;
+  const name = promptFileName('Rename server item', entry.name);
+  if (!name || name === entry.name) return;
+  await window.deployerx.renameTerminalEntry({ sessionId: session.sessionId, entry, name });
+  session.directorySelectedPath = '';
+  await refreshSshDirectory(session);
+  showToast('Server item renamed');
+}
+
+async function deleteSshDirectoryEntry(entry) {
+  const session = getTerminalSession();
+  if (!entry || !session?.sessionId || !session.connected) return;
+  const ok = await confirmDangerousAction(
+    `Delete server "${entry.name}"?`,
+    entry.type === 'directory' ? 'This deletes the server folder and all of its contents.' : 'This action cannot be undone.',
+    'Delete'
+  );
+  if (!ok) return;
+  await withFileActivity(`Deleting ${entry.name}...`, () =>
+    window.deployerx.deleteTerminalEntry({ sessionId: session.sessionId, entry })
+  );
+  session.directorySelectedPath = '';
+  await refreshSshDirectory(session);
+  showToast('Server item deleted');
+}
+
+async function createSshDirectory() {
+  const session = getTerminalSession();
+  const remoteDirectory = String(session?.currentDirectory || session?.homeDirectory || '').trim();
+  if (!session?.sessionId || !session.connected || !remoteDirectory) return;
+  const name = promptFileName('New folder name');
+  if (!name) return;
+  await window.deployerx.makeTerminalDirectory({ sessionId: session.sessionId, remoteDirectory, name });
+  await refreshSshDirectory(session);
+  showToast('Server folder created');
+}
+
+function getSshDirectoryContextItems(entry = null) {
+  const session = getTerminalSession();
+  const connected = Boolean(session?.sessionId && session.connected);
+  const ready = Boolean(connected && !session.pendingDirectoryCandidate && !session.directoryLoading);
+  return [
+    { label: 'Open', disabled: !ready || !entry, action: () => openSshDirectoryEntry(entry) },
+    { label: 'Open with...', disabled: !ready || !entry || entry.type === 'directory', action: () => openSshDirectoryEntryWith(entry) },
+    { label: 'Download', disabled: !ready || !entry, action: () => downloadSshDirectoryEntry(entry) },
+    { label: 'Rename', disabled: !ready || !entry, action: () => renameSshDirectoryEntry(entry) },
+    { label: 'Delete', disabled: !ready || !entry, action: () => deleteSshDirectoryEntry(entry) },
+    { label: 'Refresh', disabled: !ready, action: () => refreshSshDirectory(session) },
+    { label: 'Upload file', disabled: !ready || Boolean(session?.upload?.active), action: () => uploadFileToCurrentSshPath() },
+    { label: 'New folder', disabled: !ready, action: () => createSshDirectory() }
+  ];
+}
+
+function showSshDirectoryContextMenu(event, entry = null) {
+  showContextMenuItems(event, getSshDirectoryContextItems(entry));
+}
+
 function saveSshEditorFile() {
   if (sshEditorSavePromise) return sshEditorSavePromise;
   const editorState = state.sshEditor;
@@ -1062,7 +1225,7 @@ function trackShellCommand(command, session) {
     return;
   }
 
-  const rawTarget = stripShellQuotes(cdMatch[1] || '');
+  const rawTarget = stripShellQuotes(String(cdMatch[1] || '').replace(/^--\s+/, ''));
   const nextDirectory = resolveShellCdTarget(rawTarget, session);
   if (nextDirectory) session.pendingDirectoryCandidate = normalizeRemoteShellPath(nextDirectory);
   renderSshUploadPanel(session);
@@ -1209,6 +1372,104 @@ function renderVisibleTerminalSession(session = getTerminalSession()) {
   terminal.reset();
   terminal.clear();
   terminal.write(session?.output || 'Ready.\r\n');
+  renderTerminalTabs(session?.projectId);
+}
+
+function renderTerminalTabs(projectId = state.activeProject?.id) {
+  if (!els.terminalTabs || !els.terminalNewTabButton) return;
+  if (projectId && state.activeProject?.id !== projectId) return;
+  const tabs = getTerminalTabs(projectId, Boolean(projectId));
+  const activeTabId = projectId ? state.activeTerminalTabIds[projectId] : '';
+  els.terminalTabs.replaceChildren();
+
+  for (const session of tabs || []) {
+    const tab = document.createElement('div');
+    const isActive = session.tabId === activeTabId;
+    const isConnecting = Boolean(session.sessionId && !session.connected);
+    tab.className = `terminal-tab${isActive ? ' active' : ''}${session.connected ? ' connected' : ''}${isConnecting ? ' connecting' : ''}`;
+    tab.dataset.terminalTabId = session.tabId;
+    tab.innerHTML = `
+      <button class="terminal-tab-select" type="button" role="tab" aria-controls="terminal" aria-selected="${isActive}" tabindex="${isActive ? '0' : '-1'}" data-terminal-tab-select="${escapeHtml(session.tabId)}">
+        <span class="terminal-tab-status" aria-hidden="true"></span>
+        <span class="terminal-tab-label">${escapeHtml(session.label || 'Terminal')}</span>
+      </button>
+      <button class="terminal-tab-close" type="button" aria-label="Close ${escapeHtml(session.label || 'terminal')}" title="Close terminal" data-terminal-tab-close="${escapeHtml(session.tabId)}">
+        ${icon('x')}
+      </button>`;
+    els.terminalTabs.appendChild(tab);
+  }
+
+  els.terminalNewTabButton.disabled = !projectId || isRdpProject();
+  els.terminalTabs.querySelector('.terminal-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function activateTerminalTab(tabId, { focus = true } = {}) {
+  const projectId = state.activeProject?.id;
+  const session = getTerminalTabs(projectId)?.find((item) => item.tabId === tabId);
+  if (!session) return;
+  state.activeTerminalTabIds[projectId] = session.tabId;
+  applyTerminalSessionToState(projectId);
+  renderVisibleTerminalSession(session);
+  updateTerminalStatus(session.status || (session.connected ? 'Connected' : 'Not connected'), session.connected);
+  if (session.connected && session.sessionId) {
+    if (!session.homeDirectory) ensureTerminalHomeDirectory(session.sessionId).catch(() => {});
+    else refreshSshDirectory(session).catch(() => {});
+  }
+  requestAnimationFrame(() => {
+    fitTerminal();
+    resizeActiveTerminal();
+    if (focus) terminal.focus();
+  });
+}
+
+async function openNewTerminalTab() {
+  const projectId = state.activeProject?.id;
+  if (!projectId || isRdpProject()) return;
+  const currentSession = getTerminalSession(projectId);
+  const startupDirectory = String(
+    currentSession?.currentDirectory || currentSession?.homeDirectory || currentSession?.startupDirectory || ''
+  );
+  const session = createTerminalTabSession(projectId, { startupDirectory });
+  getTerminalTabs(projectId, true).push(session);
+  state.activeTerminalTabIds[projectId] = session.tabId;
+  activateTerminalTab(session.tabId);
+  await connectTerminal();
+}
+
+async function closeTerminalTab(tabId) {
+  const projectId = state.activeProject?.id;
+  const tabs = getTerminalTabs(projectId);
+  const index = tabs?.findIndex((session) => session.tabId === tabId) ?? -1;
+  if (index < 0) return;
+  const session = tabs[index];
+  const wasActive = state.activeTerminalTabIds[projectId] === tabId;
+
+  if (session.sessionId) {
+    const ok = await confirmDangerousAction(
+      `Close ${session.label || 'this terminal'}?`,
+      'Running commands in this terminal session will be stopped.',
+      'Close terminal'
+    );
+    if (!ok) return;
+    if (state.scriptTerminalSessionId === session.sessionId) stopScriptQueue();
+    await window.deployerx.stopTerminal(session.sessionId);
+    removeTerminalSessionRegistration(session.sessionId);
+  }
+
+  tabs.splice(index, 1);
+  if (!tabs.length) {
+    state.terminalTabCounters[projectId] = 0;
+    const replacement = createTerminalTabSession(projectId);
+    tabs.push(replacement);
+  }
+  if (!wasActive) {
+    renderTerminalTabs(projectId);
+    renderProjects();
+    return;
+  }
+  const nextSession = tabs[Math.min(index, tabs.length - 1)];
+  state.activeTerminalTabIds[projectId] = nextSession.tabId;
+  activateTerminalTab(nextSession.tabId);
 }
 
 function removeTerminalSessionRegistration(sessionId) {
@@ -1228,8 +1489,9 @@ async function disconnectProjectConnections(projectId) {
     state.rdpStatus = 'disconnected';
   }
 
-  const terminalSession = getTerminalSession(projectId);
-  if (terminalSession?.sessionId) {
+  const terminalSessions = getTerminalTabs(projectId);
+  for (const terminalSession of terminalSessions || []) {
+    if (!terminalSession.sessionId) continue;
     try {
       await window.deployerx.stopTerminal(terminalSession.sessionId);
     } catch {}
@@ -1244,7 +1506,10 @@ async function disconnectProjectConnections(projectId) {
   }
 
   if (projectId) {
-    state.terminalSessions[projectId] = blankTerminalSession(projectId);
+    state.terminalTabCounters[projectId] = 0;
+    const terminalSession = createTerminalTabSession(projectId);
+    state.terminalSessions[projectId] = [terminalSession];
+    state.activeTerminalTabIds[projectId] = terminalSession.tabId;
     state.ftpSessions[projectId] = blankFtpSession(projectId);
   }
 
@@ -1305,21 +1570,70 @@ const els = {
   workspaceLogoutButton: document.getElementById('workspaceLogoutButton'),
   dashboardView: document.getElementById('dashboardView'),
   uptimeView: document.getElementById('uptimeView'),
+  serverMonitoringView: document.getElementById('serverMonitoringView'),
+  serverMonitoringEmpty: document.getElementById('serverMonitoringEmpty'),
+  serverMonitoringUnsupported: document.getElementById('serverMonitoringUnsupported'),
+  serverMonitoringDashboard: document.getElementById('serverMonitoringDashboard'),
+  serverMonitoringStatus: document.getElementById('serverMonitoringStatus'),
+  serverMonitoringPauseButton: document.getElementById('serverMonitoringPauseButton'),
+  serverMonitoringRefreshButton: document.getElementById('serverMonitoringRefreshButton'),
+  serverMonitoringServerIcon: document.getElementById('serverMonitoringServerIcon'),
+  serverMonitoringServerName: document.getElementById('serverMonitoringServerName'),
+  serverMonitoringServerEndpoint: document.getElementById('serverMonitoringServerEndpoint'),
+  serverMonitoringLastSample: document.getElementById('serverMonitoringLastSample'),
+  serverMonitoringError: document.getElementById('serverMonitoringError'),
+  serverMonitoringCpuValue: document.getElementById('serverMonitoringCpuValue'),
+  serverMonitoringCpuMeta: document.getElementById('serverMonitoringCpuMeta'),
+  serverMonitoringCpuBar: document.getElementById('serverMonitoringCpuBar'),
+  serverMonitoringMemoryValue: document.getElementById('serverMonitoringMemoryValue'),
+  serverMonitoringMemoryMeta: document.getElementById('serverMonitoringMemoryMeta'),
+  serverMonitoringMemoryBar: document.getElementById('serverMonitoringMemoryBar'),
+  serverMonitoringStorageValue: document.getElementById('serverMonitoringStorageValue'),
+  serverMonitoringStorageMeta: document.getElementById('serverMonitoringStorageMeta'),
+  serverMonitoringStorageBar: document.getElementById('serverMonitoringStorageBar'),
+  serverMonitoringUptimeValue: document.getElementById('serverMonitoringUptimeValue'),
+  serverMonitoringUptimeMeta: document.getElementById('serverMonitoringUptimeMeta'),
+  serverMonitoringTrendChart: document.getElementById('serverMonitoringTrendChart'),
+  serverMonitoringNetworkChart: document.getElementById('serverMonitoringNetworkChart'),
+  serverMonitoringStorageTable: document.getElementById('serverMonitoringStorageTable'),
+  serverMonitoringProcessTable: document.getElementById('serverMonitoringProcessTable'),
+  serverMonitoringSystemDetails: document.getElementById('serverMonitoringSystemDetails'),
   serversView: document.getElementById('serversView'),
-  serversViewSummary: document.getElementById('serversViewSummary'),
   serversOverviewTotal: document.getElementById('serversOverviewTotal'),
+  serversOverviewGroups: document.getElementById('serversOverviewGroups'),
   serversOverviewConnected: document.getElementById('serversOverviewConnected'),
   serversOverviewFavorites: document.getElementById('serversOverviewFavorites'),
   serversOverviewCommands: document.getElementById('serversOverviewCommands'),
+  serverFilterPopover: document.getElementById('serverFilterPopover'),
   serversFilterButton: document.getElementById('serversFilterButton'),
   serversFilterBadge: document.getElementById('serversFilterBadge'),
   serverFilterPanel: document.getElementById('serverFilterPanel'),
   serversFilterSearch: document.getElementById('serversFilterSearch'),
   serversFilterGroup: document.getElementById('serversFilterGroup'),
+  serversFilterGroupDropdown: document.getElementById('serversFilterGroupDropdown'),
+  serversFilterGroupButton: document.getElementById('serversFilterGroupButton'),
+  serversFilterGroupLabel: document.getElementById('serversFilterGroupLabel'),
+  serversFilterGroupMenu: document.getElementById('serversFilterGroupMenu'),
   serversFilterSystem: document.getElementById('serversFilterSystem'),
+  serversFilterSystemDropdown: document.getElementById('serversFilterSystemDropdown'),
+  serversFilterSystemButton: document.getElementById('serversFilterSystemButton'),
+  serversFilterSystemLabel: document.getElementById('serversFilterSystemLabel'),
+  serversFilterSystemMenu: document.getElementById('serversFilterSystemMenu'),
   serversFilterConnection: document.getElementById('serversFilterConnection'),
+  serversFilterConnectionDropdown: document.getElementById('serversFilterConnectionDropdown'),
+  serversFilterConnectionButton: document.getElementById('serversFilterConnectionButton'),
+  serversFilterConnectionLabel: document.getElementById('serversFilterConnectionLabel'),
+  serversFilterConnectionMenu: document.getElementById('serversFilterConnectionMenu'),
   serversFilterCommands: document.getElementById('serversFilterCommands'),
+  serversFilterCommandsDropdown: document.getElementById('serversFilterCommandsDropdown'),
+  serversFilterCommandsButton: document.getElementById('serversFilterCommandsButton'),
+  serversFilterCommandsLabel: document.getElementById('serversFilterCommandsLabel'),
+  serversFilterCommandsMenu: document.getElementById('serversFilterCommandsMenu'),
   serversFilterSort: document.getElementById('serversFilterSort'),
+  serversFilterSortDropdown: document.getElementById('serversFilterSortDropdown'),
+  serversFilterSortButton: document.getElementById('serversFilterSortButton'),
+  serversFilterSortLabel: document.getElementById('serversFilterSortLabel'),
+  serversFilterSortMenu: document.getElementById('serversFilterSortMenu'),
   serversFilterFavorites: document.getElementById('serversFilterFavorites'),
   serversFilterResults: document.getElementById('serversFilterResults'),
   serversFilterResetButton: document.getElementById('serversFilterResetButton'),
@@ -2571,6 +2885,7 @@ const els = {
   topProfileLogoutButton: document.getElementById('topProfileLogoutButton'),
   dashboardButton: document.getElementById('dashboardButton'),
   uptimeButton: document.getElementById('uptimeButton'),
+  serverMonitoringButton: document.getElementById('serverMonitoringButton'),
   serversButton: document.getElementById('serversButton'),
   goOnlineButton: document.getElementById('goOnlineButton'),
   teamButton: document.getElementById('teamButton'),
@@ -2603,6 +2918,12 @@ const els = {
   dashboardSystemOverview: document.getElementById('dashboardSystemOverview'),
   dashboardConnectionReadiness: document.getElementById('dashboardConnectionReadiness'),
   dashboardRecentActivity: document.getElementById('dashboardRecentActivity'),
+  dashboardUptimeAlerts: document.getElementById('dashboardUptimeAlerts'),
+  dashboardBackupStatus: document.getElementById('dashboardBackupStatus'),
+  dashboardDatabaseStatus: document.getElementById('dashboardDatabaseStatus'),
+  dashboardUptimeButton: document.getElementById('dashboardUptimeButton'),
+  dashboardBackupButton: document.getElementById('dashboardBackupButton'),
+  dashboardDatabaseButton: document.getElementById('dashboardDatabaseButton'),
   dashboardQuickAddButton: document.getElementById('dashboardQuickAddButton'),
   dashboardHealthButton: document.getElementById('dashboardHealthButton'),
   dashboardTemplatesButton: document.getElementById('dashboardTemplatesButton'),
@@ -2928,6 +3249,8 @@ const els = {
   emergencyStopButton: document.getElementById('emergencyStopButton'),
   connectTerminalButton: document.getElementById('connectTerminalButton'),
   terminalConnectOverlay: document.getElementById('terminalConnectOverlay'),
+  terminalTabs: document.getElementById('terminalTabs'),
+  terminalNewTabButton: document.getElementById('terminalNewTabButton'),
   disconnectTerminalButton: document.getElementById('disconnectTerminalButton'),
   scriptRail: document.getElementById('scriptRail'),
   scriptRailToggle: document.getElementById('scriptRailToggle'),
@@ -3028,6 +3351,12 @@ const els = {
   modalTemplateMenu: document.getElementById('modalTemplateMenu'),
   modalSshHost: document.getElementById('modalSshHost'),
   modalSshPort: document.getElementById('modalSshPort'),
+  modalSshUserTabs: document.getElementById('modalSshUserTabs'),
+  modalAddSshUserButton: document.getElementById('modalAddSshUserButton'),
+  modalRemoveSshUserButton: document.getElementById('modalRemoveSshUserButton'),
+  modalDefaultSshUserButton: document.getElementById('modalDefaultSshUserButton'),
+  modalSshUserEditorTitle: document.getElementById('modalSshUserEditorTitle'),
+  modalSshUserEditorStatus: document.getElementById('modalSshUserEditorStatus'),
   modalSshUsername: document.getElementById('modalSshUsername'),
   modalAuthType: document.getElementById('modalAuthType'),
   modalSshPassword: document.getElementById('modalSshPassword'),
@@ -3138,6 +3467,9 @@ const els = {
   confirmModal: document.getElementById('confirmModal'),
   confirmModalTitle: document.getElementById('confirmModalTitle'),
   confirmModalDetail: document.getElementById('confirmModalDetail'),
+  confirmModalEyebrow: document.getElementById('confirmModalEyebrow'),
+  confirmModalAccount: document.getElementById('confirmModalAccount'),
+  confirmModalAccountLabel: document.getElementById('confirmModalAccountLabel'),
   confirmModalIconUse: document.getElementById('confirmModalIconUse'),
   confirmModalConfirmIconUse: document.getElementById('confirmModalConfirmIconUse'),
   confirmModalCancelButton: document.getElementById('confirmModalCancelButton'),
@@ -3146,8 +3478,11 @@ const els = {
   teamHeaderCopy: document.getElementById('teamHeaderCopy'),
   teamOwnershipSummary: document.getElementById('teamOwnershipSummary'),
   logoutButton: document.getElementById('logoutButton'),
+  settingsNav: document.querySelector('.settings-nav'),
   settingsNavItems: Array.from(document.querySelectorAll('[data-settings-tab]')),
   settingsPanels: Array.from(document.querySelectorAll('[data-settings-panel]')),
+  aboutExternalLinks: Array.from(document.querySelectorAll('[data-about-external]')),
+  aboutAppVersion: document.getElementById('aboutAppVersion'),
   themeOptions: Array.from(document.querySelectorAll('[data-theme-option]')),
   activeThemeLabel: document.getElementById('activeThemeLabel'),
   settingsLoginButtons: Array.from(document.querySelectorAll('[data-settings-login]')),
@@ -3230,6 +3565,12 @@ const els = {
   createTeamName: document.getElementById('createTeamName')
 };
 
+els.settingsNav?.addEventListener('click', (event) => {
+  const item = event.target.closest('[data-settings-tab]');
+  if (!item || !els.settingsNav.contains(item)) return;
+  setSettingsTab(item.dataset.settingsTab);
+});
+
 const STARTUP_IPC_TIMEOUT_MS = 5000;
 const CLOUD_SESSION_TIMEOUT_MS = 15000;
 const STARTUP_VERSION_TIMEOUT_MS = 1200;
@@ -3280,6 +3621,7 @@ function applyAppMetadata(metadata = {}) {
   if (metadata?.updates) applyAppUpdateState(metadata.updates);
   else renderAppUpdateCard();
   if (els.startupAppVersion) els.startupAppVersion.textContent = `Version ${state.app.version}`;
+  if (els.aboutAppVersion) els.aboutAppVersion.textContent = `Version ${state.app.version}`;
 }
 
 async function refreshAppUpdateState() {
@@ -3377,6 +3719,9 @@ function renderAppUpdateCard() {
 
 let toastTimer = null;
 let uptimeRefreshTimer = null;
+let dashboardRefreshTimer = null;
+let dashboardRefreshInFlight = false;
+let dashboardOperationsLoaded = false;
 let backupRunPollTimer = null;
 let uptimeRefreshInFlight = false;
 let confirmModalResolve = null;
@@ -3557,6 +3902,54 @@ function normalizeUptimeProjectState(project = {}) {
   };
 }
 
+function normalizeSshUsers(ssh = {}) {
+  const sourceUsers = Array.isArray(ssh.users) && ssh.users.length
+    ? ssh.users
+    : [{
+        id: ssh.defaultUserId || 'ssh-user-1',
+        username: ssh.username || '',
+        authType: ssh.authType,
+        password: ssh.password,
+        privateKey: ssh.privateKey,
+        passphrase: ssh.passphrase
+      }];
+  const usedIds = new Set();
+  const users = sourceUsers.map((user = {}, index) => {
+    let id = String(user.id || `ssh-user-${index + 1}`).trim() || `ssh-user-${index + 1}`;
+    while (usedIds.has(id)) id = `${id}-${index + 1}`;
+    usedIds.add(id);
+    return {
+      id,
+      username: String(user.username || '').trim(),
+      authType: user.authType === 'key' ? 'key' : 'password',
+      password: String(user.password || ''),
+      privateKey: String(user.privateKey || ''),
+      passphrase: String(user.passphrase || '')
+    };
+  });
+  const requestedDefaultId = String(ssh.defaultUserId || '').trim();
+  const defaultUser = users.find((user) => user.id === requestedDefaultId) || users[0];
+  return { users, defaultUserId: defaultUser.id, defaultUser };
+}
+
+function normalizeSshConnection(ssh = {}, blankSsh = blankProject().ssh) {
+  const { users, defaultUserId, defaultUser } = normalizeSshUsers(ssh);
+  return {
+    ...blankSsh,
+    ...ssh,
+    host: String(ssh.host || '').trim(),
+    port: Number(ssh.port || blankSsh.port),
+    timeout: Number(ssh.timeout || blankSsh.timeout),
+    username: defaultUser.username,
+    authType: defaultUser.authType,
+    password: defaultUser.password,
+    privateKey: defaultUser.privateKey,
+    passphrase: defaultUser.passphrase,
+    users,
+    defaultUserId
+  };
+}
+
 function normalizeProject(project = {}) {
   const blank = blankProject();
   return {
@@ -3564,10 +3957,7 @@ function normalizeProject(project = {}) {
     ...project,
     group: String(project?.group || '').trim(),
     pinned: Boolean(project?.pinned),
-    ssh: {
-      ...blank.ssh,
-      ...(project.ssh || {})
-    },
+    ssh: normalizeSshConnection(project.ssh || {}, blank.ssh),
     rdp: {
       ...blank.rdp,
       ...(project.rdp || {})
@@ -8560,6 +8950,179 @@ async function cancelDatabaseQuery() {
   await window.deployerx.cancelDatabaseQuery(requestId);
 }
 
+function monitoringBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let scaled = bytes / 1024;
+  let index = 0;
+  while (scaled >= 1024 && index < units.length - 1) { scaled /= 1024; index += 1; }
+  return `${scaled >= 10 ? Math.round(scaled) : scaled.toFixed(1)} ${units[index]}`;
+}
+
+function monitoringRate(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '--';
+  return `${monitoringBytes(Number(value))}/s`;
+}
+
+function monitoringDuration(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return days ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
+}
+
+function monitoringChart(canvas, series, maximum = 100) {
+  if (!canvas) return;
+  const width = Math.max(320, Math.floor(canvas.clientWidth || canvas.parentElement?.clientWidth || 640));
+  const height = 220;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  const context = canvas.getContext('2d');
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const styles = getComputedStyle(document.documentElement);
+  const line = styles.getPropertyValue('--line').trim() || 'rgba(24,24,27,.1)';
+  const muted = styles.getPropertyValue('--faint').trim() || '#a1a1aa';
+  const padding = { top: 14, right: 14, bottom: 26, left: 34 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  context.font = '11px Segoe UI, sans-serif';
+  context.fillStyle = muted;
+  context.strokeStyle = line;
+  context.lineWidth = 1;
+  for (let index = 0; index <= 4; index += 1) {
+    const y = padding.top + (chartHeight * index / 4);
+    context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
+    context.fillText(`${Math.round(maximum - (maximum * index / 4))}${maximum === 100 ? '%' : ''}`, 2, y + 4);
+  }
+  const count = Math.max(...series.map((item) => item.values.length), 0);
+  if (count < 2) {
+    context.fillText('Collecting samples...', padding.left + 12, padding.top + chartHeight / 2);
+    return;
+  }
+  for (const item of series) {
+    context.strokeStyle = item.color;
+    context.lineWidth = 2;
+    context.beginPath();
+    item.values.forEach((value, index) => {
+      const x = padding.left + (chartWidth * index / Math.max(1, count - 1));
+      const y = padding.top + chartHeight - (chartHeight * Math.min(maximum, Math.max(0, Number(value) || 0)) / maximum);
+      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+    });
+    context.stroke();
+  }
+}
+
+function renderServerMonitoring() {
+  const monitoring = state.serverMonitoring;
+  const project = state.projects.find((item) => String(item.id) === String(monitoring.selectedProjectId));
+  const hasProject = Boolean(project);
+  const unsupported = hasProject && project.serverType === 'rdp';
+  els.serverMonitoringEmpty.classList.toggle('hidden', hasProject);
+  els.serverMonitoringUnsupported.classList.toggle('hidden', !unsupported);
+  els.serverMonitoringDashboard.classList.toggle('hidden', !hasProject || unsupported);
+  els.serverMonitoringPauseButton.disabled = !hasProject || unsupported || !monitoring.sessionId;
+  els.serverMonitoringRefreshButton.disabled = !hasProject || unsupported;
+  if (project) {
+    els.serverMonitoringServerIcon.innerHTML = serverTypeIcon(project.serverType);
+    els.serverMonitoringServerName.textContent = project.name || 'Untitled Server';
+    els.serverMonitoringServerEndpoint.textContent = `${serverHost(project) || 'No host'}:${project.ssh?.port || 22} / ${project.ssh?.username || 'No username'}`;
+  }
+  const statusText = monitoring.status === 'live' ? 'Live' : monitoring.status === 'connecting' ? 'Connecting' : monitoring.status === 'reconnecting' ? 'Reconnecting' : monitoring.status === 'paused' ? 'Paused' : monitoring.status === 'error' ? 'Collection error' : unsupported ? 'Unsupported' : hasProject ? 'Starting' : 'Choose a server';
+  els.serverMonitoringStatus.className = `server-monitoring-status is-${monitoring.status}`;
+  els.serverMonitoringStatus.querySelector('span').textContent = statusText;
+  els.serverMonitoringStatus.title = monitoring.error || statusText;
+  els.serverMonitoringError.classList.toggle('hidden', !monitoring.error || unsupported);
+  els.serverMonitoringError.querySelector('span').textContent = monitoring.error || '';
+  els.serverMonitoringPauseButton.querySelector('span').textContent = monitoring.paused ? 'Resume' : 'Pause';
+  els.serverMonitoringPauseButton.querySelector('use').setAttribute('href', monitoring.paused ? '#icon-play' : '#icon-pause');
+  const sample = monitoring.sample;
+  if (!sample || !hasProject || unsupported) return;
+  const cpu = Number(sample.cpu?.usagePercent);
+  const memory = Number(sample.memory?.usagePercent);
+  const volumes = Array.isArray(sample.storage) ? sample.storage : [];
+  const rootVolume = volumes.find((item) => item.mount === '/') || volumes[0];
+  els.serverMonitoringCpuValue.textContent = Number.isFinite(cpu) ? `${cpu.toFixed(1)}%` : '--';
+  els.serverMonitoringCpuMeta.textContent = `${sample.cpu?.cores || '--'} cores / load ${[sample.cpu?.load1, sample.cpu?.load5, sample.cpu?.load15].map((value) => Number(value || 0).toFixed(2)).join('  ')}`;
+  els.serverMonitoringCpuBar.style.width = `${Math.min(100, Math.max(0, cpu || 0))}%`;
+  els.serverMonitoringMemoryValue.textContent = Number.isFinite(memory) ? `${memory.toFixed(1)}%` : '--';
+  els.serverMonitoringMemoryMeta.textContent = `${monitoringBytes(sample.memory?.usedBytes)} used of ${monitoringBytes(sample.memory?.totalBytes)} / swap ${sample.memory?.swapUsagePercent?.toFixed?.(1) || '0.0'}%`;
+  els.serverMonitoringMemoryBar.style.width = `${Math.min(100, Math.max(0, memory || 0))}%`;
+  els.serverMonitoringStorageValue.textContent = rootVolume ? `${rootVolume.usagePercent.toFixed(1)}%` : '--';
+  els.serverMonitoringStorageMeta.textContent = rootVolume ? `${monitoringBytes(rootVolume.usedBytes)} used of ${monitoringBytes(rootVolume.totalBytes)} / ${volumes.length} volume${volumes.length === 1 ? '' : 's'}` : 'Waiting for storage data';
+  els.serverMonitoringStorageBar.style.width = `${rootVolume?.usagePercent || 0}%`;
+  els.serverMonitoringUptimeValue.textContent = monitoringDuration(sample.system?.uptimeSeconds);
+  els.serverMonitoringUptimeMeta.textContent = `${sample.system?.hostname || 'Unknown host'} / ${sample.system?.os || 'Linux'}`;
+  els.serverMonitoringLastSample.textContent = sample.sampledAt ? new Date(sample.sampledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--';
+  els.serverMonitoringStorageTable.innerHTML = volumes.length ? volumes.map((volume) => `<tr><td><strong>${escapeHtml(volume.mount)}</strong></td><td>${escapeHtml(volume.filesystem)}<small>${escapeHtml(volume.type || '')}</small></td><td>${monitoringBytes(volume.usedBytes)}</td><td>${monitoringBytes(volume.availableBytes)}</td><td><span class="monitoring-usage"><i><b style="width:${volume.usagePercent}%"></b></i>${volume.usagePercent.toFixed(1)}%</span></td></tr>`).join('') : '<tr><td colspan="5" class="server-monitoring-table-empty">No filesystem data returned</td></tr>';
+  const processes = Array.isArray(sample.processes) ? sample.processes : [];
+  els.serverMonitoringProcessTable.innerHTML = processes.length ? processes.map((process) => `<tr><td><strong>${escapeHtml(process.name)}</strong></td><td>${process.pid}</td><td>${process.cpuPercent.toFixed(1)}%</td><td>${process.memoryPercent.toFixed(1)}%</td></tr>`).join('') : '<tr><td colspan="4" class="server-monitoring-table-empty">No process data returned</td></tr>';
+  const systemDetails = [['Hostname', sample.system?.hostname], ['Operating system', sample.system?.os], ['Kernel', sample.system?.kernel], ['Interfaces', `${sample.network?.interfaces?.length || 0} active`], ['Receive rate', monitoringRate(sample.network?.receiveBytesPerSecond)], ['Transmit rate', monitoringRate(sample.network?.transmitBytesPerSecond)]];
+  els.serverMonitoringSystemDetails.innerHTML = systemDetails.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || '--')}</strong></div>`).join('');
+  const history = monitoring.history;
+  monitoringChart(els.serverMonitoringTrendChart, [{ values: history.map((item) => item.cpu), color: '#2563eb' }, { values: history.map((item) => item.memory), color: '#0f766e' }]);
+  const networkMaximum = Math.max(1, ...history.flatMap((item) => [item.receive, item.transmit]));
+  monitoringChart(els.serverMonitoringNetworkChart, [{ values: history.map((item) => item.receive), color: '#d97706' }, { values: history.map((item) => item.transmit), color: '#9333ea' }], networkMaximum);
+}
+
+async function stopServerMonitoring() {
+  const sessionId = state.serverMonitoring.sessionId;
+  state.serverMonitoring.sessionId = '';
+  if (sessionId) await window.deployerx.stopServerMonitoring(sessionId).catch(() => {});
+}
+
+async function selectServerForMonitoring(projectId) {
+  const project = state.projects.find((item) => String(item.id) === String(projectId));
+  if (!project) return;
+  await stopServerMonitoring();
+  state.serverMonitoring.selectedProjectId = String(project.id);
+  state.serverMonitoring.sample = null;
+  state.serverMonitoring.history = [];
+  state.serverMonitoring.error = '';
+  state.serverMonitoring.paused = false;
+  state.serverMonitoring.status = project.serverType === 'rdp' ? 'unsupported' : 'connecting';
+  renderProjects();
+  renderServerMonitoring();
+  if (project.serverType === 'rdp') return;
+  const sessionId = `monitor_${window.crypto.randomUUID()}`;
+  state.serverMonitoring.sessionId = sessionId;
+  try {
+    await window.deployerx.startServerMonitoring({ sessionId, project });
+  } catch (error) {
+    if (state.serverMonitoring.sessionId !== sessionId) return;
+    state.serverMonitoring.status = 'error';
+    state.serverMonitoring.error = error.message || 'Could not start monitoring.';
+    renderServerMonitoring();
+  }
+}
+
+function openSidebarProject(projectId) {
+  if (state.currentView === 'server-monitoring') selectServerForMonitoring(projectId).catch((error) => showAlert(error.message || 'Could not select server.'));
+  else openProject(projectId);
+}
+
+function handleServerMonitoringEvent(event = {}) {
+  const monitoring = state.serverMonitoring;
+  if (!monitoring.sessionId || event.sessionId !== monitoring.sessionId) return;
+  if (event.type === 'status') {
+    monitoring.status = event.status || monitoring.status;
+    monitoring.paused = monitoring.status === 'paused';
+  } else if (event.type === 'error') {
+    monitoring.status = 'error';
+    monitoring.error = event.message || 'Metrics could not be collected.';
+  } else if (event.type === 'sample' && event.sample) {
+    monitoring.status = 'live';
+    monitoring.error = '';
+    monitoring.sample = event.sample;
+    monitoring.history.push({ cpu: Number(event.sample.cpu?.usagePercent) || 0, memory: Number(event.sample.memory?.usagePercent) || 0, receive: Number(event.sample.network?.receiveBytesPerSecond) || 0, transmit: Number(event.sample.network?.transmitBytesPerSecond) || 0 });
+    if (monitoring.history.length > 150) monitoring.history.splice(0, monitoring.history.length - 150);
+  }
+  renderServerMonitoring();
+}
+
 function showView(view) {
   if (view === 'templates') {
     state.settingsTab = 'templates';
@@ -8582,6 +9145,7 @@ function showView(view) {
   if (view === 'team') renderSettingsView();
   if (view === 'profile') renderProfileView();
   const isDashboard = view === 'dashboard';
+  const isServerMonitoring = view === 'server-monitoring';
   const isUptime = view === 'uptime';
   const isServers = view === 'servers';
   const isBackup = view === 'backup';
@@ -8591,7 +9155,9 @@ function showView(view) {
   const isProfile = view === 'profile';
   const isTeam = view === 'team';
   const isFullPageView = isProfile || isTeam || isSshFile;
-  if (!isProject) {
+  if (isDashboard) startDashboardAutoRefresh();
+  else stopDashboardAutoRefresh();
+  if (!isProject && !isServerMonitoring) {
     els.projectList?.querySelectorAll('.project-item.active').forEach((item) => {
       item.classList.remove('active');
       item.querySelector('[aria-current]')?.removeAttribute('aria-current');
@@ -8608,6 +9174,7 @@ function showView(view) {
     setSidebarCollapsed(prefersCollapsed, { persist: false });
   }
   els.dashboardView.classList.toggle('hidden', !isDashboard);
+  els.serverMonitoringView.classList.toggle('hidden', !isServerMonitoring);
   els.uptimeView.classList.toggle('hidden', !isUptime);
   els.serversView.classList.toggle('hidden', !isServers);
   els.backupManagerView.classList.toggle('hidden', !isBackup);
@@ -8617,6 +9184,7 @@ function showView(view) {
   els.profileView.classList.toggle('hidden', !isProfile);
   els.teamView.classList.toggle('hidden', !isTeam);
   els.dashboardButton.classList.toggle('active', isDashboard);
+  els.serverMonitoringButton.classList.toggle('active', isServerMonitoring);
   els.uptimeButton.classList.toggle('active', isUptime);
   els.serversButton.classList.toggle('active', isServers);
   els.teamButton.classList.toggle('active', isTeam);
@@ -8628,6 +9196,16 @@ function showView(view) {
     startUptimeAutoRefresh();
     refreshUptimeProjectState({ preserveSelection: true }).catch((error) => showAlert(error.message || 'Could not load uptime monitors.'));
   } else {
+    if (!isServerMonitoring) stopServerMonitoring().catch(() => {});
+    if (isServerMonitoring) {
+      renderServerMonitoring();
+      if (!state.serverMonitoring.sessionId && state.serverMonitoring.selectedProjectId) {
+        selectServerForMonitoring(state.serverMonitoring.selectedProjectId).catch(() => {});
+      } else if (!state.serverMonitoring.selectedProjectId) {
+        const first = state.projects.find((project) => project.serverType !== 'rdp');
+        if (first) selectServerForMonitoring(first.id).catch(() => {});
+      }
+    }
     stopUptimeAutoRefresh();
     if (isProject) {
     requestAnimationFrame(() => {
@@ -17091,13 +17669,21 @@ function closeConfirmModal(confirmed) {
 function confirmDangerousAction(message, detail = '', confirmLabel = 'Confirm') {
   if (confirmModalResolve) closeConfirmModal(false);
 
+  const normalizedLabel = confirmLabel.toLowerCase();
+  const isLogout = /logout|sign out|signout/.test(normalizedLabel);
   els.confirmModalTitle.textContent = message;
   els.confirmModalDetail.textContent = detail;
   els.confirmModalDetail.classList.toggle('hidden', !detail);
   els.confirmModalConfirmLabel.textContent = confirmLabel;
-  const normalizedLabel = confirmLabel.toLowerCase();
-  const isDangerous = /delete|remove|prune|logout|disconnect|revoke|stop/.test(normalizedLabel);
-  const iconHref = normalizedLabel.includes('logout')
+  els.confirmModalEyebrow.textContent = isLogout ? 'Cloud account' : '';
+  els.confirmModalEyebrow.classList.toggle('hidden', !isLogout);
+  els.confirmModalAccountLabel.textContent = isLogout
+    ? state.auth.session?.email || 'Current signed-in account'
+    : '';
+  els.confirmModalAccount.classList.toggle('hidden', !isLogout);
+  els.confirmModal.classList.toggle('account-confirm', isLogout);
+  const isDangerous = /delete|remove|prune|logout|sign out|signout|disconnect|revoke|stop/.test(normalizedLabel);
+  const iconHref = isLogout
     ? '#icon-log-out'
     : normalizedLabel.includes('disconnect')
       ? '#icon-unplug'
@@ -17465,6 +18051,7 @@ function updateTerminalStatus(text, connected = state.terminalConnected) {
   els.disconnectTerminalButton.disabled = !state.activeTerminalSessionId;
   els.connectTerminalButton.disabled = Boolean(state.activeTerminalSessionId);
   renderSshUploadPanel(terminalSession);
+  renderTerminalTabs(terminalSession?.projectId);
   renderProjects();
 }
 
@@ -17476,6 +18063,7 @@ function setTerminalSessionStatus(session, text, connected = session?.connected)
 
   session.status = text;
   session.connected = Boolean(connected);
+  renderTerminalTabs(session.projectId);
   if (isVisibleTerminalSession(session)) {
     state.activeTerminalSessionId = session.sessionId;
     state.terminalConnected = session.connected;
@@ -17687,7 +18275,7 @@ function addBackupHistory(label, detail = '') {
 }
 
 function setSettingsTab(tab) {
-  state.settingsTab = ['workspace', 'groups', 'members', 'notifications', 'monitoring', 'backup', 'templates', 'integrations', 'theme'].includes(tab) ? tab : 'workspace';
+  state.settingsTab = ['workspace', 'groups', 'members', 'notifications', 'monitoring', 'backup', 'templates', 'integrations', 'theme', 'about'].includes(tab) ? tab : 'workspace';
   renderSettingsView();
 }
 
@@ -17746,6 +18334,7 @@ function renderSettingsView() {
   if (els.settingsProfileEmailInput) els.settingsProfileEmailInput.value = session.email || '';
   if (els.settingsProfileLogoutButton) els.settingsProfileLogoutButton.disabled = !loggedIn;
   if (els.settingsWorkspaceName) els.settingsWorkspaceName.value = activeTeam?.name || 'DeployerX';
+  if (els.aboutAppVersion) els.aboutAppVersion.textContent = `Version ${state.app.version}`;
   if (els.settingsWorkspaceName) els.settingsWorkspaceName.readOnly = Boolean(activeTeam && activeTeam.role !== 'owner');
   if (els.deleteWorkspaceButton) {
     els.deleteWorkspaceButton.disabled = !activeTeam || activeTeam.role !== 'owner';
@@ -17866,8 +18455,12 @@ async function rotateMcpToken() {
 
 function copyMcpValue(value, successMessage) {
   if (!value) return;
-  window.deployerx.writeClipboard(value);
-  showToast(successMessage);
+  try {
+    if (!window.deployerx.writeClipboard(value)) throw new Error('Clipboard write failed.');
+    showToast(successMessage);
+  } catch {
+    showAlert('Could not copy this MCP value to the clipboard.');
+  }
 }
 
 function applyTheme(themeId, { persist = true, announce = true } = {}) {
@@ -17891,6 +18484,12 @@ function applyTheme(themeId, { persist = true, announce = true } = {}) {
       window.localStorage.setItem(THEME_STORAGE_KEY, nextThemeId);
     } catch {
       // Theme still applies for this session when local storage is unavailable.
+    }
+    try {
+      const persistTheme = window.deployerx?.setTheme?.(nextThemeId);
+      if (persistTheme && typeof persistTheme.catch === 'function') persistTheme.catch(() => {});
+    } catch {
+      // Theme still applies for this session when the main process is unavailable.
     }
   }
   if (announce) showToast(`${THEMES[nextThemeId].label} applied`);
@@ -18534,6 +19133,8 @@ function resetWorkspaceData() {
   state.activeProject = null;
   state.terminalSessions = {};
   state.terminalSessionProjectIds = {};
+  state.activeTerminalTabIds = {};
+  state.terminalTabCounters = {};
   state.ftpSessions = {};
   state.activeTerminalSessionId = null;
   state.terminalConnected = false;
@@ -18695,7 +19296,11 @@ async function resendVerification() {
 
 async function logout(confirmFirst = true) {
   if (confirmFirst) {
-    const ok = await confirmDangerousAction('Logout of the cloud account?', 'Cloud data will stay in Firebase. Local offline data is not affected.', 'Logout');
+    const ok = await confirmDangerousAction(
+      'Sign out of your cloud account?',
+      'Your cloud workspace data will stay available. Offline data on this device will not be deleted.',
+      'Sign out'
+    );
     if (!ok) return;
   }
   try {
@@ -19062,9 +19667,158 @@ async function initializeApp() {
   }
 }
 
+function createModalSshUser() {
+  return {
+    id: `ssh-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    username: '',
+    authType: 'password',
+    password: '',
+    privateKey: '',
+    passphrase: ''
+  };
+}
+
+function activeModalSshUser() {
+  return state.modalSshUsers.find((user) => user.id === state.modalSelectedSshUserId) || null;
+}
+
+function clearModalSshUserValidity() {
+  [els.modalSshUsername, els.modalSshPassword, els.modalPrivateKey].forEach((field) => field?.setCustomValidity(''));
+}
+
+function saveActiveModalSshUser() {
+  const user = activeModalSshUser();
+  if (!user) return;
+  user.username = els.modalSshUsername.value.trim();
+  user.authType = els.modalAuthType.value === 'key' ? 'key' : 'password';
+  user.password = els.modalSshPassword.value;
+  user.privateKey = els.modalPrivateKey.value;
+  user.passphrase = els.modalKeyPassphrase.value;
+}
+
+function renderModalSshUsers() {
+  if (!els.modalSshUserTabs) return;
+  els.modalSshUserTabs.replaceChildren(...state.modalSshUsers.map((user, index) => {
+    const button = document.createElement('button');
+    const selected = user.id === state.modalSelectedSshUserId;
+    button.type = 'button';
+    button.className = `ssh-user-tab${selected ? ' active' : ''}`;
+    button.dataset.sshUserId = user.id;
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+
+    const label = document.createElement('span');
+    label.textContent = user.username || `User ${index + 1}`;
+    button.appendChild(label);
+    if (user.id === state.modalDraft.ssh.defaultUserId) {
+      const badge = document.createElement('small');
+      badge.textContent = 'Default';
+      button.appendChild(badge);
+    }
+    return button;
+  }));
+
+  const selectedUser = activeModalSshUser();
+  const isDefault = selectedUser?.id === state.modalDraft.ssh.defaultUserId;
+  els.modalSshUserEditorTitle.textContent = selectedUser?.username || 'New SSH user';
+  els.modalSshUserEditorStatus.textContent = isDefault ? 'Default connection user' : 'Additional connection user';
+  els.modalDefaultSshUserButton.disabled = Boolean(isDefault);
+  els.modalDefaultSshUserButton.textContent = isDefault ? 'Default user' : 'Use as default';
+  els.modalRemoveSshUserButton.disabled = state.modalSshUsers.length <= 1;
+}
+
+function loadActiveModalSshUser() {
+  let user = activeModalSshUser();
+  if (!user) {
+    user = state.modalSshUsers[0] || createModalSshUser();
+    if (!state.modalSshUsers.length) state.modalSshUsers.push(user);
+    state.modalSelectedSshUserId = user.id;
+  }
+  clearModalSshUserValidity();
+  els.modalSshUsername.value = user.username;
+  els.modalAuthType.value = user.authType;
+  els.modalSshPassword.value = user.password;
+  els.modalPrivateKey.value = user.privateKey;
+  els.modalKeyPassphrase.value = user.passphrase;
+  resetSecretVisibility(els.modalSshFields);
+  updateAuthFields();
+  renderModalSshUsers();
+}
+
+function selectModalSshUser(userId) {
+  if (!state.modalSshUsers.some((user) => user.id === userId)) return;
+  saveActiveModalSshUser();
+  state.modalSelectedSshUserId = userId;
+  loadActiveModalSshUser();
+}
+
+function addModalSshUser() {
+  saveActiveModalSshUser();
+  const user = createModalSshUser();
+  state.modalSshUsers.push(user);
+  state.modalSelectedSshUserId = user.id;
+  loadActiveModalSshUser();
+  requestAnimationFrame(() => els.modalSshUsername.focus());
+}
+
+function removeActiveModalSshUser() {
+  if (state.modalSshUsers.length <= 1) return;
+  const removedIndex = state.modalSshUsers.findIndex((user) => user.id === state.modalSelectedSshUserId);
+  if (removedIndex < 0) return;
+  const [removedUser] = state.modalSshUsers.splice(removedIndex, 1);
+  if (state.modalDraft.ssh.defaultUserId === removedUser.id) {
+    state.modalDraft.ssh.defaultUserId = state.modalSshUsers[0].id;
+  }
+  state.modalSelectedSshUserId = state.modalSshUsers[Math.min(removedIndex, state.modalSshUsers.length - 1)].id;
+  loadActiveModalSshUser();
+}
+
+function makeActiveModalSshUserDefault() {
+  saveActiveModalSshUser();
+  const user = activeModalSshUser();
+  if (!user) return;
+  state.modalDraft.ssh.defaultUserId = user.id;
+  renderModalSshUsers();
+}
+
+function validateModalSshUsers() {
+  saveActiveModalSshUser();
+  clearModalSshUserValidity();
+  const usernames = new Set();
+  for (const user of state.modalSshUsers) {
+    let field = null;
+    let message = '';
+    const normalizedUsername = user.username.toLowerCase();
+    if (!user.username) {
+      field = els.modalSshUsername;
+      message = 'Enter a username for this SSH user.';
+    } else if (usernames.has(normalizedUsername)) {
+      field = els.modalSshUsername;
+      message = 'Each SSH user must have a unique username.';
+    } else if (user.authType === 'key' && !user.privateKey.trim()) {
+      field = els.modalPrivateKey;
+      message = `Enter a private key for ${user.username}.`;
+    } else if (user.authType !== 'key' && !user.password) {
+      field = els.modalSshPassword;
+      message = `Enter a password for ${user.username}.`;
+    }
+    usernames.add(normalizedUsername);
+    if (!field) continue;
+    selectModalSshUser(user.id);
+    field.setCustomValidity(message);
+    requestAnimationFrame(() => {
+      field.focus();
+      field.reportValidity();
+    });
+    return false;
+  }
+  return true;
+}
+
 const projectModalStepDescriptions = [
   'Start with the server name, group, and command template.',
-  'Add the SSH credentials used to connect to this server.',
+  'Add one or more SSH users and choose the default connection.',
   'Optionally configure FTP or reuse the SSH connection.'
 ];
 
@@ -19148,6 +19902,7 @@ function rdpStepDescription(step) {
 function validateProjectModalStep(step) {
   const panel = getProjectModalSteps().panels[step];
   if (!panel) return true;
+  if (panel.id === 'projectStepPanelSsh' && !isRdpModal() && !validateModalSshUsers()) return false;
 
   const invalidField = Array.from(panel.querySelectorAll('input, select, textarea')).find(
     (field) => !field.checkValidity()
@@ -19192,11 +19947,9 @@ function fillModal(project) {
   renderModalTemplateDropdown();
   els.modalSshHost.value = normalizedProject.ssh?.host || '';
   els.modalSshPort.value = normalizedProject.ssh?.port || 22;
-  els.modalSshUsername.value = normalizedProject.ssh?.username || '';
-  els.modalAuthType.value = normalizedProject.ssh?.authType || 'password';
-  els.modalSshPassword.value = normalizedProject.ssh?.password || '';
-  els.modalPrivateKey.value = normalizedProject.ssh?.privateKey || '';
-  els.modalKeyPassphrase.value = normalizedProject.ssh?.passphrase || '';
+  state.modalSshUsers = structuredClone(normalizedProject.ssh.users);
+  state.modalSelectedSshUserId = normalizedProject.ssh.defaultUserId;
+  loadActiveModalSshUser();
   els.modalRdpHost.value = normalizedProject.rdp?.host || '';
   els.modalRdpPort.value = normalizedProject.rdp?.port || 3389;
   els.modalRdpUsername.value = normalizedProject.rdp?.username || '';
@@ -19215,6 +19968,7 @@ function fillModal(project) {
 }
 
 function readModalProject() {
+  saveActiveModalSshUser();
   const selectedTemplate = state.templates.find((template) => template.id === els.modalTemplateSelect.value);
   const ftpAuthType = els.modalFtpAuthType.value;
   const rdp = isRdpModal();
@@ -19226,16 +19980,13 @@ function readModalProject() {
     group: els.modalProjectGroup.value.trim(),
     serverType: els.modalServerType.value,
     variables: normalizeVariables(state.modalDraft.variables),
-    ssh: rdp ? emptyProject.ssh : {
+    ssh: rdp ? emptyProject.ssh : normalizeSshConnection({
       host: els.modalSshHost.value.trim(),
       port: Number(els.modalSshPort.value || 22),
-      username: els.modalSshUsername.value.trim(),
-      authType: els.modalAuthType.value,
-      password: els.modalSshPassword.value,
-      privateKey: els.modalPrivateKey.value,
-      passphrase: els.modalKeyPassphrase.value,
-      timeout: 20000
-    },
+      timeout: 20000,
+      users: structuredClone(state.modalSshUsers),
+      defaultUserId: state.modalDraft.ssh.defaultUserId
+    }, emptyProject.ssh),
     rdp: {
       host: els.modalRdpHost.value.trim(),
       port: Number(els.modalRdpPort.value || 3389),
@@ -19274,6 +20025,89 @@ function syncServerFilterSelect(select, options) {
   select.value = options.some((option) => option.value === selectedValue) ? selectedValue : '';
 }
 
+function serverFilterDropdowns() {
+  return [
+    { name: 'Group', dropdown: els.serversFilterGroupDropdown, select: els.serversFilterGroup, button: els.serversFilterGroupButton, label: els.serversFilterGroupLabel, menu: els.serversFilterGroupMenu },
+    { name: 'System', dropdown: els.serversFilterSystemDropdown, select: els.serversFilterSystem, button: els.serversFilterSystemButton, label: els.serversFilterSystemLabel, menu: els.serversFilterSystemMenu },
+    { name: 'Connection', dropdown: els.serversFilterConnectionDropdown, select: els.serversFilterConnection, button: els.serversFilterConnectionButton, label: els.serversFilterConnectionLabel, menu: els.serversFilterConnectionMenu },
+    { name: 'Commands', dropdown: els.serversFilterCommandsDropdown, select: els.serversFilterCommands, button: els.serversFilterCommandsButton, label: els.serversFilterCommandsLabel, menu: els.serversFilterCommandsMenu },
+    { name: 'Sort by', dropdown: els.serversFilterSortDropdown, select: els.serversFilterSort, button: els.serversFilterSortButton, label: els.serversFilterSortLabel, menu: els.serversFilterSortMenu }
+  ];
+}
+
+function closeServerFilterDropdown(config, { focusTrigger = false } = {}) {
+  config.dropdown.classList.remove('is-open');
+  config.menu.classList.add('hidden');
+  config.button.setAttribute('aria-expanded', 'false');
+  if (focusTrigger) config.button.focus();
+}
+
+function closeServerFilterDropdowns({ except = null } = {}) {
+  for (const config of serverFilterDropdowns()) {
+    if (config.dropdown !== except?.dropdown) closeServerFilterDropdown(config);
+  }
+}
+
+function renderServerFilterDropdown(config) {
+  const options = Array.from(config.select.options);
+  const selected = options.find((option) => option.value === config.select.value) || options[0];
+  if (!selected) return;
+  config.select.value = selected.value;
+  config.label.textContent = selected.textContent;
+  config.button.setAttribute('aria-label', `${config.name}: ${selected.textContent}`);
+  config.menu.replaceChildren();
+  for (const option of options) {
+    const optionButton = document.createElement('button');
+    const isSelected = option.value === selected.value;
+    optionButton.type = 'button';
+    optionButton.className = 'workspace-switcher-option';
+    optionButton.dataset.serverFilterValue = option.value;
+    optionButton.setAttribute('role', 'option');
+    optionButton.setAttribute('aria-selected', String(isSelected));
+    optionButton.tabIndex = -1;
+    optionButton.innerHTML = `<span>${escapeHtml(option.textContent)}</span>${isSelected ? icon('check') : ''}`;
+    config.menu.appendChild(optionButton);
+  }
+  closeServerFilterDropdown(config);
+}
+
+function renderServerFilterDropdowns() {
+  for (const config of serverFilterDropdowns()) renderServerFilterDropdown(config);
+}
+
+function openServerFilterDropdown(config) {
+  closeServerFilterDropdowns({ except: config });
+  config.dropdown.classList.add('is-open');
+  config.menu.classList.remove('hidden');
+  config.button.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => {
+    const selected = config.menu.querySelector('[aria-selected="true"]');
+    (selected || config.menu.querySelector('.workspace-switcher-option'))?.focus();
+  });
+}
+
+function positionServerFilterPanel() {
+  const trigger = els.serversFilterButton.getBoundingClientRect();
+  const header = els.serversFilterButton.closest('.servers-view-header')?.getBoundingClientRect();
+  const viewportPadding = window.innerWidth <= 520 ? 18 : 24;
+  const width = Math.min(360, window.innerWidth - (viewportPadding * 2));
+  const left = Math.min(
+    Math.max(viewportPadding, trigger.right - width),
+    window.innerWidth - width - viewportPadding
+  );
+  els.serverFilterPanel.style.width = `${width}px`;
+  els.serverFilterPanel.style.left = `${left}px`;
+  els.serverFilterPanel.style.top = `${(header?.bottom || trigger.bottom) + 8}px`;
+}
+
+function setServerFilterPanel(open) {
+  const visible = Boolean(open);
+  els.serverFilterPanel.classList.toggle('hidden', !visible);
+  els.serversFilterButton.setAttribute('aria-expanded', String(visible));
+  if (visible) positionServerFilterPanel();
+  if (!visible) closeServerFilterDropdowns();
+}
+
 function syncServerFilterOptions() {
   const groups = [...new Set(state.projects.map((project) => serverGroupName(project)))]
     .sort((first, second) => first.localeCompare(second));
@@ -19288,6 +20122,7 @@ function syncServerFilterOptions() {
     { value: '', label: 'All systems' },
     ...systems.map((system) => ({ value: system, label: serverTypeLabel(system) }))
   ]);
+  renderServerFilterDropdowns();
 }
 
 function serverFilterCriteria() {
@@ -19358,6 +20193,161 @@ function activeServerFilterCount(filters = serverFilterCriteria()) {
     + Number(filters.sort !== 'name');
 }
 
+function dashboardBackupRunStateLabel(stateValue) {
+  return ({ queued: 'Queued', preparing: 'Preparing', running: 'Running', verifying: 'Verifying', succeeded: 'Succeeded', failed: 'Failed', canceled: 'Canceled', canceled_by_user: 'Canceled' })[stateValue] || stateValue || 'Unknown';
+}
+
+function dashboardOperationEmpty(target, message, tone = 'neutral') {
+  if (!target) return;
+  target.innerHTML = `<div class="dashboard-operation-empty ${tone}"><span class="operation-status-dot"></span><span>${escapeHtml(message)}</span></div>`;
+}
+
+function renderDashboardOperations() {
+  const uptimeTarget = els.dashboardUptimeAlerts;
+  const backupTarget = els.dashboardBackupStatus;
+  const databaseTarget = els.dashboardDatabaseStatus;
+  if (!dashboardOperationsLoaded) {
+    dashboardOperationEmpty(uptimeTarget, 'Loading uptime telemetry...');
+    dashboardOperationEmpty(backupTarget, 'Loading backup protection...');
+    dashboardOperationEmpty(databaseTarget, 'Loading database estate...');
+    return;
+  }
+
+  const activeIncidents = (state.uptime.incidents || [])
+    .filter((incident) => incident.state !== 'resolved')
+    .sort((left, right) => String(right.openedAt || '').localeCompare(String(left.openedAt || '')));
+  const uptimeMonitors = state.uptime.monitors || [];
+  if (activeIncidents.length) {
+    uptimeTarget.innerHTML = activeIncidents.slice(0, 4).map((incident) => {
+      const monitor = uptimeMonitors.find((item) => item.id === incident.monitorId);
+      const severity = String(incident.severity || 'warning').toLowerCase();
+      return `<button class="dashboard-operation-row" type="button" data-dashboard-uptime-incident="${escapeHtml(incident.id)}">
+        <span class="operation-status-dot ${severity === 'critical' ? 'is-danger' : 'is-warning'}"></span>
+        <span class="dashboard-operation-copy"><strong>${escapeHtml(monitor?.name || incident.monitorId || 'Uptime monitor')}</strong><small>${escapeHtml(incident.summary || `${severity} alert`)} - ${escapeHtml(formatDateTime(incident.openedAt))}</small></span>
+        <span class="operation-status is-warning">${escapeHtml(severity)}</span>
+      </button>`;
+    }).join('');
+  } else if (!uptimeMonitors.length) {
+    dashboardOperationEmpty(uptimeTarget, 'No uptime monitors configured.');
+  } else {
+    dashboardOperationEmpty(uptimeTarget, `${uptimeMonitors.length} monitor${uptimeMonitors.length === 1 ? '' : 's'} healthy.`, 'is-good');
+  }
+
+  const activeRuns = (state.backupRuns || []).filter(isActiveBackupRun);
+  const latestRun = [...(state.backupRuns || [])].sort((left, right) => String(right.createdAt || right.startedAt || '').localeCompare(String(left.createdAt || left.startedAt || '')))[0];
+  const completedRuns = (state.backupRuns || []).filter((run) => ['succeeded', 'failed', 'canceled'].includes(run.state));
+  const successfulRuns = completedRuns.filter((run) => run.state === 'succeeded').length;
+  if (!state.backupJobs.length && !state.backupRuns.length) {
+    dashboardOperationEmpty(backupTarget, 'No backup jobs configured.');
+  } else {
+    backupTarget.innerHTML = `
+      <div class="dashboard-operation-summary"><strong>${activeRuns.length ? `${activeRuns.length} backup${activeRuns.length === 1 ? '' : 's'} in progress` : 'No backup currently running'}</strong><span class="operation-status ${activeRuns.length ? 'is-warning' : 'is-good'}">${state.backupWorker?.online ? 'Worker online' : 'Worker offline'}</span></div>
+      <div class="dashboard-operation-metrics"><span><strong>${state.backupJobs.length}</strong><small>Configured jobs</small></span><span><strong>${successfulRuns}/${completedRuns.length || 0}</strong><small>Successful runs</small></span></div>
+      ${latestRun ? `<button class="dashboard-operation-row" type="button" data-dashboard-backup-run="${escapeHtml(latestRun.id)}"><span class="operation-status-dot ${latestRun.state === 'succeeded' ? 'is-good' : isActiveBackupRun(latestRun) ? 'is-warning' : 'is-danger'}"></span><span class="dashboard-operation-copy"><strong>${escapeHtml(state.backupJobs.find((job) => job.id === latestRun.jobId)?.name || 'Backup run')}</strong><small>${escapeHtml(dashboardBackupRunStateLabel(latestRun.state))} - ${escapeHtml(formatDateTime(latestRun.completedAt || latestRun.startedAt || latestRun.createdAt))}</small></span><span class="operation-status ${latestRun.state === 'succeeded' ? 'is-good' : isActiveBackupRun(latestRun) ? 'is-warning' : 'is-danger'}">${escapeHtml(dashboardBackupRunStateLabel(latestRun.state))}</span></button>` : ''}
+    `;
+  }
+
+  const profiles = state.databaseManager.profiles || [];
+  const readyProfiles = profiles.filter((profile) => state.databaseManager.connectionStates.get(profile.id) === 'ready').length;
+  const failedProfiles = profiles.filter((profile) => state.databaseManager.connectionStates.get(profile.id) === 'failed').length;
+  if (!profiles.length) {
+    dashboardOperationEmpty(databaseTarget, 'No database profiles configured.');
+  } else {
+    const attentionProfiles = profiles.filter((profile) => state.databaseManager.connectionStates.get(profile.id) === 'failed').slice(0, 3);
+    databaseTarget.innerHTML = `
+      <div class="dashboard-operation-summary"><strong>${readyProfiles} of ${profiles.length} profiles connected</strong><span class="operation-status ${failedProfiles ? 'is-danger' : 'is-good'}">${failedProfiles ? `${failedProfiles} failed` : 'No failures'}</span></div>
+      <div class="dashboard-operation-metrics"><span><strong>${profiles.length}</strong><small>Saved profiles</small></span><span><strong>${readyProfiles}</strong><small>Live sessions</small></span></div>
+      ${attentionProfiles.length ? attentionProfiles.map((profile) => `<button class="dashboard-operation-row" type="button" data-dashboard-database-profile="${escapeHtml(profile.id)}"><span class="operation-status-dot is-danger"></span><span class="dashboard-operation-copy"><strong>${escapeHtml(profile.name || 'Database profile')}</strong><small>Connection failed - review credentials or network access</small></span><span class="operation-status is-danger">Failed</span></button>`).join('') : `<div class="dashboard-operation-empty is-good"><span class="operation-status-dot is-good"></span><span>All saved database profiles are clear.</span></div>`}
+    `;
+  }
+
+  uptimeTarget?.querySelectorAll('[data-dashboard-uptime-incident]').forEach((button) => button.addEventListener('click', () => {
+    state.uptime.selectedIncidentId = button.dataset.dashboardUptimeIncident;
+    showView('uptime');
+    setUptimeTab('incidents');
+  }));
+  backupTarget?.querySelectorAll('[data-dashboard-backup-run]').forEach((button) => button.addEventListener('click', () => {
+    showView('backup');
+    setBackupManagerTab('jobs');
+  }));
+  databaseTarget?.querySelectorAll('[data-dashboard-database-profile]').forEach((button) => button.addEventListener('click', () => {
+    showView('database');
+    state.databaseManager.editingProfileId = button.dataset.dashboardDatabaseProfile;
+  }));
+}
+
+async function refreshDashboardOperations() {
+  if (dashboardRefreshInFlight || !window.deployerx) return;
+  dashboardRefreshInFlight = true;
+  try {
+    const read = (method, fallback, ...args) => typeof window.deployerx[method] === 'function'
+      ? window.deployerx[method](...args).catch(() => fallback)
+      : Promise.resolve(fallback);
+    const [monitors, incidents, worker, jobs, runs, backupWorker, profiles, statuses] = await Promise.all([
+      read('listUptimeMonitors', []), read('listUptimeIncidents', [], { limit: 50 }), read('getUptimeWorkerStatus', { active: false }),
+      read('listBackupJobs', []), read('listBackupRuns', [], { limit: 100 }), read('getBackupWorkerStatus', null),
+      read('listDatabaseProfiles', [], { limit: 100 }), read('listDatabaseConnectionStatuses', [])
+    ]);
+    state.uptime.monitors = Array.isArray(monitors) ? monitors : [];
+    state.uptime.incidents = Array.isArray(incidents) ? incidents : [];
+    state.uptime.worker = worker || { active: false };
+    state.backupJobs = Array.isArray(jobs) ? jobs : [];
+    state.backupRuns = Array.isArray(runs) ? runs : [];
+    state.backupWorker = backupWorker;
+    state.databaseManager.profiles = Array.isArray(profiles) ? profiles : [];
+    state.databaseManager.connectionStates = new Map((Array.isArray(statuses) ? statuses : []).map((status) => [status.profileId, status.state]));
+    dashboardOperationsLoaded = true;
+    renderDashboardStats();
+    renderDashboardOperations();
+  } finally {
+    dashboardRefreshInFlight = false;
+  }
+}
+
+function startDashboardAutoRefresh() {
+  clearInterval(dashboardRefreshTimer);
+  dashboardRefreshTimer = setInterval(() => {
+    if (state.currentView === 'dashboard') refreshDashboardOperations().catch(() => {});
+  }, 15000);
+  refreshDashboardOperations().catch(() => {});
+}
+
+function stopDashboardAutoRefresh() {
+  clearInterval(dashboardRefreshTimer);
+  dashboardRefreshTimer = null;
+}
+
+function renderDashboardStats(stats = dashboardStats()) {
+  if (!els.dashboardStatsGrid) return;
+  els.dashboardStatsGrid.innerHTML = '';
+  const offline = Math.max(0, stats.total - stats.sshConnected);
+  const activeIncidents = (state.uptime.incidents || []).filter((incident) => incident.state !== 'resolved').length;
+  const activeBackups = (state.backupRuns || []).filter(isActiveBackupRun).length;
+  const databaseProfiles = state.databaseManager.profiles || [];
+  const liveDatabases = databaseProfiles.filter((profile) => state.databaseManager.connectionStates.get(profile.id) === 'ready').length;
+  const statCards = [
+    ['Fleet nodes', stats.total, 'Registered infrastructure', 'server', 'cyan'],
+    ['SSH live', stats.sshConnected, 'Encrypted sessions active', 'play', 'green'],
+    ['Nodes offline', offline, 'Awaiting secure link', 'unplug', offline ? 'red' : 'green'],
+    ['Uptime alerts', activeIncidents, `${state.uptime.monitors.length} monitors configured`, 'rocket', activeIncidents ? 'red' : 'green'],
+    ['Active backups', activeBackups, `${state.backupJobs.length} protected jobs`, 'save', activeBackups ? 'amber' : 'violet'],
+    ['Databases', databaseProfiles.length, `${liveDatabases} connected profiles`, 'database', 'blue']
+  ];
+  for (const [label, value, note, iconName, tone] of statCards) {
+    const statCard = document.createElement('article');
+    statCard.className = `dashboard-stat-card ${tone}`;
+    statCard.innerHTML = `
+      <div class="dashboard-stat-heading">
+        <span class="dashboard-stat-icon ${tone}">${icon(iconName)}</span>
+        <span class="dashboard-stat-label">${escapeHtml(label)}</span>
+      </div>
+      <strong class="dashboard-stat-value">${escapeHtml(value)}</strong>
+      <span class="dashboard-stat-note">${escapeHtml(note)}</span>
+    `;
+    els.dashboardStatsGrid.appendChild(statCard);
+  }
+}
+
 function renderProjects() {
   els.projectList.innerHTML = '';
   els.projectGrid.innerHTML = '';
@@ -19368,6 +20358,7 @@ function renderProjects() {
   if (els.dashboardSystemOverview) els.dashboardSystemOverview.innerHTML = '';
   if (els.dashboardConnectionReadiness) els.dashboardConnectionReadiness.innerHTML = '';
   if (els.dashboardRecentActivity) els.dashboardRecentActivity.innerHTML = '';
+  renderDashboardOperations();
   const sidebarQuery = els.serverSearch?.value.trim().toLowerCase() || '';
   const sidebarProjects = state.projects.filter((project) => {
     if (!sidebarQuery) return true;
@@ -19383,22 +20374,16 @@ function renderProjects() {
   const visibleServerProjects = sortServerProjects(filteredServerProjects(), serverFilters.sort);
   const visibleServerIds = new Set(visibleServerProjects.map((project) => project.id));
   const visibleGroupCount = new Set(visibleServerProjects.map((project) => serverGroupName(project))).size;
-  const visibleConnectedCount = visibleServerProjects.filter(serverPrimaryConnectionActive).length;
   const totalConnectedCount = state.projects.filter(serverPrimaryConnectionActive).length;
   const totalFavoriteCount = state.projects.filter((project) => project.pinned).length;
   const totalCommandCount = state.projects.reduce((total, project) => total + (project.commands?.length || 0), 0);
   const filterCount = activeServerFilterCount(serverFilters);
   const hasFilterCriteria = filterCount > Number(serverFilters.sort !== 'name');
   if (els.serversOverviewTotal) els.serversOverviewTotal.textContent = String(state.projects.length);
+  if (els.serversOverviewGroups) els.serversOverviewGroups.textContent = String(visibleGroupCount);
   if (els.serversOverviewConnected) els.serversOverviewConnected.textContent = String(totalConnectedCount);
   if (els.serversOverviewFavorites) els.serversOverviewFavorites.textContent = String(totalFavoriteCount);
   if (els.serversOverviewCommands) els.serversOverviewCommands.textContent = String(totalCommandCount);
-  if (els.serversViewSummary) {
-    const inventoryLabel = hasFilterCriteria
-      ? `${visibleServerProjects.length} of ${state.projects.length} servers`
-      : `${state.projects.length} server${state.projects.length === 1 ? '' : 's'}`;
-    els.serversViewSummary.textContent = `${inventoryLabel} - ${visibleGroupCount} group${visibleGroupCount === 1 ? '' : 's'} - ${visibleConnectedCount} connected`;
-  }
   if (els.serversFilterResults) {
     els.serversFilterResults.textContent = hasFilterCriteria
       ? `Showing ${visibleServerProjects.length} of ${state.projects.length} servers`
@@ -19506,7 +20491,8 @@ function renderProjects() {
     const isRdp = project.serverType === 'rdp';
     const connectionActive = isRdp ? connectionState.rdp : connectionState.ssh;
     const connectionLabel = `${isRdp ? 'RDP' : 'SSH'} ${connectionActive ? 'connected' : 'disconnected'}`;
-    const isActiveProject = state.currentView === 'project' && state.activeProject?.id === project.id;
+    const isActiveProject = (state.currentView === 'project' && state.activeProject?.id === project.id)
+      || (state.currentView === 'server-monitoring' && state.serverMonitoring.selectedProjectId === String(project.id));
     const projectName = project.name || 'Untitled Server';
     const pinLabel = project.pinned ? `Remove ${projectName} from favorites` : `Add ${projectName} to favorites`;
     const item = document.createElement('div');
@@ -19533,7 +20519,7 @@ function renderProjects() {
         ${icon('heart')}
       </button>
     `;
-    item.querySelector('.project-item-open').addEventListener('click', () => openProject(project.id));
+    item.querySelector('.project-item-open').addEventListener('click', () => openSidebarProject(project.id));
     const pinButton = item.querySelector('.project-pin-button');
     pinButton.addEventListener('click', async () => {
       const nextPinned = !project.pinned;
@@ -19571,12 +20557,7 @@ function renderProjects() {
       <div class="project-card-note">Use Add server to save SSH details, groups, and deployment commands.</div>
     `;
     els.projectGrid.appendChild(empty);
-    if (els.dashboardStatsGrid) {
-      const emptyDashboard = document.createElement('div');
-      emptyDashboard.className = 'dashboard-empty';
-      emptyDashboard.innerHTML = '<strong>No servers saved</strong><span>Add your first server to start tracking stats and groups.</span>';
-      els.dashboardStatsGrid.appendChild(emptyDashboard);
-    }
+    renderDashboardStats({ total: 0, sshConnected: 0, ftpConnected: 0, groups: 0, commands: 0 });
     if (els.dashboardHealthSummary) els.dashboardHealthSummary.innerHTML = '<div class="dashboard-empty-inline">Save a server to see connection coverage.</div>';
     if (els.dashboardGroupSummary) els.dashboardGroupSummary.innerHTML = '<div class="dashboard-empty-inline">Groups appear here once servers are assigned.</div>';
     if (els.dashboardSystemOverview) els.dashboardSystemOverview.innerHTML = '<div class="dashboard-empty-inline">Add a server to start monitoring your workspace.</div>';
@@ -19640,30 +20621,7 @@ function renderProjects() {
   els.projectList.innerHTML = '';
   els.projectGrid.innerHTML = '';
 
-  if (els.dashboardStatsGrid) {
-    const offline = Math.max(0, stats.total - stats.sshConnected);
-    const statCards = [
-      ['Fleet nodes', stats.total, 'Registered infrastructure', 'server', 'cyan'],
-      ['SSH live', stats.sshConnected, 'Encrypted sessions active', 'play', 'green'],
-      ['Nodes offline', offline, 'Awaiting secure link', 'unplug', 'red'],
-      ['Fleet groups', stats.groups, 'Logical environments', 'users', 'blue'],
-      ['FTP links', stats.ftpConnected, 'File channels active', 'folder-open', 'violet'],
-      ['Snapshots', state.backupHistory.length, 'Captured this session', 'save', 'amber']
-    ];
-    for (const [label, value, note, iconName, tone] of statCards) {
-      const statCard = document.createElement('article');
-      statCard.className = `dashboard-stat-card ${tone}`;
-      statCard.innerHTML = `
-        <div class="dashboard-stat-heading">
-          <span class="dashboard-stat-icon ${tone}">${icon(iconName)}</span>
-          <span class="dashboard-stat-label">${escapeHtml(label)}</span>
-        </div>
-        <strong class="dashboard-stat-value">${escapeHtml(value)}</strong>
-        <span class="dashboard-stat-note">${escapeHtml(note)}</span>
-      `;
-      els.dashboardStatsGrid.appendChild(statCard);
-    }
-  }
+  renderDashboardStats(stats);
 
   if (els.dashboardHealthSummary) {
     const online = stats.sshConnected;
@@ -20649,6 +21607,10 @@ function getFtpContextItems(pane, entry) {
 }
 
 function showFtpContextMenu(event, pane, entry = null) {
+  showContextMenuItems(event, getFtpContextItems(pane, entry));
+}
+
+function showContextMenuItems(event, items) {
   event.preventDefault();
   event.stopPropagation();
   const menu = els.ftpContextMenu;
@@ -20656,7 +21618,7 @@ function showFtpContextMenu(event, pane, entry = null) {
   hideFtpContextMenu();
   menu.innerHTML = '';
 
-  for (const item of getFtpContextItems(pane, entry)) {
+  for (const item of items) {
     const button = document.createElement('button');
     button.type = 'button';
     button.role = 'menuitem';
@@ -21891,19 +22853,20 @@ async function startRun(event) {
   await prepareScriptQueue();
 }
 
-async function ensureTerminal() {
-  if (!state.activeProject) return false;
-  if (state.terminalConnected) return true;
-  if (state.activeTerminalSessionId) return false;
-  fitTerminal();
+async function ensureTerminal(terminalSession, project) {
+  if (!project || !terminalSession) return false;
+  if (terminalSession.connected) return true;
+  if (terminalSession.sessionId) return false;
+  if (isVisibleTerminalSession(terminalSession)) fitTerminal();
 
-  const terminalSession = getTerminalSession(state.activeProject.id, true);
-  const sessionId = `${Date.now()}`;
+  const startupPath = String(terminalSession.startupDirectory || '').trim();
+  const startupDirectory = startupPath ? normalizeRemoteShellPath(startupPath) : '';
+  const sessionId = `terminal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   terminalSession.sessionId = sessionId;
   terminalSession.connected = false;
   terminalSession.status = 'Connecting...';
   terminalSession.output = 'Ready.\r\n';
-  terminalSession.pendingInput = '';
+  terminalSession.pendingInput = startupDirectory ? `cd -- ${quoteShellPath(startupDirectory)}\r` : '';
   terminalSession.outputBuffer = '';
   terminalSession.rawBuffer = '';
   terminalSession.currentDirectory = '';
@@ -21917,27 +22880,38 @@ async function ensureTerminal() {
   terminalSession.directoryError = '';
   terminalSession.directoryMarkerBuffer = '';
   terminalSession.directoryPromptMarkerSeen = false;
-  state.terminalSessionProjectIds[sessionId] = state.activeProject.id;
-  state.activeTerminalSessionId = sessionId;
-  renderVisibleTerminalSession(terminalSession);
-  updateTerminalStatus('Connecting...');
-  appendLog(`Opening terminal: ${state.activeProject.name}\n`);
+  state.terminalSessionProjectIds[sessionId] = project.id;
+  if (isVisibleTerminalSession(terminalSession)) {
+    state.activeTerminalSessionId = sessionId;
+    state.pendingTerminalInput = terminalSession.pendingInput;
+    renderVisibleTerminalSession(terminalSession);
+    updateTerminalStatus('Connecting...');
+  } else {
+    renderTerminalTabs(project.id);
+    renderProjects();
+  }
+  appendLog(`Opening terminal: ${project.name}\n`);
 
   const response = await window.deployerx.startTerminal({
     sessionId,
-    project: state.activeProject,
+    project,
     cols: terminal.cols,
     rows: terminal.rows
   });
   const nextSessionId = response.sessionId || sessionId;
   if (nextSessionId !== sessionId) {
     removeTerminalSessionRegistration(sessionId);
-    state.terminalSessionProjectIds[nextSessionId] = state.activeProject.id;
+    state.terminalSessionProjectIds[nextSessionId] = project.id;
   }
   terminalSession.sessionId = nextSessionId;
-  state.activeTerminalSessionId = nextSessionId;
-  updateTerminalStatus('Connecting...');
+  if (isVisibleTerminalSession(terminalSession)) {
+    state.activeTerminalSessionId = nextSessionId;
+    updateTerminalStatus('Connecting...');
+  } else {
+    renderTerminalTabs(project.id);
+  }
   setTimeout(() => {
+    if (!isVisibleTerminalSession(terminalSession)) return;
     fitTerminal();
     resizeActiveTerminal();
   }, 250);
@@ -21980,18 +22954,24 @@ async function disconnectTerminal() {
 }
 
 async function connectTerminal() {
-  if (!state.activeProject || state.activeTerminalSessionId || state.terminalConnected) return;
+  const project = state.activeProject;
+  const terminalSession = getTerminalSession(project?.id, true);
+  if (!project || !terminalSession || terminalSession.sessionId || terminalSession.connected) return;
   try {
-    await ensureTerminal();
+    await ensureTerminal(terminalSession, project);
   } catch (error) {
-    const terminalSession = getTerminalSession(state.activeProject.id, true);
     removeTerminalSessionRegistration(terminalSession.sessionId);
     terminalSession.sessionId = null;
     terminalSession.connected = false;
     terminalSession.status = 'Connection failed';
-    state.activeTerminalSessionId = null;
-    state.terminalConnected = false;
-    updateTerminalStatus('Connection failed', false);
+    if (isVisibleTerminalSession(terminalSession)) {
+      state.activeTerminalSessionId = null;
+      state.terminalConnected = false;
+      updateTerminalStatus('Connection failed', false);
+    } else {
+      renderTerminalTabs(project.id);
+      renderProjects();
+    }
     appendLog(`${error.message}\n`, 'error');
   }
 }
@@ -22091,6 +23071,8 @@ async function emergencyStop() {
   const activeProjectId = state.activeProject?.id || '';
   state.terminalSessions = {};
   state.terminalSessionProjectIds = {};
+  state.activeTerminalTabIds = {};
+  state.terminalTabCounters = {};
   state.ftpSessions = {};
   state.activeTerminalSessionId = null;
   state.terminalConnected = false;
@@ -22110,8 +23092,15 @@ async function emergencyStop() {
   state.terminalRawBuffer = '';
   stopScriptQueue();
   if (activeProjectId) {
-    state.terminalSessions[activeProjectId] = blankTerminalSession(activeProjectId);
+    const terminalSession = createTerminalTabSession(activeProjectId);
+    state.terminalSessions[activeProjectId] = [terminalSession];
+    state.activeTerminalTabIds[activeProjectId] = terminalSession.tabId;
     state.ftpSessions[activeProjectId] = blankFtpSession(activeProjectId);
+    if (!isRdpProject()) {
+      applyTerminalSessionToState(activeProjectId);
+      renderVisibleTerminalSession(terminalSession);
+      updateTerminalStatus('Not connected', false);
+    }
   }
   appendLog('Emergency stop requested.\n', 'error');
   renderFtpBrowser();
@@ -22120,6 +23109,7 @@ async function emergencyStop() {
 
 els.dashboardButton.addEventListener('click', () => showView('dashboard'));
 els.serversButton.addEventListener('click', () => showView('servers'));
+els.serverMonitoringButton.addEventListener('click', () => showView('server-monitoring'));
 
 function isEditableShortcutTarget(target) {
   return (
@@ -22166,7 +23156,16 @@ els.resendVerificationButton.addEventListener('click', resendVerification);
 els.verificationLogoutButton.addEventListener('click', () => logout(false));
 els.continueWithoutLoginButton.addEventListener('click', activateOfflineMode);
 els.authFooterSwitchButton.addEventListener('click', () => updateAuthMode(state.auth.authMode === 'register' ? 'login' : 'register'));
-els.settingsNavItems.forEach((item) => item.addEventListener('click', () => setSettingsTab(item.dataset.settingsTab)));
+els.aboutExternalLinks.forEach((button) => button.addEventListener('click', async () => {
+  button.disabled = true;
+  try {
+    await window.deployerx.openExternalUrl(button.dataset.aboutExternal);
+  } catch (error) {
+    showAlert(error.message || 'Could not open the external destination.');
+  } finally {
+    button.disabled = false;
+  }
+}));
 els.serverGroupCreateButton.addEventListener('click', () => openServerGroupModal());
 els.serverGroupList.addEventListener('click', (event) => {
   const editButton = event.target.closest('[data-edit-server-group]');
@@ -22252,15 +23251,84 @@ els.dashboardCreateButton.addEventListener('click', openCreateModal);
 els.dashboardQuickAddButton.addEventListener('click', openCreateModal);
 els.sidebarAddServerButton.addEventListener('click', openCreateModal);
 els.uptimeButton.addEventListener('click', () => showView('uptime'));
+els.serverMonitoringPauseButton.addEventListener('click', () => {
+  const sessionId = state.serverMonitoring.sessionId;
+  if (!sessionId) return;
+  const paused = !state.serverMonitoring.paused;
+  window.deployerx.pauseServerMonitoring(sessionId, paused).catch((error) => showAlert(error.message || 'Could not update monitoring.'));
+});
+els.serverMonitoringRefreshButton.addEventListener('click', () => {
+  if (state.serverMonitoring.selectedProjectId) selectServerForMonitoring(state.serverMonitoring.selectedProjectId).catch((error) => showAlert(error.message || 'Could not refresh monitoring.'));
+});
 els.dashboardImportAccountButton.addEventListener('click', importAccount);
 els.dashboardExportAccountButton.addEventListener('click', exportAccount);
 els.dashboardImportProjectsButton.addEventListener('click', importProjects);
 els.dashboardExportProjectsButton.addEventListener('click', exportProjects);
 els.serversFilterButton.addEventListener('click', () => {
-  const opening = els.serverFilterPanel.classList.contains('hidden');
-  els.serverFilterPanel.classList.toggle('hidden', !opening);
-  els.serversFilterButton.setAttribute('aria-expanded', String(opening));
-  if (opening) requestAnimationFrame(() => els.serversFilterSearch.focus());
+  const opening = els.serversFilterButton.getAttribute('aria-expanded') !== 'true';
+  setServerFilterPanel(opening);
+  if (opening) requestAnimationFrame(() => els.serversFilterGroupButton.focus());
+});
+for (const config of serverFilterDropdowns()) {
+  config.button.addEventListener('click', () => {
+    if (config.button.getAttribute('aria-expanded') === 'true') closeServerFilterDropdown(config);
+    else openServerFilterDropdown(config);
+  });
+  config.button.addEventListener('keydown', (event) => {
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    openServerFilterDropdown(config);
+  });
+  config.menu.addEventListener('click', (event) => {
+    const option = event.target.closest('.workspace-switcher-option');
+    if (!option) return;
+    config.select.value = option.dataset.serverFilterValue ?? '';
+    config.select.dispatchEvent(new Event('change', { bubbles: true }));
+    config.button.focus();
+  });
+  config.menu.addEventListener('keydown', (event) => {
+    const options = Array.from(config.menu.querySelectorAll('.workspace-switcher-option'));
+    if (!options.length) return;
+    const currentIndex = options.indexOf(document.activeElement);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % options.length;
+    else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + options.length) % options.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = options.length - 1;
+    else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      document.activeElement?.click();
+      return;
+    } else if (event.key === 'Escape' || event.key === 'Tab') {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      closeServerFilterDropdown(config, { focusTrigger: event.key === 'Escape' });
+      return;
+    } else return;
+    event.preventDefault();
+    options[nextIndex]?.focus();
+  });
+}
+document.addEventListener('click', (event) => {
+  if (els.serversFilterButton.getAttribute('aria-expanded') !== 'true') return;
+  if (els.serverFilterPopover.contains(event.target)) return;
+  setServerFilterPanel(false);
+});
+document.addEventListener('click', (event) => {
+  for (const config of serverFilterDropdowns()) {
+    if (!config.dropdown.contains(event.target)) closeServerFilterDropdown(config);
+  }
+});
+window.addEventListener('resize', () => {
+  if (els.serversFilterButton.getAttribute('aria-expanded') === 'true') positionServerFilterPanel();
+});
+els.serverFilterPanel.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || event.target.closest('.workspace-switcher-menu:not(.hidden)')) return;
+  event.preventDefault();
+  setServerFilterPanel(false);
+  els.serversFilterButton.focus();
 });
 els.serversFilterSearch.addEventListener('input', renderProjects);
 [
@@ -22290,20 +23358,7 @@ els.teamButton.addEventListener('click', () => {
 els.topBackupsButton.addEventListener('click', () => {
   showView('backup');
 });
-els.topDatabasesButton.addEventListener('click', async () => {
-  if (els.topDatabasesButton.disabled) return;
-  els.topDatabasesButton.disabled = true;
-  els.topDatabasesButton.setAttribute('aria-busy', 'true');
-  try {
-    const result = await window.deployerx.launchTabularis();
-    showToast(result.downloaded ? 'Tabularis downloaded and opened.' : 'Tabularis opened.');
-  } catch (error) {
-    showAlert(error.message || 'Could not open Tabularis.');
-  } finally {
-    els.topDatabasesButton.disabled = false;
-    els.topDatabasesButton.removeAttribute('aria-busy');
-  }
-});
+els.topDatabasesButton.addEventListener('click', () => showView('database'));
 els.databaseConnectionsTab.addEventListener('click', () => setDatabaseManagerTab('connections'));
 els.databasePluginsTab?.addEventListener('click', () => setDatabaseManagerTab('plugins'));
 els.databaseQueryTab.addEventListener('click', () => setDatabaseManagerTab('query'));
@@ -23435,6 +24490,9 @@ els.topNotificationsMenu.addEventListener('keydown', (event) => {
 els.dashboardServersButton.addEventListener('click', () => showView('servers'));
 els.dashboardTemplatesButton.addEventListener('click', () => showView('templates'));
 els.dashboardHealthButton.addEventListener('click', () => showView('uptime'));
+els.dashboardUptimeButton.addEventListener('click', () => showView('uptime'));
+els.dashboardBackupButton.addEventListener('click', () => showView('backup'));
+els.dashboardDatabaseButton.addEventListener('click', () => showView('database'));
 els.projectSshTab.addEventListener('click', () => setProjectTab('ssh'));
 els.projectFtpTab.addEventListener('click', () => setProjectTab('ftp'));
 els.uptimeAddMonitorButton.addEventListener('click', () => openUptimeMonitorModal('create'));
@@ -23692,6 +24750,34 @@ document.addEventListener('click', (event) => {
 });
 els.emergencyStopButton.addEventListener('click', emergencyStop);
 els.connectTerminalButton.addEventListener('click', connectTerminal);
+els.terminalNewTabButton.addEventListener('click', () => {
+  openNewTerminalTab().catch((error) => showAlert(error.message || 'Could not open a new terminal.'));
+});
+els.terminalTabs.addEventListener('click', (event) => {
+  const closeButton = event.target.closest('[data-terminal-tab-close]');
+  if (closeButton) {
+    closeTerminalTab(closeButton.dataset.terminalTabClose).catch((error) => showAlert(error.message || 'Could not close the terminal.'));
+    return;
+  }
+  const tabButton = event.target.closest('[data-terminal-tab-select]');
+  if (tabButton) activateTerminalTab(tabButton.dataset.terminalTabSelect);
+});
+els.terminalTabs.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const tabs = Array.from(els.terminalTabs.querySelectorAll('[data-terminal-tab-select]'));
+  const currentTab = event.target.closest('.terminal-tab')?.querySelector('[data-terminal-tab-select]');
+  const currentIndex = Math.max(0, tabs.indexOf(currentTab));
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+  if (event.key === 'Home') nextIndex = 0;
+  if (event.key === 'End') nextIndex = tabs.length - 1;
+  const nextTabId = tabs[nextIndex]?.dataset.terminalTabSelect;
+  if (!nextTabId) return;
+  event.preventDefault();
+  activateTerminalTab(nextTabId, { focus: false });
+  requestAnimationFrame(() => els.terminalTabs.querySelector(`[data-terminal-tab-select="${CSS.escape(nextTabId)}"]`)?.focus());
+});
 els.connectRdpButton.addEventListener('click', connectRdp);
 els.rdpHeaderFullscreenButton.addEventListener('click', () => toggleRdpFullscreen().catch((error) => showAlert(error.message || 'Could not change full view.')));
 els.rdpFullscreenButton.addEventListener('click', () => toggleRdpFullscreen().catch((error) => showAlert(error.message || 'Could not change full view.')));
@@ -23779,10 +24865,13 @@ els.sshDirectoryRefreshButton.addEventListener('click', () => {
 });
 els.sshDirectoryDownloadButton.addEventListener('click', () => {
   const session = getTerminalSession();
-  const entry = session?.directoryEntries?.find((item) => item.path === session.directorySelectedPath && item.type === 'file');
+  const entry = selectedSshDirectoryEntry(session);
   if (!entry) return;
-  downloadSshFile({ sessionId: session.sessionId, path: entry.path, name: entry.name })
-    .catch((error) => showAlert(error.message || 'Could not download server file.'));
+  downloadSshDirectoryEntry(entry).catch((error) => showAlert(error.message || 'Could not download server item.'));
+});
+els.sshDirectoryList.addEventListener('contextmenu', (event) => {
+  if (event.target.closest('.ssh-directory-row')) return;
+  showSshDirectoryContextMenu(event);
 });
 els.sshEditorBackButton.addEventListener('click', () => {
   if (state.sshEditor.dirty) saveSshEditorFile().catch(() => {});
@@ -24192,13 +25281,48 @@ els.serverGroupCancelButton.addEventListener('click', closeServerGroupModal);
 els.serverGroupModal.addEventListener('click', (event) => {
   if (event.target === els.serverGroupModal || event.target.classList.contains('modal-backdrop')) closeServerGroupModal();
 });
-els.modalAuthType.addEventListener('change', updateAuthFields);
+els.modalSshUserTabs.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-ssh-user-id]');
+  if (button) selectModalSshUser(button.dataset.sshUserId);
+});
+els.modalSshUserTabs.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const buttons = Array.from(els.modalSshUserTabs.querySelectorAll('[data-ssh-user-id]'));
+  const currentIndex = buttons.indexOf(document.activeElement);
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % buttons.length;
+  if (event.key === 'Home') nextIndex = 0;
+  if (event.key === 'End') nextIndex = buttons.length - 1;
+  event.preventDefault();
+  buttons[nextIndex]?.click();
+  requestAnimationFrame(() => els.modalSshUserTabs.querySelector('[tabindex="0"]')?.focus());
+});
+els.modalAddSshUserButton.addEventListener('click', addModalSshUser);
+els.modalRemoveSshUserButton.addEventListener('click', removeActiveModalSshUser);
+els.modalDefaultSshUserButton.addEventListener('click', makeActiveModalSshUserDefault);
+els.modalSshUsername.addEventListener('input', () => {
+  els.modalSshUsername.setCustomValidity('');
+  saveActiveModalSshUser();
+  renderModalSshUsers();
+});
+els.modalSshPassword.addEventListener('input', () => els.modalSshPassword.setCustomValidity(''));
+els.modalPrivateKey.addEventListener('input', () => els.modalPrivateKey.setCustomValidity(''));
+els.modalAuthType.addEventListener('change', () => {
+  clearModalSshUserValidity();
+  updateAuthFields();
+  saveActiveModalSshUser();
+});
 els.modalFtpAuthType.addEventListener('change', updateFtpAuthFields);
 els.templateCommands.addEventListener('input', () => renderTemplateVariableSummary(els.templateCommands.value));
 els.runNeedsUpload.addEventListener('change', updateUploadFields);
 els.modalSelectKeyButton.addEventListener('click', async () => {
   const privateKey = await window.deployerx.selectKey();
-  if (privateKey) els.modalPrivateKey.value = privateKey;
+  if (privateKey) {
+    els.modalPrivateKey.value = privateKey;
+    els.modalPrivateKey.setCustomValidity('');
+    saveActiveModalSshUser();
+  }
 });
 els.selectUploadButton.addEventListener('click', async () => {
   const filePath = await window.deployerx.selectUpload();
@@ -24251,6 +25375,7 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
         input: terminalSession.pendingInput
       });
       terminalSession.pendingInput = '';
+      terminalSession.startupDirectory = '';
       if (isVisibleTerminalSession(terminalSession)) state.pendingTerminalInput = '';
     }
     if (state.scriptRunnerActive && state.scriptTerminalSessionId === event.sessionId) {
@@ -24311,6 +25436,8 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
     setTerminalSessionStatus(terminalSession, event.type === 'failed' ? 'Connection failed' : 'Disconnected', false);
   }
 });
+
+window.deployerx?.onServerMonitoringEvent?.((event) => handleServerMonitoringEvent(event));
 
 window.deployerx?.onUptimeEvent?.((event) => {
   if (state.currentView !== 'uptime') return;

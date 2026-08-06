@@ -23,7 +23,7 @@ Portions of the DeployerX Database Manager built-in driver host are derived from
 - License: Apache License 2.0
 - License text: `third_party_licenses/Apache-2.0.txt`
 
-The derived host files have been modified for DeployerX and implement a standalone, bounded JSON-RPC process. The Database Manager navigation entry does not reproduce the Tabularis interface: it downloads the reviewed official Windows portable release from the upstream GitHub release, verifies its pinned SHA-256 digest, and launches Tabularis as a separate application. Tabularis retains its own interface, connection management, data storage, update behavior, and product identity.
+The reviewed driver source is adapted behind DeployerX's existing Electron renderer and design system. DeployerX keeps its own navigation, profile storage, IPC, query workspace, schema tools, result grid, notebooks, tasks, and logs. No Tabularis executable is downloaded or launched, and no separate application is required.
 
 The exact reviewed upstream paths and DeployerX file inventory are maintained in `native/deployerx-db-host/UPSTREAM.md`.
 

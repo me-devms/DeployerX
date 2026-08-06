@@ -64,6 +64,9 @@
         <rect x="3" y="5" width="18" height="14" rx="2" />
         <path d="m3 7 9 6 9-6" />
       </symbol>
+      <symbol id="icon-phone" viewBox="0 0 24 24">
+        <path d="M7.2 3.5 4.8 4.9c-.8.5-1.1 1.5-.8 2.4 1.8 5.6 7.1 10.9 12.7 12.7.9.3 1.9 0 2.4-.8l1.4-2.4-4.2-2.7-1.7 1.7c-2.8-1.3-5.1-3.6-6.4-6.4l1.7-1.7-2.7-4.2Z" />
+      </symbol>
       <symbol id="icon-stop" viewBox="0 0 24 24">
         <path d="M7.5 2.5h9l5 5v9l-5 5h-9l-5-5v-9l5-5Z" />
         <path d="m9 9 6 6" />
@@ -125,6 +128,16 @@
       <symbol id="icon-heart" viewBox="0 0 24 24">
         <path d="M12 20.5 4.9 13.8a4.8 4.8 0 0 1 6.8-6.8L12 8l.3-.3a4.8 4.8 0 0 1 6.8 6.8L12 20.5Z" />
       </symbol>
+      <symbol id="icon-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6" />
+        <path d="M12 7h.01" />
+      </symbol>
+      <symbol id="icon-external-link" viewBox="0 0 24 24">
+        <path d="M14 4h6v6" />
+        <path d="m20 4-9 9" />
+        <path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" />
+      </symbol>
       <symbol id="icon-folder-open" viewBox="0 0 24 24">
         <path d="M3 7h6l2 2h10v2" />
         <path d="M3 7v11a2 2 0 0 0 2 2h12.5a2 2 0 0 0 1.9-1.4L22 11H6.5a2 2 0 0 0-1.9 1.4L3 18" />
@@ -141,6 +154,9 @@
         <rect x="4" y="14" width="16" height="6" rx="2" />
         <circle cx="8" cy="7" r="0.5" />
         <circle cx="8" cy="17" r="0.5" />
+      </symbol>
+      <symbol id="icon-activity" viewBox="0 0 24 24">
+        <path d="M3 12h4l3-8 4 16 3-8h4" />
       </symbol>
       <symbol id="icon-database" viewBox="0 0 24 24">
         <ellipse cx="12" cy="5" rx="8" ry="3" />
@@ -304,6 +320,12 @@
             </svg>
             <span>Servers</span>
           </button>
+          <button id="serverMonitoringButton" class="top-nav-action" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-activity"></use>
+            </svg>
+            <span>Real-time Monitor</span>
+          </button>
           <button id="uptimeButton" class="top-nav-action" type="button">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-rocket"></use>
@@ -316,7 +338,7 @@
             </svg>
             <span>Backup Manager</span>
           </button>
-          <button id="topDatabasesButton" class="top-nav-action" type="button" aria-label="Open Tabularis database manager" title="Open Tabularis">
+          <button id="topDatabasesButton" class="top-nav-action" type="button">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-database"></use>
             </svg>
@@ -438,12 +460,47 @@
             <div class="dashboard-title-block">
               <span class="dashboard-title-kicker">DeployerX / Control plane</span>
               <h1>Command center</h1>
-              <p class="header-copy">Live fleet telemetry, connection state, and deployment activity.</p>
+              <p class="header-copy">Live fleet telemetry, uptime incidents, backup protection, and data services.</p>
             </div>
           </header>
 
           <div class="dashboard-body">
             <div id="dashboardStatsGrid" class="dashboard-stats-grid"></div>
+
+            <div class="dashboard-operations-grid">
+              <section class="dashboard-panel dashboard-operations-panel dashboard-uptime-panel">
+                <div class="section-heading compact">
+                  <div>
+                    <h2>Uptime alerts</h2>
+                    <p>Incidents that need attention right now.</p>
+                  </div>
+                  <button id="dashboardUptimeButton" class="button outline compact" type="button">Open Uptime</button>
+                </div>
+                <div id="dashboardUptimeAlerts" class="dashboard-operation-list"></div>
+              </section>
+
+              <section class="dashboard-panel dashboard-operations-panel dashboard-backup-panel">
+                <div class="section-heading compact">
+                  <div>
+                    <h2>Backup protection</h2>
+                    <p>Current jobs, runs, and latest outcome.</p>
+                  </div>
+                  <button id="dashboardBackupButton" class="button outline compact" type="button">Open Backups</button>
+                </div>
+                <div id="dashboardBackupStatus" class="dashboard-operation-list"></div>
+              </section>
+
+              <section class="dashboard-panel dashboard-operations-panel dashboard-database-panel">
+                <div class="section-heading compact">
+                  <div>
+                    <h2>Database estate</h2>
+                    <p>Connection health across saved profiles.</p>
+                  </div>
+                  <button id="dashboardDatabaseButton" class="button outline compact" type="button">Open Databases</button>
+                </div>
+                <div id="dashboardDatabaseStatus" class="dashboard-operation-list"></div>
+              </section>
+            </div>
 
             <div class="dashboard-overview-grid">
               <section class="dashboard-panel dashboard-operational-panel">
@@ -525,19 +582,78 @@
               <span class="servers-view-logo" aria-hidden="true">
                 <svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-server"></use></svg>
               </span>
-              <div>
-                <h1>Servers</h1>
-                <p id="serversViewSummary" class="header-copy">Loading server inventory...</p>
-              </div>
+              <h1>Servers</h1>
+            </div>
+            <div class="server-overview-inline" aria-label="Server inventory summary">
+              <span class="server-overview-item"><strong id="serversOverviewTotal">0</strong><small>Servers</small></span>
+              <span class="server-overview-item"><strong id="serversOverviewGroups">0</strong><small>Groups</small></span>
+              <span class="server-overview-item is-live"><strong id="serversOverviewConnected">0</strong><small>Connected</small></span>
+              <span class="server-overview-item is-favorite"><strong id="serversOverviewFavorites">0</strong><small>Favorites</small></span>
+              <span class="server-overview-item is-command"><strong id="serversOverviewCommands">0</strong><small>Commands</small></span>
             </div>
             <div class="header-actions">
-              <button id="serversFilterButton" class="button outline" type="button" aria-expanded="false" aria-controls="serverFilterPanel">
-                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <use href="#icon-filter"></use>
-                </svg>
-                Filter
-                <span id="serversFilterBadge" class="servers-filter-badge hidden">0</span>
-              </button>
+              <label class="server-toolbar-search server-filter-input">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
+                <input id="serversFilterSearch" type="search" aria-label="Search servers" placeholder="Search servers" />
+              </label>
+              <div id="serverFilterPopover" class="server-filter-popover">
+                <button id="serversFilterButton" class="button outline" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="serverFilterPanel">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <use href="#icon-filter"></use>
+                  </svg>
+                  Filter
+                  <span id="serversFilterBadge" class="servers-filter-badge hidden">0</span>
+                </button>
+                <section id="serverFilterPanel" class="server-filter-panel hidden" role="dialog" aria-label="Advanced server filters">
+                  <div class="server-filter-grid">
+                    <div class="server-filter-field">
+                      <span>Group</span>
+                      <div id="serversFilterGroupDropdown" class="top-workspace-switcher server-filter-select">
+                        <select id="serversFilterGroup" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All groups</option></select>
+                        <button id="serversFilterGroupButton" class="workspace-switcher-trigger" type="button" aria-label="Group: All groups" aria-haspopup="listbox" aria-expanded="false" aria-controls="serversFilterGroupMenu"><span id="serversFilterGroupLabel" class="workspace-switcher-label">All groups</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button>
+                        <div id="serversFilterGroupMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose server group"></div>
+                      </div>
+                    </div>
+                    <div class="server-filter-field">
+                      <span>System</span>
+                      <div id="serversFilterSystemDropdown" class="top-workspace-switcher server-filter-select">
+                        <select id="serversFilterSystem" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All systems</option></select>
+                        <button id="serversFilterSystemButton" class="workspace-switcher-trigger" type="button" aria-label="System: All systems" aria-haspopup="listbox" aria-expanded="false" aria-controls="serversFilterSystemMenu"><span id="serversFilterSystemLabel" class="workspace-switcher-label">All systems</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button>
+                        <div id="serversFilterSystemMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose server system"></div>
+                      </div>
+                    </div>
+                    <div class="server-filter-field">
+                      <span>Connection</span>
+                      <div id="serversFilterConnectionDropdown" class="top-workspace-switcher server-filter-select">
+                        <select id="serversFilterConnection" class="hidden" tabindex="-1" aria-hidden="true"><option value="">Any state</option><option value="connected">Connected</option><option value="disconnected">Disconnected</option><option value="ssh">SSH connected</option><option value="ftp">FTP connected</option><option value="rdp">RDP connected</option></select>
+                        <button id="serversFilterConnectionButton" class="workspace-switcher-trigger" type="button" aria-label="Connection: Any state" aria-haspopup="listbox" aria-expanded="false" aria-controls="serversFilterConnectionMenu"><span id="serversFilterConnectionLabel" class="workspace-switcher-label">Any state</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button>
+                        <div id="serversFilterConnectionMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose connection state"></div>
+                      </div>
+                    </div>
+                    <div class="server-filter-field">
+                      <span>Commands</span>
+                      <div id="serversFilterCommandsDropdown" class="top-workspace-switcher server-filter-select">
+                        <select id="serversFilterCommands" class="hidden" tabindex="-1" aria-hidden="true"><option value="">Any</option><option value="with">Has commands</option><option value="without">No commands</option></select>
+                        <button id="serversFilterCommandsButton" class="workspace-switcher-trigger" type="button" aria-label="Commands: Any" aria-haspopup="listbox" aria-expanded="false" aria-controls="serversFilterCommandsMenu"><span id="serversFilterCommandsLabel" class="workspace-switcher-label">Any</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button>
+                        <div id="serversFilterCommandsMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose commands filter"></div>
+                      </div>
+                    </div>
+                    <div class="server-filter-field">
+                      <span>Sort by</span>
+                      <div id="serversFilterSortDropdown" class="top-workspace-switcher server-filter-select">
+                        <select id="serversFilterSort" class="hidden" tabindex="-1" aria-hidden="true"><option value="name">Name A-Z</option><option value="name-desc">Name Z-A</option><option value="recent">Recently updated</option><option value="commands">Most commands</option><option value="connection">Connected first</option></select>
+                        <button id="serversFilterSortButton" class="workspace-switcher-trigger" type="button" aria-label="Sort by: Name A-Z" aria-haspopup="listbox" aria-expanded="false" aria-controls="serversFilterSortMenu"><span id="serversFilterSortLabel" class="workspace-switcher-label">Name A-Z</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button>
+                        <div id="serversFilterSortMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose server sort order"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="server-filter-footer">
+                    <label class="server-favorites-filter"><input id="serversFilterFavorites" type="checkbox" /><span>Favorites only</span></label>
+                    <span id="serversFilterResults" class="server-filter-results" aria-live="polite"></span>
+                    <button id="serversFilterResetButton" class="button plain compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>Reset filters</button>
+                  </div>
+                </section>
+              </div>
               <button id="dashboardImportProjectsButton" class="button outline" type="button">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-import"></use>
@@ -559,86 +675,63 @@
             </div>
           </header>
 
-          <section class="server-overview-strip" aria-label="Server inventory summary">
-            <div class="server-overview-item">
-              <span class="server-overview-icon"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-server"></use></svg></span>
-              <span><small>Total servers</small><strong id="serversOverviewTotal">0</strong></span>
-            </div>
-            <div class="server-overview-item is-live">
-              <span class="server-overview-icon"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-check"></use></svg></span>
-              <span><small>Connected</small><strong id="serversOverviewConnected">0</strong></span>
-            </div>
-            <div class="server-overview-item is-favorite">
-              <span class="server-overview-icon"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-heart"></use></svg></span>
-              <span><small>Favorites</small><strong id="serversOverviewFavorites">0</strong></span>
-            </div>
-            <div class="server-overview-item is-command">
-              <span class="server-overview-icon"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-templates"></use></svg></span>
-              <span><small>Saved commands</small><strong id="serversOverviewCommands">0</strong></span>
-            </div>
-          </section>
-
-          <section id="serverFilterPanel" class="server-filter-panel hidden" aria-label="Advanced server filters">
-            <div class="server-filter-grid">
-              <label class="server-filter-field server-filter-search">
-                <span>Search</span>
-                <span class="server-filter-input">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
-                  <input id="serversFilterSearch" type="search" placeholder="Name, host, user, group, or command" />
-                </span>
-              </label>
-              <label class="server-filter-field">
-                <span>Group</span>
-                <select id="serversFilterGroup"><option value="">All groups</option></select>
-              </label>
-              <label class="server-filter-field">
-                <span>System</span>
-                <select id="serversFilterSystem"><option value="">All systems</option></select>
-              </label>
-              <label class="server-filter-field">
-                <span>Connection</span>
-                <select id="serversFilterConnection">
-                  <option value="">Any state</option>
-                  <option value="connected">Connected</option>
-                  <option value="disconnected">Disconnected</option>
-                  <option value="ssh">SSH connected</option>
-                  <option value="ftp">FTP connected</option>
-                  <option value="rdp">RDP connected</option>
-                </select>
-              </label>
-              <label class="server-filter-field">
-                <span>Commands</span>
-                <select id="serversFilterCommands">
-                  <option value="">Any</option>
-                  <option value="with">Has commands</option>
-                  <option value="without">No commands</option>
-                </select>
-              </label>
-              <label class="server-filter-field">
-                <span>Sort by</span>
-                <select id="serversFilterSort">
-                  <option value="name">Name A-Z</option>
-                  <option value="name-desc">Name Z-A</option>
-                  <option value="recent">Recently updated</option>
-                  <option value="commands">Most commands</option>
-                  <option value="connection">Connected first</option>
-                </select>
-              </label>
-            </div>
-            <div class="server-filter-footer">
-              <label class="server-favorites-filter">
-                <input id="serversFilterFavorites" type="checkbox" />
-                <span>Favorites only</span>
-              </label>
-              <span id="serversFilterResults" class="server-filter-results" aria-live="polite"></span>
-              <button id="serversFilterResetButton" class="button plain compact" type="button">
-                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
-                Reset filters
-              </button>
-            </div>
-          </section>
-
           <div id="projectGrid" class="project-grid"></div>
+        </section>
+
+        <section id="serverMonitoringView" class="view hidden server-monitoring-view">
+          <header class="view-header server-monitoring-header">
+            <div>
+              <span class="server-monitoring-kicker"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-activity"></use></svg> Live infrastructure</span>
+              <h1>Real-time server monitoring</h1>
+              <p class="header-copy">CPU, memory, storage, network, and process health for the selected server.</p>
+            </div>
+            <div class="header-actions server-monitoring-actions">
+              <span id="serverMonitoringStatus" class="server-monitoring-status"><i></i><span>Choose a server</span></span>
+              <button id="serverMonitoringPauseButton" class="button outline compact" type="button" disabled><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-pause"></use></svg><span>Pause</span></button>
+              <button id="serverMonitoringRefreshButton" class="button outline compact icon-only" type="button" title="Refresh metrics" aria-label="Refresh metrics" disabled><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-refresh"></use></svg></button>
+            </div>
+          </header>
+
+          <div id="serverMonitoringWorkspace" class="server-monitoring-workspace">
+            <section id="serverMonitoringEmpty" class="server-monitoring-empty">
+              <div class="server-monitoring-empty-icon"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-server"></use></svg></div>
+              <h2>Select a server to begin</h2>
+              <p>Choose an SSH-capable server from the sidebar to open a live telemetry session.</p>
+            </section>
+
+            <section id="serverMonitoringUnsupported" class="server-monitoring-empty hidden">
+              <div class="server-monitoring-empty-icon is-warning"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-info"></use></svg></div>
+              <h2>SSH monitoring is required</h2>
+              <p>This RDP-only server does not expose a monitoring transport yet. Add SSH credentials or use the server workspace.</p>
+            </section>
+
+            <section id="serverMonitoringDashboard" class="hidden" aria-live="polite">
+              <div class="server-monitoring-server-banner">
+                <div class="server-monitoring-server-identity"><span id="serverMonitoringServerIcon" class="server-monitoring-server-icon"></span><div><strong id="serverMonitoringServerName">Server</strong><span id="serverMonitoringServerEndpoint">--</span></div></div>
+                <div class="server-monitoring-last-seen"><span>Last sample</span><strong id="serverMonitoringLastSample">--</strong></div>
+              </div>
+              <div id="serverMonitoringError" class="server-monitoring-error hidden" role="alert"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-alert"></use></svg><span></span></div>
+
+              <div id="serverMonitoringMetricGrid" class="server-monitoring-metric-grid">
+                <article class="server-monitoring-metric-card metric-cpu"><div class="metric-card-heading"><span>CPU utilization</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-activity"></use></svg></div><strong id="serverMonitoringCpuValue">--</strong><span id="serverMonitoringCpuMeta">Waiting for sample</span><div class="metric-progress"><i id="serverMonitoringCpuBar"></i></div></article>
+                <article class="server-monitoring-metric-card metric-memory"><div class="metric-card-heading"><span>Memory usage</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-database"></use></svg></div><strong id="serverMonitoringMemoryValue">--</strong><span id="serverMonitoringMemoryMeta">Waiting for sample</span><div class="metric-progress"><i id="serverMonitoringMemoryBar"></i></div></article>
+                <article class="server-monitoring-metric-card metric-storage"><div class="metric-card-heading"><span>Storage used</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-save"></use></svg></div><strong id="serverMonitoringStorageValue">--</strong><span id="serverMonitoringStorageMeta">Waiting for sample</span><div class="metric-progress"><i id="serverMonitoringStorageBar"></i></div></article>
+                <article class="server-monitoring-metric-card metric-uptime"><div class="metric-card-heading"><span>System uptime</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-server"></use></svg></div><strong id="serverMonitoringUptimeValue">--</strong><span id="serverMonitoringUptimeMeta">--</span></article>
+              </div>
+
+              <div class="server-monitoring-chart-grid">
+                <section class="server-monitoring-panel server-monitoring-chart-panel"><div class="server-monitoring-panel-heading"><div><h2>CPU and memory trend</h2><p>Last five minutes of live samples</p></div><span class="server-monitoring-legend"><i class="legend-cpu"></i>CPU <i class="legend-memory"></i>Memory</span></div><canvas id="serverMonitoringTrendChart" class="server-monitoring-chart" width="900" height="220" aria-label="CPU and memory trend chart"></canvas></section>
+                <section class="server-monitoring-panel server-monitoring-chart-panel"><div class="server-monitoring-panel-heading"><div><h2>Network throughput</h2><p>Aggregate traffic across physical interfaces</p></div><span class="server-monitoring-legend"><i class="legend-receive"></i>Receive <i class="legend-transmit"></i>Transmit</span></div><canvas id="serverMonitoringNetworkChart" class="server-monitoring-chart" width="900" height="220" aria-label="Network throughput chart"></canvas></section>
+              </div>
+
+              <div class="server-monitoring-detail-grid">
+                <section class="server-monitoring-panel"><div class="server-monitoring-panel-heading"><div><h2>Storage volumes</h2><p>Mounted filesystems and available capacity</p></div></div><div class="server-monitoring-table-wrap"><table class="server-monitoring-table"><thead><tr><th>Mount</th><th>Filesystem</th><th>Used</th><th>Available</th><th>Usage</th></tr></thead><tbody id="serverMonitoringStorageTable"><tr><td colspan="5" class="server-monitoring-table-empty">Waiting for storage data</td></tr></tbody></table></div></section>
+                <section class="server-monitoring-panel"><div class="server-monitoring-panel-heading"><div><h2>Top processes</h2><p>Highest CPU consumers, refreshed every five seconds</p></div></div><div class="server-monitoring-table-wrap"><table class="server-monitoring-table"><thead><tr><th>Process</th><th>PID</th><th>CPU</th><th>Memory</th></tr></thead><tbody id="serverMonitoringProcessTable"><tr><td colspan="4" class="server-monitoring-table-empty">Waiting for process data</td></tr></tbody></table></div></section>
+              </div>
+
+              <section class="server-monitoring-panel server-monitoring-system-panel"><div class="server-monitoring-panel-heading"><div><h2>System details</h2><p>Identity and connection information reported by the host</p></div></div><div id="serverMonitoringSystemDetails" class="server-monitoring-system-details"></div></section>
+            </section>
+          </div>
         </section>
 
         <section id="uptimeView" class="view hidden uptime-view">
@@ -1347,6 +1440,12 @@
 
           <div id="sshWorkspace" class="terminal-workspace">
             <section class="terminal-main">
+              <div class="terminal-tab-bar">
+                <div id="terminalTabs" class="terminal-tabs" role="tablist" aria-label="SSH terminals"></div>
+                <button id="terminalNewTabButton" class="terminal-new-tab" type="button" aria-label="Open new terminal" title="Open new terminal">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-plus"></use></svg>
+                </button>
+              </div>
               <div class="terminal-frame">
                 <div id="terminal" class="terminal-output main-terminal-output"></div>
                 <div id="terminalConnectOverlay" class="terminal-connect-overlay">
@@ -1403,7 +1502,7 @@
                   <button id="sshDirectoryRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh directory" title="Refresh directory">
                     <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
                   </button>
-                  <button id="sshDirectoryDownloadButton" class="button outline compact icon-only" type="button" aria-label="Download selected file" title="Download selected file">
+                  <button id="sshDirectoryDownloadButton" class="button outline compact icon-only" type="button" aria-label="Download selected item" title="Download selected item">
                     <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-import"></use></svg>
                   </button>
                   <button id="sshUploadButton" class="button outline compact icon-only" type="button" aria-label="Upload file to current directory" title="Upload file">
@@ -1765,6 +1864,12 @@
                   <use href="#icon-theme"></use>
                 </svg>
                 Theme
+              </button>
+              <button class="settings-nav-item" type="button" data-settings-tab="about">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-info"></use>
+                </svg>
+                About
               </button>
             </aside>
 
@@ -2361,6 +2466,75 @@ tool_timeout_sec = 300</pre>
                   </div>
                 </div>
               </section>
+
+              <section id="settingsAboutPanel" class="settings-panel" data-settings-panel="about">
+                <div class="settings-panel-body about-settings-body">
+                  <header class="about-product-header">
+                    <span class="about-product-logo" aria-hidden="true">
+                      <img src="../../assets/deployerx-logo.png" alt="" />
+                    </span>
+                    <div class="about-product-copy">
+                      <span class="about-eyebrow">About the product</span>
+                      <h2>DeployerX</h2>
+                      <p>A focused Windows workspace for SSH deployments, server operations, uptime monitoring, backup and recovery, and database management.</p>
+                    </div>
+                    <div class="about-product-meta" aria-label="Product information">
+                      <span id="aboutAppVersion" class="about-version-badge">Version 0.1.4</span>
+                      <span>Desktop application</span>
+                    </div>
+                  </header>
+
+                  <div class="about-details-grid">
+                    <section class="settings-card about-company-card">
+                      <div class="about-card-heading">
+                          <span class="about-company-mark"><img src="assets/everythingx-logo-transparent.png" alt="EverythingX logo" /></span>
+                        <div>
+                          <span class="about-eyebrow">Developer company</span>
+                          <h2>EverythingX</h2>
+                        </div>
+                      </div>
+                      <p class="about-lead">EverythingX is a modern IT company that develops software, web and mobile applications, SaaS platforms, and business automation tools for growing organizations.</p>
+                      <div class="about-fact-list">
+                        <div class="about-fact"><span>Based in</span><strong>Ahmedabad, Gujarat, India</strong></div>
+                        <div class="about-fact"><span>Specialties</span><strong>Custom software, cloud and DevOps, AI automation, and business platforms</strong></div>
+                        <div class="about-fact"><span>Product role</span><strong>DeployerX is developed and maintained by EverythingX</strong></div>
+                      </div>
+                      <div class="about-actions">
+                        <button class="button solid" type="button" data-about-external="https://everythingx.in/">
+                          Visit EverythingX
+                          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-external-link"></use></svg>
+                        </button>
+                        <button class="button outline" type="button" data-about-external="mailto:info@everythingx.in">
+                          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mail"></use></svg>
+                          Contact
+                        </button>
+                        <button class="button outline about-whatsapp-button" type="button" data-about-external="https://wa.me/917897892129">
+                          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-phone"></use></svg>
+                          <span>+91 789 789 2129</span>
+                        </button>
+                      </div>
+                    </section>
+
+                    <section class="settings-card about-capabilities-card">
+                      <div>
+                        <span class="about-eyebrow">What DeployerX brings together</span>
+                        <h2>One operational workspace</h2>
+                      </div>
+                      <div class="about-capability-list">
+                        <div><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-rocket"></use></svg><span><strong>Deploy and operate</strong><small>Run repeatable SSH workflows and manage server access.</small></span></div>
+                        <div><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-server"></use></svg><span><strong>Monitor availability</strong><small>Track endpoint health, incidents, and maintenance windows.</small></span></div>
+                        <div><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-cloud"></use></svg><span><strong>Protect workloads</strong><small>Coordinate backup, restore, retention, and recovery evidence.</small></span></div>
+                        <div><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-database"></use></svg><span><strong>Work with data</strong><small>Connect to and manage supported database platforms.</small></span></div>
+                      </div>
+                    </section>
+                  </div>
+
+                  <footer class="about-footer">
+                    <span>Copyright 2026 EverythingX. All rights reserved.</span>
+                    <span>Made for focused infrastructure work.</span>
+                  </footer>
+                </div>
+              </section>
             </div>
           </div>
           <button id="logoutButton" class="hidden" type="button">Logout</button>
@@ -2723,10 +2897,10 @@ tool_timeout_sec = 300</pre>
             <div id="modalSshFields">
               <div class="section-heading compact">
               <h3>SSH connection</h3>
-              <p>Enter the credentials DeployerX should use for terminal access.</p>
+              <p>Enter the server endpoint, then add one or more SSH users.</p>
               </div>
-              <div class="field-grid modal-columns">
-              <label class="field ssh-host-field">
+              <div class="field-grid ssh-endpoint-grid">
+              <label class="field">
                 <span>Host / IP</span>
                 <input id="modalSshHost" type="text" placeholder="192.168.1.10" required />
               </label>
@@ -2734,7 +2908,41 @@ tool_timeout_sec = 300</pre>
                 <span>Port</span>
                 <input id="modalSshPort" type="number" min="1" value="22" />
               </label>
-              <label class="field">
+              </div>
+
+              <div class="ssh-users-panel">
+                <div class="ssh-users-toolbar">
+                  <div>
+                    <strong>SSH users</strong>
+                    <small>Select a user to edit its credentials.</small>
+                  </div>
+                  <button id="modalAddSshUserButton" class="button outline compact" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-plus"></use>
+                    </svg>
+                    Add user
+                  </button>
+                </div>
+                <div id="modalSshUserTabs" class="ssh-user-tabs" role="tablist" aria-label="SSH users"></div>
+
+                <div class="ssh-user-editor">
+                  <div class="ssh-user-editor-heading">
+                    <div>
+                      <strong id="modalSshUserEditorTitle">User credentials</strong>
+                      <small id="modalSshUserEditorStatus">Default connection user</small>
+                    </div>
+                    <div class="ssh-user-editor-actions">
+                      <button id="modalDefaultSshUserButton" class="button outline compact" type="button">Use as default</button>
+                      <button id="modalRemoveSshUserButton" class="button plain danger compact icon-only" type="button" aria-label="Remove SSH user" title="Remove SSH user">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-trash"></use>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="field-grid modal-columns ssh-user-fields">
+              <label class="field span-2">
                 <span>Username</span>
                 <input id="modalSshUsername" type="text" placeholder="root" required />
               </label>
@@ -2745,7 +2953,7 @@ tool_timeout_sec = 300</pre>
                   <option value="key">SSH private key</option>
                 </select>
               </label>
-              </div>
+                  </div>
 
               <label id="modalPasswordField" class="field modal-secret">
               <span>Password</span>
@@ -2783,6 +2991,8 @@ tool_timeout_sec = 300</pre>
                   </div>
                 </label>
               </div>
+              </div>
+                </div>
               </div>
             </div>
 
@@ -4099,13 +4309,13 @@ tool_timeout_sec = 300</pre>
             <label class="field"><span>Channel</span><select id="backupNotificationRouteType"><option value="desktop">Desktop</option><option value="email">SMTP email</option><option value="webhook">Generic webhook</option><option value="slack">Slack</option><option value="teams">Microsoft Teams</option></select></label>
           </div>
           <section id="backupNotificationDesktopFields" class="backup-notification-channel-fields">
-            <label class="backup-job-check"><input id="backupNotificationDesktopSilent" type="checkbox" /><span><strong>Silent desktop notifications</strong><small>Deliver without the operating-system notification sound.</small></span></label>
+            <label class="backup-job-check switch-row backup-notification-switch"><input id="backupNotificationDesktopSilent" type="checkbox" role="switch" /><span class="switch-track" aria-hidden="true"></span><span><strong>Silent desktop notifications</strong><small>Deliver without the operating-system notification sound.</small></span></label>
           </section>
           <section id="backupNotificationEmailFields" class="backup-notification-channel-fields hidden">
             <div class="field-grid modal-columns backup-notification-email-grid">
               <label class="field"><span>SMTP host</span><input id="backupNotificationSmtpHost" type="text" maxlength="253" autocomplete="off" placeholder="smtp.example.com" /></label>
               <label class="field"><span>SMTP port</span><input id="backupNotificationSmtpPort" type="number" min="1" max="65535" value="465" /></label>
-              <label class="backup-job-check backup-notification-span"><input id="backupNotificationSmtpSecure" type="checkbox" checked /><span><strong>Use TLS from connection start</strong><small>Disable for STARTTLS, commonly used on port 587.</small></span></label>
+              <label class="backup-job-check switch-row backup-notification-switch backup-notification-span"><input id="backupNotificationSmtpSecure" type="checkbox" role="switch" checked /><span class="switch-track" aria-hidden="true"></span><span><strong>Use TLS from connection start</strong><small>Disable for STARTTLS, commonly used on port 587.</small></span></label>
               <label class="field"><span>SMTP username</span><input id="backupNotificationSmtpUsername" type="text" maxlength="320" autocomplete="username" /></label>
               <label class="field"><span>SMTP password</span><input id="backupNotificationSmtpPassword" type="password" autocomplete="new-password" /></label>
               <label class="field"><span>Sender address</span><input id="backupNotificationFrom" type="email" maxlength="320" placeholder="backups@example.com" /></label>
@@ -4114,7 +4324,7 @@ tool_timeout_sec = 300</pre>
           </section>
           <section id="backupNotificationWebhookFields" class="backup-notification-channel-fields hidden">
             <label class="field"><span id="backupNotificationWebhookLabel">Webhook URL</span><input id="backupNotificationWebhookUrl" type="url" maxlength="4096" autocomplete="off" placeholder="https://hooks.example.com/..." /></label>
-            <label class="backup-job-check"><input id="backupNotificationAllowInsecure" type="checkbox" /><span><strong>Allow insecure HTTP</strong><small>Use only for trusted private-network endpoints.</small></span></label>
+            <label class="backup-job-check switch-row backup-notification-switch"><input id="backupNotificationAllowInsecure" type="checkbox" role="switch" /><span class="switch-track" aria-hidden="true"></span><span><strong>Allow insecure HTTP</strong><small>Use only for trusted private-network endpoints.</small></span></label>
           </section>
           <fieldset class="backup-job-options backup-notification-events">
             <legend>Events</legend>
@@ -5770,9 +5980,16 @@ tool_timeout_sec = 300</pre>
               <use id="confirmModalIconUse" href="#icon-alert"></use>
             </svg>
           </span>
-          <div>
+          <div class="confirm-copy">
+            <span id="confirmModalEyebrow" class="confirm-eyebrow hidden"></span>
             <h2 id="confirmModalTitle">Confirm action</h2>
             <p id="confirmModalDetail">This action needs confirmation.</p>
+            <span id="confirmModalAccount" class="confirm-account hidden">
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <use href="#icon-cloud"></use>
+              </svg>
+              <span id="confirmModalAccountLabel"></span>
+            </span>
           </div>
         </header>
 

@@ -70,6 +70,62 @@ async function prepare(window) {
   `);
 }
 
+async function exerciseModalControls(window) {
+  return window.webContents.executeJavaScript(`(async () => {
+    const waitForUi = () => new Promise((resolve) => setTimeout(resolve, 20));
+    const addButton = els.backupAddNotificationRouteButton;
+    const modal = els.backupNotificationRouteModal;
+    const eventInput = els.backupNotificationEvents[0];
+
+    addButton.click();
+    await waitForUi();
+    const opensFromButton = !modal.classList.contains('hidden') && document.activeElement === els.backupNotificationRouteName;
+    const eventDefaults = els.backupNotificationEvents.length === 14 && els.backupNotificationEvents.every((input) => input.checked);
+    const eventIsCheckbox = eventInput.type === 'checkbox' && eventInput.getAttribute('role') === null && getComputedStyle(eventInput).appearance !== 'none';
+    eventInput.click();
+    const eventToggles = !eventInput.checked;
+    const switches = [els.backupNotificationDesktopSilent, els.backupNotificationSmtpSecure, els.backupNotificationAllowInsecure];
+    const switchesAreAccessible = switches.every((input) => input.getAttribute('role') === 'switch' && input.nextElementSibling?.classList.contains('switch-track'));
+    const switchTrack = els.backupNotificationDesktopSilent.nextElementSibling;
+    const switchThumbBefore = getComputedStyle(switchTrack, '::after').transform;
+    els.backupNotificationDesktopSilent.click();
+    const desktopSwitchToggles = els.backupNotificationDesktopSilent.checked;
+    const switchThumbAfter = getComputedStyle(switchTrack, '::after').transform;
+    const switchHasVisibleState = switchThumbBefore !== switchThumbAfter;
+
+    els.backupNotificationRouteCancelButton.click();
+    const cancelCloses = modal.classList.contains('hidden');
+    addButton.click();
+    els.backupNotificationRouteCloseButton.click();
+    const closeButtonCloses = modal.classList.contains('hidden');
+    addButton.click();
+    modal.querySelector('[data-backup-notification-route-close]').click();
+    const backdropCloses = modal.classList.contains('hidden');
+
+    addButton.click();
+    els.backupNotificationRouteType.value = 'email';
+    els.backupNotificationRouteType.dispatchEvent(new Event('change', { bubbles: true }));
+    const emailFieldsSwitch = !els.backupNotificationEmailFields.classList.contains('hidden')
+      && els.backupNotificationDesktopFields.classList.contains('hidden')
+      && els.backupNotificationWebhookFields.classList.contains('hidden');
+    els.backupNotificationSmtpSecure.click();
+    const tlsSwitchUpdatesPort = !els.backupNotificationSmtpSecure.checked && els.backupNotificationSmtpPort.value === '587';
+
+    els.backupNotificationRouteName.value = 'No events';
+    els.backupNotificationEvents.forEach((input) => { input.checked = false; });
+    els.backupNotificationRouteForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await waitForUi();
+    const validationWorks = !els.backupNotificationRouteError.classList.contains('hidden')
+      && els.backupNotificationRouteError.textContent === 'Choose at least one notification event.'
+      && !modal.classList.contains('hidden')
+      && window.__notificationPayloads.length === 0;
+    els.backupNotificationRouteCancelButton.click();
+
+    return { opensFromButton, eventDefaults, eventIsCheckbox, eventToggles, switchesAreAccessible, desktopSwitchToggles, switchHasVisibleState,
+      cancelCloses, closeButtonCloses, backdropCloses, emailFieldsSwitch, tlsSwitchUpdatesPort, validationWorks };
+  })()`);
+}
+
 async function createRoutes(window) {
   return window.webContents.executeJavaScript(`(async () => {
     const selectEvents = (...events) => els.backupNotificationEvents.forEach((input) => { input.checked = events.includes(input.value); });
@@ -183,6 +239,7 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     await prepare(window);
     await new Promise((resolve) => setTimeout(resolve, 80));
+    const controls = await exerciseModalControls(window);
     const routes = await createRoutes(window);
     const actions = await exerciseActionsAndJob(window);
     await window.webContents.executeJavaScript(`(async () => {
@@ -199,6 +256,12 @@ app.whenReady().then(async () => {
     const desktop = await measure(window);
     const desktopPath = path.join(captureRoot, 'backup-notifications-desktop.png');
     await fs.writeFile(desktopPath, (await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript(`openBackupNotificationRouteModal()`);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const desktopModal = await measure(window, true);
+    const desktopModalPath = path.join(captureRoot, 'backup-notifications-modal-desktop.png');
+    await fs.writeFile(desktopModalPath, (await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript(`closeBackupNotificationRouteModal()`);
 
     window.setSize(390, 844);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -218,7 +281,8 @@ app.whenReady().then(async () => {
     await fs.writeFile(mobileModalPath, (await window.webContents.capturePage()).toPNG());
 
     const [desktopPayload, webhookPayload, emailPayload] = routes.payloads;
-    const valid = routes.webhookVisible && routes.emailVisible
+    const valid = Object.values(controls).every(Boolean)
+      && routes.webhookVisible && routes.emailVisible
       && JSON.stringify(desktopPayload) === JSON.stringify({ name: 'Desktop failures', type: 'desktop', events: ['backup.failed'], silent: false })
       && webhookPayload.name === 'Deployment webhook' && webhookPayload.type === 'webhook' && webhookPayload.webhookUrl === 'https://hooks.example.com/deployerx' && webhookPayload.allowInsecure === false
       && JSON.stringify(webhookPayload.events) === JSON.stringify(['backup.failed', 'backup.rpo-overdue'])
@@ -230,9 +294,11 @@ app.whenReady().then(async () => {
       && actions.reviewText.includes('60 minutes') && actions.reviewText.includes('30 minutes') && actions.reviewText.includes('On-call email')
       && actions.jobPayload.rpoMinutes === 60 && actions.jobPayload.rtoMinutes === 30 && JSON.stringify(actions.jobPayload.notificationRouteIds) === JSON.stringify(['route-3'])
       && [desktop, mobile].every((result) => !result.overflow && result.rows.every((row) => row.left >= result.bounds.left && row.right <= result.bounds.right + 1))
-      && !modal.overflow && modal.card.left >= 0 && modal.card.right <= modal.viewport.width && modal.card.top >= 0 && modal.card.bottom <= modal.viewport.height
-      && modal.controls.every((control) => control.left >= modal.card.left && control.right <= modal.card.right + 1);
-    process.stdout.write(`${JSON.stringify({ ok: valid, routes, actions, desktop, mobile, modal, screenshots: { desktopPath, mobilePagePath, mobileModalPath } })}\n`);
+      && [desktopModal, modal].every((result) => !result.overflow && result.card.left >= 0 && result.card.right <= result.viewport.width
+        && result.card.top >= 0 && result.card.bottom <= result.viewport.height
+        && result.controls.every((control) => control.left >= result.card.left && control.right <= result.card.right + 1));
+    process.stdout.write(`${JSON.stringify({ ok: valid, controls, routes, actions, desktop, mobile, desktopModal, modal,
+      screenshots: { desktopPath, desktopModalPath, mobilePagePath, mobileModalPath } })}\n`);
     if (!valid) process.exitCode = 1;
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);

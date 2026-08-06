@@ -70,6 +70,7 @@ test('starts the durable worker control plane and routes notification clicks to 
   assert.equal(mainSource.includes('serviceStatus.processId'), true);
   assert.equal(mainSource.includes('uptimeWindowCloseDisposition({'), true);
   assert.equal(mainSource.includes('if (disposition.hideWindow) mainWindow.hide()'), true);
+  assert.equal(mainSource.includes('tray.displayBalloon('), false);
   assert.equal(mainSource.includes('const child = execFile(process.execPath, buildWorkerArgs()'), true);
   assert.equal(mainSource.includes('child.unref()'), true);
 });

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, webUtils, clipboard } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const UPTIME_IPC_VERSION = 1;
 const DATABASE_MANAGER_IPC_VERSION = 1;
@@ -44,13 +44,16 @@ async function invokeDatabaseManager(channel, ...args) {
 
 contextBridge.exposeInMainWorld('deployerx', {
   getAppMetadata: () => ipcRenderer.invoke('app:metadata'),
-  readClipboard: () => clipboard.readText(),
-  writeClipboard: (text) => clipboard.writeText(String(text ?? '')),
+  readClipboard: () => ipcRenderer.sendSync('clipboard:read-sync'),
+  writeClipboard: (text) => ipcRenderer.sendSync('clipboard:write-sync', String(text ?? '')),
   getUpdateState: () => ipcRenderer.invoke('app:update-state'),
   checkForUpdates: () => ipcRenderer.invoke('app:update-check'),
   openReleasesPage: () => ipcRenderer.invoke('app:update-open-releases'),
+  openExternalUrl: (url) => ipcRenderer.invoke('app:open-external-url', String(url || '')),
   installUpdate: () => ipcRenderer.invoke('app:update-install'),
   getSetup: () => ipcRenderer.invoke('setup:get'),
+  getTheme: () => ipcRenderer.sendSync('theme:get-sync'),
+  setTheme: (themeId) => ipcRenderer.invoke('theme:set', themeId),
   getMcpIntegration: () => ipcRenderer.invoke('mcp-integration:get'),
   startMcpIntegration: (payload) => ipcRenderer.invoke('mcp-integration:start', payload),
   stopMcpIntegration: () => ipcRenderer.invoke('mcp-integration:stop'),
@@ -90,7 +93,6 @@ contextBridge.exposeInMainWorld('deployerx', {
   createBackupSecret: (payload) => ipcRenderer.invoke('backup:secrets:create', payload),
   rotateBackupSecret: (payload) => ipcRenderer.invoke('backup:secrets:rotate', payload),
   deleteBackupSecret: (payload) => ipcRenderer.invoke('backup:secrets:delete', payload),
-  launchTabularis: () => invokeDatabaseManager('database-manager:tabularis:launch'),
   listDatabaseProfiles: (options = {}) => invokeDatabaseManager('database-manager:profiles:list', options),
   getDatabaseProfile: (id) => invokeDatabaseManager('database-manager:profiles:get', { id }),
   createDatabaseProfile: (payload) => invokeDatabaseManager('database-manager:profiles:create', payload),
@@ -462,11 +464,19 @@ contextBridge.exposeInMainWorld('deployerx', {
   runDeployment: (payload) => ipcRenderer.invoke('deployment:run', payload),
   stopDeployment: (runId) => ipcRenderer.invoke('deployment:stop', runId),
   startTerminal: (payload) => ipcRenderer.invoke('terminal:start', payload),
+  startServerMonitoring: (payload) => ipcRenderer.invoke('server-monitoring:start', payload),
+  pauseServerMonitoring: (sessionId, paused) => ipcRenderer.invoke('server-monitoring:pause', { sessionId, paused }),
+  stopServerMonitoring: (sessionId) => ipcRenderer.invoke('server-monitoring:stop', sessionId),
   getTerminalHomeDirectory: (sessionId) => ipcRenderer.invoke('terminal:home-directory', sessionId),
   listTerminalDirectory: (payload) => ipcRenderer.invoke('terminal:list-directory', payload),
   readTerminalFile: (payload) => ipcRenderer.invoke('terminal:read-file', payload),
   writeTerminalFile: (payload) => ipcRenderer.invoke('terminal:write-file', payload),
   downloadTerminalFile: (payload) => ipcRenderer.invoke('terminal:download', payload),
+  downloadTerminalEntryToDirectory: (payload) => ipcRenderer.invoke('terminal:download-to-directory', payload),
+  makeTerminalDirectory: (payload) => ipcRenderer.invoke('terminal:mkdir', payload),
+  renameTerminalEntry: (payload) => ipcRenderer.invoke('terminal:rename', payload),
+  openTerminalEntryWith: (payload) => ipcRenderer.invoke('terminal:open-with', payload),
+  deleteTerminalEntry: (payload) => ipcRenderer.invoke('terminal:delete', payload),
   uploadTerminalFile: (payload) => ipcRenderer.invoke('terminal:upload', payload),
   cancelTerminalUpload: (sessionId) => ipcRenderer.invoke('terminal:upload-cancel', sessionId),
   sendTerminalInput: (payload) => ipcRenderer.send('terminal:input:send', payload),
@@ -537,6 +547,11 @@ contextBridge.exposeInMainWorld('deployerx', {
     const handler = (_event, message) => callback(message);
     ipcRenderer.on('terminal:event', handler);
     return () => ipcRenderer.removeListener('terminal:event', handler);
+  },
+  onServerMonitoringEvent: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('server-monitoring:event', handler);
+    return () => ipcRenderer.removeListener('server-monitoring:event', handler);
   },
   onRdpEvent: (callback) => {
     const handler = (_event, message) => callback(message);

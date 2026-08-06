@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, Notification, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, Notification, safeStorage, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
@@ -10,6 +11,7 @@ const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const nodemailer = require('nodemailer');
 const { Client } = require('ssh2');
+const { ServerMonitoringSessionManager } = require('./server-monitoring/session-manager');
 const { DeployerXMcpServer } = require('./mcp-server');
 const { RdpSessionManager } = require('./rdp-session');
 const { BackupAuditStore, StructuredLogStore } = require('./backup-manager/audit');
@@ -145,7 +147,6 @@ const { DatabasePluginRegistry, safeArchiveEntries } = require('./database-manag
 const { DatabasePluginHealthStore } = require('./database-manager/plugin-health-store');
 const { inspectPluginRuntimeRequirement, pluginRuntimeRequirement } = require('./database-manager/plugin-runtime-requirement');
 const { TabulariumClient } = require('./database-manager/tabularium-client');
-const { TabularisLauncher } = require('./database-manager/tabularis-launcher');
 const { mergeCloudProfiles, normalizeCloudProfileDocument } = require('./database-manager/cloud-metadata');
 const { DatabaseCloudSyncOutbox } = require('./database-manager/cloud-sync-outbox');
 const { planCloudSyncOperation } = require('./database-manager/cloud-sync-policy');
@@ -179,12 +180,16 @@ let rdpSessionManager;
 let rdpRestoreBounds = null;
 let tray;
 let isAppQuitting = false;
-let hasShownTrayNotice = false;
 let mcpServer;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
 const activeFtpSessions = new Map();
 const activeTerminalUploads = new Map();
+const serverMonitoringSessionManager = new ServerMonitoringSessionManager({
+  emit: (event) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('server-monitoring:event', event);
+  }
+});
 const TEMPLATE_CATEGORIES = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance', 'Security', 'Hosting', 'Web Server', 'Cache', 'Control Panel', 'PaaS'];
 const FIREBASE_AUTH_URL = 'https://identitytoolkit.googleapis.com/v1';
 const FIREBASE_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
@@ -256,7 +261,6 @@ let databaseTaskService = null;
 let databasePluginRegistry = null;
 let databasePluginHealthStore = null;
 let tabulariumClient = null;
-let tabularisLauncher = null;
 let databaseCloudSyncOutbox = null;
 let backupLocalConnectionService = null;
 let backupSshConnectionService = null;
@@ -2004,13 +2008,6 @@ function getDatabaseProfileService() {
   return databaseProfileService;
 }
 
-function getTabularisLauncher() {
-  if (!tabularisLauncher) {
-    tabularisLauncher = new TabularisLauncher({ rootPath: path.join(app.getPath('userData'), 'third-party', 'tabularis') });
-  }
-  return tabularisLauncher;
-}
-
 function getDatabaseBackupHandoffService() {
   getBackupControlDatabase();
   if (!databaseBackupHandoffService) throw new Error('Database Manager backup handoff is not initialized.');
@@ -3536,6 +3533,7 @@ function defaultSettings() {
   return {
     setupComplete: false,
     mode: '',
+    themeId: '',
     activeTeamId: '',
     activeTeamName: '',
     activeTeamUid: '',
@@ -3546,6 +3544,22 @@ function defaultSettings() {
     projectLocalSettings: {},
     uptimeMonitoring: { autostartEnabled: true, maximumConcurrency: 8 }
   };
+}
+
+function readThemePreferenceSync() {
+  try {
+    const raw = fsSync.readFileSync(getSettingsPath(), 'utf8');
+    const settings = JSON.parse(raw);
+    return typeof settings?.themeId === 'string' ? settings.themeId : '';
+  } catch {
+    return '';
+  }
+}
+
+async function writeThemePreference(themeId) {
+  const settings = await readSettings();
+  await writeSettings({ ...settings, themeId: String(themeId || '') });
+  return true;
 }
 
 function normalizeProjectLocalSettings(projectLocalSettings = {}) {
@@ -4657,19 +4671,23 @@ function prepareCloudProjectForRead(project) {
   const copy = JSON.parse(JSON.stringify(normalizeStoredProject(project) || {}));
   const ssh = { ...(copy.ssh || {}) };
   if (copy.encryptedSsh && cloudUnlock.key) {
+    const defaultUser = Array.isArray(ssh.users)
+      ? ssh.users.find((user) => user.id === ssh.defaultUserId) || ssh.users[0]
+      : null;
     for (const field of ['password', 'privateKey', 'passphrase']) {
       try {
         ssh[field] = decryptWithKey(copy.encryptedSsh[field], cloudUnlock.key);
       } catch {
         ssh[field] = '';
       }
+      if (defaultUser) defaultUser[field] = ssh[field];
     }
   }
   delete copy.encryptedSsh;
   delete copy.secretStorage;
   return {
     ...copy,
-    ssh
+    ssh: normalizeProjectSsh(ssh)
   };
 }
 
@@ -6052,8 +6070,8 @@ async function runDatabaseManagerPackagedSmoke(window) {
     const bridge = window.deployerx;
     return {
       rendererLoaded: document.readyState === 'complete' && document.title === 'DeployerX',
-      preloadBridge: Boolean(bridge && ['launchTabularis', 'listDatabaseProfiles', 'testDatabaseProfile', 'executeDatabaseQuery', 'listDatabasePlugins'].every((name) => typeof bridge[name] === 'function')),
-      routeLaunch: Boolean(navigation && navigation.getAttribute('title') === 'Open Tabularis' && typeof bridge?.launchTabularis === 'function'),
+      preloadBridge: Boolean(bridge && ['listDatabaseProfiles', 'testDatabaseProfile', 'executeDatabaseQuery', 'listDatabasePlugins'].every((name) => typeof bridge[name] === 'function')),
+      routeLaunch: Boolean(navigation && typeof bridge?.listDatabaseProfiles === 'function'),
       tabs,
       addControl: String(document.getElementById('databaseProfileAddButton')?.textContent || '').trim(),
       nodeRequireUnavailable: typeof require === 'undefined'
@@ -6117,34 +6135,25 @@ function createWindow(options = {}) {
   mainWindow.on('close', (event) => {
     const disposition = uptimeWindowCloseDisposition({
       isAppQuitting,
-      platform: process.platform,
-      hasTray: Boolean(tray && !tray.isDestroyed()),
-      hasShownTrayNotice
+      platform: process.platform
     });
     if (!disposition.preventClose) return;
     event.preventDefault();
     if (disposition.hideWindow) mainWindow.hide();
     if (disposition.hideDock) app.dock?.hide();
-    if (disposition.showTrayNotice) {
-      hasShownTrayNotice = true;
-      tray.displayBalloon({
-        title: 'DeployerX is still running',
-        content: 'Monitoring and background services remain active. Use the tray icon to reopen or quit.',
-        noSound: true
-      });
-    }
   });
   mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('rdp:fullscreen-changed', true));
   mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('rdp:fullscreen-changed', false));
   mainWindow.on('closed', () => {
+    serverMonitoringSessionManager.stopAll();
     rdpSessionManager?.closeAll().catch(() => {});
     rdpSessionManager = null;
     rdpRestoreBounds = null;
     mainWindow = null;
   });
-  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    if (level < 2) return;
-    console.error(`[renderer] ${message} (${sourceId}:${line})`);
+  mainWindow.webContents.on('console-message', (event) => {
+    if (!['warning', 'error'].includes(event.level)) return;
+    console.error(`[renderer] ${event.message} (${event.sourceId}:${event.lineNumber})`);
   });
   mainWindow.webContents.once('did-finish-load', () => {
     sendUpdateStateToRenderer();
@@ -6246,6 +6255,47 @@ function extractTemplateVariables(commands = []) {
   return [...variables];
 }
 
+function normalizeProjectSsh(ssh = {}) {
+  const sourceUsers = Array.isArray(ssh.users) && ssh.users.length
+    ? ssh.users
+    : [{
+        id: ssh.defaultUserId || 'ssh-user-1',
+        username: ssh.username || '',
+        authType: ssh.authType,
+        password: ssh.password,
+        privateKey: ssh.privateKey,
+        passphrase: ssh.passphrase
+      }];
+  const usedIds = new Set();
+  const users = sourceUsers.map((user = {}, index) => {
+    let id = String(user.id || `ssh-user-${index + 1}`).trim() || `ssh-user-${index + 1}`;
+    while (usedIds.has(id)) id = `${id}-${index + 1}`;
+    usedIds.add(id);
+    return {
+      id,
+      username: String(user.username || '').trim(),
+      authType: user.authType === 'key' ? 'key' : 'password',
+      password: String(user.password || ''),
+      privateKey: String(user.privateKey || ''),
+      passphrase: String(user.passphrase || '')
+    };
+  });
+  const requestedDefaultId = String(ssh.defaultUserId || '').trim();
+  const defaultUser = users.find((user) => user.id === requestedDefaultId) || users[0];
+  return {
+    host: String(ssh.host || '').trim(),
+    port: Number(ssh.port || 22),
+    username: defaultUser.username,
+    authType: defaultUser.authType,
+    password: defaultUser.password,
+    privateKey: defaultUser.privateKey,
+    passphrase: defaultUser.passphrase,
+    timeout: Number(ssh.timeout || 20000),
+    users,
+    defaultUserId: defaultUser.id
+  };
+}
+
 function normalizeProjectImport(project) {
   const commands = Array.isArray(project?.commands)
     ? project.commands.map((command) => String(command)).filter((command) => command.trim())
@@ -6269,16 +6319,7 @@ function normalizeProjectImport(project) {
     commands,
     uptimeMonitors: normalizeUptimeMonitors(project?.uptimeMonitors),
     variables: project?.variables && typeof project.variables === 'object' ? project.variables : {},
-    ssh: {
-      host: ssh.host || '',
-      port: Number(ssh.port || 22),
-      username: ssh.username || '',
-      authType: ssh.authType || 'password',
-      password: ssh.password || '',
-      privateKey: ssh.privateKey || '',
-      passphrase: ssh.passphrase || '',
-      timeout: Number(ssh.timeout || 20000)
-    },
+    ssh: normalizeProjectSsh(ssh),
     rdp: {
       host: rdp.host || '',
       port: Number(rdp.port || 3389),
@@ -6553,7 +6594,8 @@ function startTerminal(project, sessionId, size = {}) {
         cols,
         rows,
         width,
-        height
+        height,
+        modes: { ECHO: 0, ECHONL: 0 }
       },
       (error, stream) => {
         if (error) {
@@ -6564,10 +6606,6 @@ function startTerminal(project, sessionId, size = {}) {
         }
 
         terminalState.stream = stream;
-        const promptDirectoryTracking = "if [ -n \"$BASH_VERSION\" ]; then PS1='\\[\\e]1337;DeployerXPwd=$PWD\\a\\]'\"$PS1\"; fi";
-        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}\n`);
-        emitTerminal(sessionId, 'connected', 'Terminal connected.');
-
         stream.on('data', (data) => emitTerminal(sessionId, 'log', data.toString()));
         if (stream.stderr) {
           stream.stderr.on('data', (data) => emitTerminal(sessionId, 'error', data.toString()));
@@ -6577,6 +6615,10 @@ function startTerminal(project, sessionId, size = {}) {
           activeTerminals.delete(sessionId);
           connection.end();
         });
+
+        const promptDirectoryTracking = "if [ -n \"$BASH_VERSION\" ]; then PS1='\\[\\e]1337;DeployerXPwd=$PWD\\a\\]'\"$PS1\"; fi";
+        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; printf '\\r\\033[2K'\n`);
+        emitTerminal(sessionId, 'connected', 'Terminal connected.');
       }
     );
   });
@@ -7101,6 +7143,59 @@ async function downloadTerminalFile(sessionId, remotePath, localPath) {
   return { path: normalizedPath, localPath };
 }
 
+async function downloadTerminalEntryToDirectory(sessionId, entry, localDirectory) {
+  const remotePath = normalizeRemotePath(entry?.path);
+  if (!remotePath || remotePath === '.' || remotePath === '/') throw new Error('Choose a server item to download.');
+  const localPath = await withTerminalSftp(sessionId, (sftp) =>
+    downloadRemotePath(sftp, remotePath, entry?.type, localDirectory)
+  );
+  return { path: remotePath, localPath };
+}
+
+async function makeTerminalDirectory(sessionId, remoteDirectory, folderName) {
+  const name = assertPlainFileName(folderName, 'Enter a folder name.');
+  const remotePath = joinRemotePath(remoteDirectory || '.', name);
+  await withTerminalSftp(sessionId, (sftp) => sftpMkdir(sftp, remotePath));
+  return { remotePath };
+}
+
+async function renameTerminalEntry(sessionId, entry, nextName) {
+  const remotePath = normalizeRemotePath(entry?.path);
+  if (!remotePath || remotePath === '.' || remotePath === '/') throw new Error('Choose a file or folder to rename.');
+  const name = assertPlainFileName(nextName);
+  const nextPath = joinRemotePath(parentRemotePath(remotePath), name);
+  await withTerminalSftp(sessionId, (sftp) => sftpRename(sftp, remotePath, nextPath));
+  return { remotePath: nextPath };
+}
+
+async function openTerminalEntryWith(sessionId, entry) {
+  const remotePath = normalizeRemotePath(entry?.path);
+  if (!remotePath || remotePath === '.' || remotePath === '/' || entry?.type === 'directory') {
+    throw new Error('Choose a server file to open.');
+  }
+  const tempRoot = path.join(app.getPath('temp'), 'DeployerX', 'terminal-open', String(sessionId));
+  await fs.mkdir(tempRoot, { recursive: true });
+  const localPath = await withTerminalSftp(sessionId, (sftp) => downloadRemotePath(sftp, remotePath, 'file', tempRoot));
+  if (process.platform === 'win32') {
+    const child = execFile('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', localPath], {
+      detached: true,
+      windowsHide: false
+    });
+    child.unref();
+    return { localPath };
+  }
+  const result = await shell.openPath(localPath);
+  if (result) throw new Error(result);
+  return { localPath };
+}
+
+async function deleteTerminalEntry(sessionId, entry) {
+  const remotePath = normalizeRemotePath(entry?.path);
+  if (!remotePath || remotePath === '.' || remotePath === '/') throw new Error('Choose a file or folder to delete.');
+  await withTerminalSftp(sessionId, (sftp) => deleteRemotePath(sftp, remotePath, entry?.type));
+  return true;
+}
+
 async function uploadTerminalFile(sessionId, localPath, remoteDirectory) {
   const terminal = terminalSessionOrThrow(sessionId);
   if (activeTerminalUploads.has(sessionId)) throw new Error('An upload is already in progress.');
@@ -7312,6 +7407,7 @@ function emergencyStop() {
   for (const sessionId of [...activeFtpSessions.keys()]) {
     disconnectFtp(sessionId);
   }
+  serverMonitoringSessionManager.stopAll();
 }
 
 app.whenReady().then(async () => {
@@ -7369,6 +7465,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isAppQuitting = true;
+  serverMonitoringSessionManager.stopAll();
   rdpSessionManager?.closeAll().catch(() => {});
   databaseQueryService?.closeAll();
   databaseResultExportService?.closeAll();
@@ -7466,8 +7563,6 @@ ipcMain.handle('database-manager:profiles:get', wrapDatabaseManagerIpc(async (_e
   const profile = await getDatabaseProfileService().get(context.workspaceId, payload.id);
   return databaseProfileForRenderer(context.workspaceId, profile);
 }));
-
-ipcMain.handle('database-manager:tabularis:launch', wrapDatabaseManagerIpc(async () => getTabularisLauncher().launch()));
 
 ipcMain.handle('database-manager:profiles:create', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
@@ -10154,6 +10249,19 @@ ipcMain.handle('app:update-open-releases', async () => {
   return true;
 });
 
+const ABOUT_EXTERNAL_URLS = new Set([
+  'https://everythingx.in/',
+  'mailto:info@everythingx.in',
+  'https://wa.me/917897892129'
+]);
+
+ipcMain.handle('app:open-external-url', async (_event, targetUrl) => {
+  const safeUrl = String(targetUrl || '');
+  if (!ABOUT_EXTERNAL_URLS.has(safeUrl)) throw new Error('This external destination is not allowed.');
+  await shell.openExternal(safeUrl);
+  return true;
+});
+
 ipcMain.handle('app:update-install', async () => {
   if (updateState.status !== 'downloaded') {
     throw new Error('There is no downloaded update ready to install yet.');
@@ -10885,6 +10993,27 @@ ipcMain.handle('terminal:start', async (_event, payload) => {
   return { sessionId };
 });
 
+ipcMain.handle('server-monitoring:start', async (_event, payload = {}) => {
+  const project = payload.project || {};
+  if (project.serverType === 'rdp') throw new Error('Real-time monitoring currently requires an SSH-capable server.');
+  const validationError = validateConnectionProject(project);
+  if (validationError) throw new Error(validationError);
+  const sessionId = String(payload.sessionId || `${Date.now()}-${crypto.randomUUID()}`);
+  return serverMonitoringSessionManager.start({
+    sessionId,
+    projectId: String(project.id || ''),
+    connectionConfig: toConnectionConfig(project)
+  });
+});
+
+ipcMain.handle('server-monitoring:pause', async (_event, payload = {}) =>
+  serverMonitoringSessionManager.setPaused(String(payload.sessionId || ''), Boolean(payload.paused))
+);
+
+ipcMain.handle('server-monitoring:stop', async (_event, sessionId) =>
+  serverMonitoringSessionManager.stop(String(sessionId || ''))
+);
+
 ipcMain.handle('terminal:home-directory', async (_event, sessionId) => readTerminalHomeDirectory(sessionId));
 
 ipcMain.handle('terminal:list-directory', async (_event, payload) =>
@@ -10901,6 +11030,26 @@ ipcMain.handle('terminal:write-file', async (_event, payload) =>
 
 ipcMain.handle('terminal:download', async (_event, payload) =>
   downloadTerminalFile(payload.sessionId, payload.path, payload.localPath)
+);
+
+ipcMain.handle('terminal:download-to-directory', async (_event, payload) =>
+  downloadTerminalEntryToDirectory(payload.sessionId, payload.entry, payload.localDirectory)
+);
+
+ipcMain.handle('terminal:mkdir', async (_event, payload) =>
+  makeTerminalDirectory(payload.sessionId, payload.remoteDirectory, payload.name)
+);
+
+ipcMain.handle('terminal:rename', async (_event, payload) =>
+  renameTerminalEntry(payload.sessionId, payload.entry, payload.name)
+);
+
+ipcMain.handle('terminal:open-with', async (_event, payload) =>
+  openTerminalEntryWith(payload.sessionId, payload.entry)
+);
+
+ipcMain.handle('terminal:delete', async (_event, payload) =>
+  deleteTerminalEntry(payload.sessionId, payload.entry)
 );
 
 ipcMain.handle('terminal:upload', async (_event, payload) =>
@@ -10935,6 +11084,21 @@ ipcMain.handle('project-local-settings:set', async (_event, projectId, payload =
 );
 
 ipcMain.handle('project-local-settings:delete', async (_event, projectId) => deleteProjectLocalSettings(projectId));
+
+ipcMain.on('clipboard:read-sync', (event) => {
+  event.returnValue = clipboard.readText();
+});
+
+ipcMain.on('clipboard:write-sync', (event, text) => {
+  clipboard.writeText(String(text ?? ''));
+  event.returnValue = true;
+});
+
+ipcMain.on('theme:get-sync', (event) => {
+  event.returnValue = readThemePreferenceSync();
+});
+
+ipcMain.handle('theme:set', async (_event, themeId) => writeThemePreference(themeId));
 
 const uptimeIpcMain = {
   handle(channel, handler) {
