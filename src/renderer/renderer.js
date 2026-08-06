@@ -378,7 +378,7 @@ const state = {
   templates: [],
   databaseManager: {
     profiles: [],
-    plugins: { items: [], loading: false, error: '' },
+    plugins: { items: [], loading: false, error: '', filter: 'all', search: '' },
     loading: false,
     error: '',
     editingProfileId: '',
@@ -527,8 +527,8 @@ const state = {
   ftpLocalBackStack: [],
   ftpLocalForwardStack: [],
   ftpRemoteFilter: '',
-  ftpCurrentPath: '.',
-  ftpParentPath: '.',
+  ftpCurrentPath: '/',
+  ftpParentPath: '/',
   ftpEntries: [],
   ftpSelectedPath: '',
   ftpBackStack: [],
@@ -593,7 +593,7 @@ function blankTerminalUploadState() {
   };
 }
 
-function blankTerminalSession(projectId = '', { tabId = '', label = '', startupDirectory = '' } = {}) {
+function blankTerminalSession(projectId = '', { tabId = '', label = '', startupDirectory = '/' } = {}) {
   return {
     projectId,
     tabId: tabId || `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -638,8 +638,8 @@ function blankFtpSession(projectId = '') {
     localBackStack: [],
     localForwardStack: [],
     localFilter: '',
-    currentPath: '.',
-    parentPath: '.',
+    currentPath: '/',
+    parentPath: '/',
     entries: [],
     selectedPath: '',
     backStack: [],
@@ -649,7 +649,7 @@ function blankFtpSession(projectId = '') {
   };
 }
 
-function createTerminalTabSession(projectId, { startupDirectory = '' } = {}) {
+function createTerminalTabSession(projectId, { startupDirectory = '/' } = {}) {
   const nextNumber = Number(state.terminalTabCounters[projectId] || 0) + 1;
   const inheritedDirectory = String(startupDirectory || '').trim();
   state.terminalTabCounters[projectId] = nextNumber;
@@ -1425,11 +1425,7 @@ function activateTerminalTab(tabId, { focus = true } = {}) {
 async function openNewTerminalTab() {
   const projectId = state.activeProject?.id;
   if (!projectId || isRdpProject()) return;
-  const currentSession = getTerminalSession(projectId);
-  const startupDirectory = String(
-    currentSession?.currentDirectory || currentSession?.homeDirectory || currentSession?.startupDirectory || ''
-  );
-  const session = createTerminalTabSession(projectId, { startupDirectory });
+  const session = createTerminalTabSession(projectId);
   getTerminalTabs(projectId, true).push(session);
   state.activeTerminalTabIds[projectId] = session.tabId;
   activateTerminalTab(session.tabId);
@@ -1643,6 +1639,7 @@ const els = {
   databaseProductionCount: document.getElementById('databaseProductionCount'),
   databaseReadOnlyCount: document.getElementById('databaseReadOnlyCount'),
   databaseProfilesRefreshButton: document.getElementById('databaseProfilesRefreshButton'),
+  databasePluginSettingsButton: document.getElementById('databasePluginSettingsButton'),
   databaseProfileAddButton: document.getElementById('databaseProfileAddButton'),
   databaseProfileEmptyAddButton: document.getElementById('databaseProfileEmptyAddButton'),
   databaseProfileSearch: document.getElementById('databaseProfileSearch'),
@@ -1651,7 +1648,6 @@ const els = {
   databaseProfileList: document.getElementById('databaseProfileList'),
   databaseProfilesEmpty: document.getElementById('databaseProfilesEmpty'),
   databaseConnectionsTab: document.getElementById('databaseConnectionsTab'),
-  databasePluginsTab: document.getElementById('databasePluginsTab'),
   databaseQueryTab: document.getElementById('databaseQueryTab'),
   databaseNotebooksTab: document.getElementById('databaseNotebooksTab'),
   databaseTasksTab: document.getElementById('databaseTasksTab'),
@@ -2935,14 +2931,36 @@ const els = {
   databaseProfileCloseButton: document.getElementById('databaseProfileCloseButton'),
   databaseProfileCancelButton: document.getElementById('databaseProfileCancelButton'),
   databaseProfileSaveButton: document.getElementById('databaseProfileSaveButton'),
+  databaseProfileNextButton: document.getElementById('databaseProfileNextButton'),
+  databaseProfileBackButton: document.getElementById('databaseProfileBackButton'),
+  databaseProfileChooser: document.getElementById('databaseProfileChooser'),
+  databaseProfileConfigure: document.getElementById('databaseProfileConfigure'),
+  databaseProfileCatalogueSearch: document.getElementById('databaseProfileCatalogueSearch'),
+  databaseProfileCatalogueFilters: document.getElementById('databaseProfileCatalogueFilters'),
+  databaseProfileCatalogue: document.getElementById('databaseProfileCatalogue'),
+  databaseProfileDriverIdentity: document.getElementById('databaseProfileDriverIdentity'),
+  databaseProfileChangeDriverButton: document.getElementById('databaseProfileChangeDriverButton'),
+  databaseProfileModalSubtitle: document.getElementById('databaseProfileModalSubtitle'),
+  databaseProfileStepChoose: document.getElementById('databaseProfileStepChoose'),
+  databaseProfileStepConfigure: document.getElementById('databaseProfileStepConfigure'),
   databaseProfileDriver: document.getElementById('databaseProfileDriver'),
   databaseProfileName: document.getElementById('databaseProfileName'),
+  databaseProfileConnectionStringField: document.getElementById('databaseProfileConnectionStringField'),
+  databaseProfileConnectionString: document.getElementById('databaseProfileConnectionString'),
   databaseProfileNetworkFields: document.getElementById('databaseProfileNetworkFields'),
   databaseProfileHost: document.getElementById('databaseProfileHost'),
   databaseProfilePort: document.getElementById('databaseProfilePort'),
   databaseProfileUsername: document.getElementById('databaseProfileUsername'),
   databaseProfilePassword: document.getElementById('databaseProfilePassword'),
   databaseProfilePluginCredentials: document.getElementById('databaseProfilePluginCredentials'),
+  databaseProfileGeneralDatabaseFields: document.getElementById('databaseProfileGeneralDatabaseFields'),
+  databaseProfileDatabasesPanelFields: document.getElementById('databaseProfileDatabasesPanelFields'),
+  databaseProfileDatabaseFields: document.getElementById('databaseProfileDatabaseFields'),
+  databaseProfileLocalResourcePanel: document.getElementById('databaseProfileLocalResourcePanel'),
+  databaseProfileLocalResourceTitle: document.getElementById('databaseProfileLocalResourceTitle'),
+  databaseProfileLocalResourceHelp: document.getElementById('databaseProfileLocalResourceHelp'),
+  databaseProfileNoConnectionPanel: document.getElementById('databaseProfileNoConnectionPanel'),
+  databaseProfileBuiltinSettings: document.getElementById('databaseProfileBuiltinSettings'),
   databaseProfilePluginSettings: document.getElementById('databaseProfilePluginSettings'),
   databaseProfileDatabaseField: document.getElementById('databaseProfileDatabaseField'),
   databaseProfileDatabase: document.getElementById('databaseProfileDatabase'),
@@ -2954,6 +2972,12 @@ const els = {
   databaseProfileSslField: document.getElementById('databaseProfileSslField'),
   databaseProfileSslMode: document.getElementById('databaseProfileSslMode'),
   databaseProfileTags: document.getElementById('databaseProfileTags'),
+  databaseProfileSavePassword: document.getElementById('databaseProfileSavePassword'),
+  databaseProfileDetectJson: document.getElementById('databaseProfileDetectJson'),
+  databaseProfileSslCa: document.getElementById('databaseProfileSslCa'),
+  databaseProfileSslClient: document.getElementById('databaseProfileSslClient'),
+  databaseProfileStartupScript: document.getElementById('databaseProfileStartupScript'),
+  databaseProfileQueryTimeout: document.getElementById('databaseProfileQueryTimeout'),
   databaseProfileFormError: document.getElementById('databaseProfileFormError'),
   databaseQueryApprovalModal: document.getElementById('databaseQueryApprovalModal'),
   databaseQueryApprovalForm: document.getElementById('databaseQueryApprovalForm'),
@@ -3358,7 +3382,11 @@ const els = {
   modalSshUserEditorTitle: document.getElementById('modalSshUserEditorTitle'),
   modalSshUserEditorStatus: document.getElementById('modalSshUserEditorStatus'),
   modalSshUsername: document.getElementById('modalSshUsername'),
+  modalAuthTypeDropdown: document.getElementById('modalAuthTypeDropdown'),
   modalAuthType: document.getElementById('modalAuthType'),
+  modalAuthTypeButton: document.getElementById('modalAuthTypeButton'),
+  modalAuthTypeLabel: document.getElementById('modalAuthTypeLabel'),
+  modalAuthTypeMenu: document.getElementById('modalAuthTypeMenu'),
   modalSshPassword: document.getElementById('modalSshPassword'),
   modalPrivateKey: document.getElementById('modalPrivateKey'),
   modalKeyPassphrase: document.getElementById('modalKeyPassphrase'),
@@ -5767,18 +5795,190 @@ function applyRdpFullscreen(enabled) {
 }
 
 const DATABASE_DRIVER_UI = Object.freeze({
-  postgresql: Object.freeze({ name: 'PostgreSQL', defaultPort: 5432 }),
-  mysql: Object.freeze({ name: 'MySQL / MariaDB', defaultPort: 3306 }),
-  sqlite: Object.freeze({ name: 'SQLite', defaultPort: null })
+  postgresql: Object.freeze({ name: 'PostgreSQL', defaultPort: 5432, defaultUsername: 'postgres', capabilities: Object.freeze({ schemas: true, fileBased: false, supportsSsl: true, supportsSsh: true, connectionString: true }) }),
+  mysql: Object.freeze({ name: 'MySQL / MariaDB', defaultPort: 3306, defaultUsername: 'root', capabilities: Object.freeze({ schemas: false, fileBased: false, supportsSsl: true, supportsSsh: true, connectionString: true }) }),
+  sqlite: Object.freeze({ name: 'SQLite', defaultPort: null, defaultUsername: '', capabilities: Object.freeze({ schemas: false, fileBased: true, supportsSsl: false, supportsSsh: false, connectionString: false }) })
 });
+
+const BUNDLED_DATABASE_PLUGINS = Object.freeze([
+  Object.freeze({ pluginId: 'mysql', name: 'MySQL', logo: 'mysql.svg', description: 'Native MySQL connections, schema browsing, queries, and backup workflows.' }),
+  Object.freeze({ pluginId: 'mariadb', name: 'MariaDB', logo: 'mariadb.svg', description: 'MariaDB connectivity and database protection workflows.' }),
+  Object.freeze({ pluginId: 'postgresql', name: 'PostgreSQL', logo: 'postgresql.svg', description: 'Native PostgreSQL connections, schema browsing, queries, and backup workflows.' }),
+  Object.freeze({ pluginId: 'supabase', name: 'Supabase', logo: 'supabase.svg', description: 'Supabase PostgreSQL projects and managed database workflows.' }),
+  Object.freeze({ pluginId: 'mongodb', name: 'MongoDB', logo: 'mongodb.svg', description: 'MongoDB databases, collections, and backup workflows.' }),
+  Object.freeze({ pluginId: 'clickhouse', name: 'ClickHouse', logo: 'clickhouse.svg', description: 'ClickHouse analytics databases and native backup workflows.' }),
+  Object.freeze({ pluginId: 'redis', name: 'Redis', logo: 'redis.svg', description: 'Redis data stores, persistence, and recovery workflows.' }),
+  Object.freeze({ pluginId: 'sqlite', name: 'SQLite', logo: 'sqlite.svg', description: 'Local SQLite files with native queries, browsing, and backup support.' })
+]);
+
+function bundledDatabasePlugin(plugin) {
+  return {
+    ...plugin,
+    version: state.app.version,
+    installedVersion: state.app.version,
+    supported: true,
+    approved: true,
+    installed: true,
+    enabled: true,
+    bundled: true,
+    signatureVerified: true,
+    integrityStatus: 'verified',
+    health: { status: 'ready' }
+  };
+}
+
+function mergeBundledDatabasePlugins(catalog = []) {
+  const remote = new Map((Array.isArray(catalog) ? catalog : []).map((plugin) => [plugin.pluginId, plugin]));
+  const bundled = BUNDLED_DATABASE_PLUGINS.map((plugin) => {
+    const catalogPlugin = remote.get(plugin.pluginId);
+    remote.delete(plugin.pluginId);
+    return bundledDatabasePlugin({ ...catalogPlugin, ...plugin, driver: catalogPlugin?.driver || null });
+  });
+  return [...bundled, ...remote.values()];
+}
+
+function setDatabasePluginItems(catalog) {
+  state.databaseManager.plugins.items = mergeBundledDatabasePlugins(catalog);
+  return state.databaseManager.plugins.items;
+}
 
 function databaseDriverUi(driverId) {
   const plugin = state.databaseManager.plugins.items.find((item) => item.pluginId === driverId && item.installed && item.enabled && item.driver);
   return DATABASE_DRIVER_UI[driverId] || plugin?.driver || { name: String(driverId || 'Database'), defaultPort: null, credentialSlots: [], capabilities: {} };
 }
 
+function databaseProfileDriverCapabilities(driver) {
+  const capabilities = driver?.capabilities || {};
+  return {
+    schemas: capabilities.schemas === true ? true : capabilities.schemas === false ? false : null,
+    fileBased: capabilities.fileBased === true || capabilities.file_based === true,
+    folderBased: capabilities.folderBased === true || capabilities.folder_based === true,
+    noConnectionRequired: capabilities.noConnectionRequired === true || capabilities.no_connection_required === true,
+    singleDatabase: capabilities.singleDatabase === true || capabilities.single_database === true,
+    supportsSsl: capabilities.supportsSsl === true || capabilities.supports_ssl === true,
+    supportsSsh: capabilities.supportsSsh === true || capabilities.supports_ssh === true,
+    connectionString: capabilities.connectionString !== false && capabilities.connection_string !== false
+  };
+}
+
+function databaseProfileCatalogueEntries() {
+  const builtins = [
+    { id: 'mysql', name: 'MySQL', description: 'MySQL and MariaDB databases', category: 'SQL', installed: true, verified: true, logo: './assets/database-logos/mysql.svg', color: '#f97316' },
+    { id: 'postgresql', name: 'PostgreSQL', description: 'PostgreSQL databases', category: 'SQL', installed: true, verified: true, logo: './assets/database-logos/postgresql.svg', color: '#3b82f6' },
+    { id: 'sqlite', name: 'SQLite', description: 'Local SQLite database files', category: 'SQL', installed: true, verified: true, logo: './assets/database-logos/sqlite.svg', color: '#0ea5e9' }
+  ];
+  const plugins = state.databaseManager.plugins.items
+    .filter((item) => item.installed && item.enabled && item.driver)
+    .map((item) => {
+      const driver = item.driver;
+      const capabilities = databaseProfileDriverCapabilities(driver);
+      const category = capabilities.fileBased || capabilities.folderBased ? 'Local' : capabilities.noConnectionRequired ? 'API' : 'Other';
+      return {
+        id: item.pluginId,
+        name: driver.name || item.name || item.pluginId,
+        description: item.description || 'Installed database driver',
+        category,
+        installed: true,
+        verified: Boolean(item.signatureVerified),
+        logo: null,
+        color: '#64748b',
+        plugin: true
+      };
+    });
+  return [...builtins, ...plugins];
+}
+
+function databaseProfileCatalogueIcon(entry) {
+  if (entry.logo) return `<img src="${entry.logo}" alt="" aria-hidden="true" />`;
+  const initials = String(entry.name || 'DB').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  return `<span class="database-profile-catalogue-initials">${escapeHtml(initials || 'DB')}</span>`;
+}
+
+function renderDatabaseProfileCatalogue() {
+  if (!els.databaseProfileCatalogue) return;
+  const entries = databaseProfileCatalogueEntries();
+  const term = String(els.databaseProfileCatalogueSearch?.value || '').trim().toLowerCase();
+  const activeFilter = els.databaseProfileCatalogueFilters?.dataset.activeFilter || 'All';
+  const filtered = entries.filter((entry) => (activeFilter === 'All' || entry.category === activeFilter) && `${entry.name} ${entry.description} ${entry.category}`.toLowerCase().includes(term));
+  const categories = [...new Set(entries.map((entry) => entry.category))];
+  if (els.databaseProfileCatalogueFilters) {
+    if (!categories.includes(activeFilter) && activeFilter !== 'All') els.databaseProfileCatalogueFilters.dataset.activeFilter = 'All';
+    const currentFilter = els.databaseProfileCatalogueFilters.dataset.activeFilter || 'All';
+    els.databaseProfileCatalogueFilters.innerHTML = ['All', ...categories].map((category) => `<button type="button" class="database-profile-filter-chip ${category === currentFilter ? 'active' : ''}" data-database-profile-filter="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join('');
+  }
+  if (!filtered.length) {
+    els.databaseProfileCatalogue.innerHTML = '<div class="database-profile-catalogue-empty">No installed database drivers match your search.</div>';
+    return;
+  }
+  const byCategory = categories.map((category) => [category, filtered.filter((entry) => entry.category === category)]).filter(([, list]) => list.length);
+  els.databaseProfileCatalogue.innerHTML = byCategory.map(([category, list]) => `
+    <section class="database-profile-catalogue-section">
+      <h3>${escapeHtml(category)} <span>${list.length}</span></h3>
+      <div class="database-profile-catalogue-grid">
+        ${list.map((entry) => `<button type="button" class="database-profile-catalogue-card" data-database-profile-driver="${escapeHtml(entry.id)}" style="--driver-accent:${escapeHtml(entry.color)}">
+          <span class="database-profile-catalogue-icon">${databaseProfileCatalogueIcon(entry)}</span>
+          <span class="database-profile-catalogue-copy"><strong>${escapeHtml(entry.name)}</strong><small>${escapeHtml(entry.description)}</small></span>
+          <span class="database-profile-catalogue-status">Installed</span>
+        </button>`).join('')}
+      </div>
+    </section>`).join('');
+}
+
+function renderDatabaseProfileDriverIdentity() {
+  if (!els.databaseProfileDriverIdentity) return;
+  const driverId = els.databaseProfileDriver.value;
+  const driver = databaseDriverUi(driverId);
+  const entry = databaseProfileCatalogueEntries().find((item) => item.id === driverId);
+  els.databaseProfileDriverIdentity.innerHTML = `<span class="database-profile-driver-identity-icon" style="--driver-accent:${escapeHtml(entry?.color || '#64748b')}">${entry ? databaseProfileCatalogueIcon(entry) : '<span class="database-profile-catalogue-initials">DB</span>'}</span><span><strong>${escapeHtml(driver.name || entry?.name || driverId)}</strong><small>${escapeHtml(entry?.description || 'Database connection')}</small></span>`;
+}
+
+function applyDatabaseProfileConnectionString() {
+  const value = String(els.databaseProfileConnectionString.value || '').trim();
+  if (!value) return;
+  let parsed;
+  try { parsed = new URL(value); } catch { return; }
+  const driverId = els.databaseProfileDriver.value;
+  const protocols = driverId === 'mysql' ? new Set(['mysql:', 'mariadb:']) : driverId === 'postgresql' ? new Set(['postgres:', 'postgresql:']) : new Set();
+  if (!protocols.has(parsed.protocol) || !parsed.hostname) return;
+  const decode = (text) => { try { return decodeURIComponent(text); } catch { return text; } };
+  els.databaseProfileHost.value = parsed.hostname;
+  els.databaseProfilePort.value = parsed.port || String(databaseDriverUi(driverId).defaultPort || '');
+  els.databaseProfileUsername.value = decode(parsed.username || '');
+  els.databaseProfilePassword.value = decode(parsed.password || '');
+  els.databaseProfileDatabase.value = decode(parsed.pathname.replace(/^\//, ''));
+}
+
+function setDatabaseProfileWizardStep(step) {
+  const configure = step === 'configure';
+  els.databaseProfileChooser.classList.toggle('hidden', configure);
+  els.databaseProfileConfigure.classList.toggle('hidden', !configure);
+  els.databaseProfileBackButton.classList.toggle('hidden', !configure);
+  els.databaseProfileNextButton.classList.toggle('hidden', configure);
+  els.databaseProfileSaveButton.classList.toggle('hidden', !configure);
+  els.databaseProfileStepChoose.classList.toggle('active', !configure);
+  els.databaseProfileStepConfigure.classList.toggle('active', configure);
+  els.databaseProfileModalSubtitle.textContent = configure ? 'Configure connection' : 'Choose a database';
+  if (configure) {
+    renderDatabaseProfileDriverIdentity();
+    requestAnimationFrame(() => els.databaseProfileName.focus());
+  } else {
+    requestAnimationFrame(() => els.databaseProfileCatalogueSearch.focus());
+  }
+}
+
+function setDatabaseProfileConfigTab(tab) {
+  for (const button of els.databaseProfileConfigure.querySelectorAll('[data-database-profile-tab]')) {
+    const active = button.dataset.databaseProfileTab === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  }
+  for (const panel of els.databaseProfileConfigure.querySelectorAll('[data-database-profile-panel]')) {
+    panel.classList.toggle('hidden', panel.dataset.databaseProfilePanel !== tab);
+  }
+}
+
 function syncDatabaseProfileDriverOptions(selectedDriverId = els.databaseProfileDriver.value) {
-  const plugins = state.databaseManager.plugins.items.filter((item) => item.installed && item.enabled && item.driver);
+  const plugins = state.databaseManager.plugins.items.filter((item) => item.installed && item.enabled && item.driver && !DATABASE_DRIVER_UI[item.pluginId]);
   els.databaseProfileDriver.innerHTML = Object.entries(DATABASE_DRIVER_UI).map(([id, driver]) => `<option value="${escapeHtml(id)}">${escapeHtml(driver.name)}</option>`).join('')
     + plugins.map((plugin) => `<option value="${escapeHtml(plugin.pluginId)}">${escapeHtml(plugin.driver.name || plugin.name)}</option>`).join('');
   const availableIds = [...Object.keys(DATABASE_DRIVER_UI), ...plugins.map((item) => item.pluginId)];
@@ -5884,25 +6084,84 @@ async function loadDatabaseProfiles() {
 
 function syncDatabaseProfileDriver({ resetPort = false } = {}) {
   const driverId = els.databaseProfileDriver.value;
-  const isSqlite = driverId === 'sqlite';
   const driver = databaseDriverUi(driverId);
   const isPlugin = !DATABASE_DRIVER_UI[driverId];
   const slots = isPlugin && Array.isArray(driver.credentialSlots) ? driver.credentialSlots : [];
   const usesConnectionUri = slots.some((slot) => slot.type === 'connection-uri');
-  const connectionless = Boolean(driver.capabilities?.noConnectionRequired || usesConnectionUri);
-  const localOnly = isSqlite || Boolean(driver.capabilities?.fileBased || driver.capabilities?.folderBased || connectionless);
-  els.databaseProfileNetworkFields.classList.toggle('hidden', localOnly);
-  els.databaseProfileDatabaseField.classList.toggle('hidden', isSqlite || connectionless);
-  els.databaseProfileSchemaField.classList.toggle('hidden', isSqlite || connectionless);
-  els.databaseProfileSslField.classList.toggle('hidden', isSqlite || connectionless || (isPlugin && !driver.capabilities?.supportsSsl));
-  els.databaseProfileProject.disabled = localOnly;
+  const capabilities = databaseProfileDriverCapabilities(driver);
+  const connectionless = capabilities.noConnectionRequired || usesConnectionUri;
+  const localResource = capabilities.fileBased || capabilities.folderBased;
+  const network = !localResource && !connectionless;
+  const multiDatabase = network && capabilities.schemas === false && !capabilities.singleDatabase;
+  const supportsConnectionString = network && capabilities.connectionString && !usesConnectionUri;
+  const supportsSsl = network && capabilities.supportsSsl;
+
+  const visibleTabs = new Set(['general', 'advanced', 'appearance']);
+  if (multiDatabase) visibleTabs.add('databases');
+  if (supportsSsl) visibleTabs.add('ssl');
+  if (network) {
+    visibleTabs.add('ssh');
+    visibleTabs.add('kubernetes');
+  }
+  for (const button of els.databaseProfileConfigure.querySelectorAll('[data-database-profile-tab]')) {
+    button.classList.toggle('hidden', !visibleTabs.has(button.dataset.databaseProfileTab));
+  }
+  const activeTab = els.databaseProfileConfigure.querySelector('[data-database-profile-tab].active')?.dataset.databaseProfileTab || 'general';
+  if (!visibleTabs.has(activeTab)) setDatabaseProfileConfigTab('general');
+
+  els.databaseProfileConnectionStringField.classList.toggle('hidden', !supportsConnectionString);
+  els.databaseProfileConnectionString.placeholder = driverId === 'mysql'
+    ? 'mysql://user:pass@localhost:3306/database'
+    : driverId === 'postgresql'
+      ? 'postgres://user:pass@localhost:5432/database'
+      : 'driver://user:pass@localhost/database';
+  els.databaseProfileNetworkFields.classList.toggle('hidden', !network);
+  els.databaseProfileDatabaseFields.classList.toggle('hidden', !network || capabilities.singleDatabase);
+  els.databaseProfileDatabaseFields.classList.toggle('single-field', capabilities.schemas !== true);
+  els.databaseProfileDatabaseField.classList.toggle('hidden', !network || capabilities.singleDatabase);
+  els.databaseProfileSchemaField.classList.toggle('hidden', !network || capabilities.schemas !== true);
+  (multiDatabase ? els.databaseProfileDatabasesPanelFields : els.databaseProfileGeneralDatabaseFields).append(els.databaseProfileDatabaseFields);
+  els.databaseProfileDatabaseField.querySelector('span').textContent = multiDatabase ? 'Initial database' : 'Database';
+  els.databaseProfileSchemaField.querySelector('span').textContent = 'Default schema';
+  els.databaseProfileSslField.classList.toggle('hidden', !supportsSsl);
+  els.databaseProfileProject.disabled = !network;
   els.databaseProfileUsername.closest('.field').classList.toggle('hidden', isPlugin);
   els.databaseProfilePassword.closest('.field').classList.toggle('hidden', isPlugin);
-  if (localOnly) els.databaseProfileProject.value = '';
-  if (resetPort && driver.defaultPort) els.databaseProfilePort.value = String(driver.defaultPort);
+  els.databaseProfileSavePassword.closest('label').classList.toggle('hidden', !network && !slots.length);
+  els.databaseProfileLocalResourcePanel.classList.toggle('hidden', !localResource);
+  els.databaseProfileNoConnectionPanel.classList.toggle('hidden', !capabilities.noConnectionRequired);
+  if (localResource) {
+    const folder = capabilities.folderBased;
+    els.databaseProfileLocalResourceTitle.textContent = folder ? 'Local database folder' : 'Local database file';
+    els.databaseProfileLocalResourceHelp.textContent = folder
+      ? 'Choose the database folder after saving this profile.'
+      : driverId === 'sqlite'
+        ? 'Choose an existing SQLite file after saving, or create a new SQLite database from the connection row.'
+        : 'Choose the database file after saving this profile.';
+  }
+  if (!network) els.databaseProfileProject.value = '';
+  if (resetPort) {
+    els.databaseProfilePort.value = driver.defaultPort ? String(driver.defaultPort) : '';
+    if (!state.databaseManager.editingProfileId) {
+      els.databaseProfileUsername.value = driver.defaultUsername || (driverId === 'mysql' ? 'root' : driverId === 'postgresql' ? 'postgres' : '');
+      els.databaseProfileDatabase.value = '';
+      els.databaseProfileSchema.value = driverId === 'postgresql' ? 'public' : '';
+    }
+  }
   els.databaseProfilePluginCredentials.classList.toggle('hidden', !slots.length);
   els.databaseProfilePluginCredentials.innerHTML = slots.map((slot) => `<label class="field ${slots.length === 1 ? 'span-2' : ''}"><span>${escapeHtml(slot.label || slot.id)}</span><input type="${['password', 'token', 'private-key', 'connection-uri'].includes(slot.type) ? 'password' : 'text'}" data-database-plugin-credential="${escapeHtml(slot.id)}" autocomplete="off" ${slot.required && !state.databaseManager.editingProfileId ? 'required' : ''} placeholder="${state.databaseManager.editingProfileId ? 'Leave empty to keep saved value' : ''}"></label>`).join('');
   const settings = isPlugin && Array.isArray(driver.settings?.fields) ? driver.settings.fields.filter((field) => field?.key).slice(0, 100) : [];
+  const builtinSettings = driverId === 'mysql' ? [
+    { key: 'maxAllowedPacket', label: 'Max allowed packet', type: 'number', value: '1073741824' },
+    { key: 'socketTimeout', label: 'Socket timeout (milliseconds)', type: 'number', value: '600000' },
+    { key: 'connectTimeout', label: 'Connect timeout (milliseconds)', type: 'number', value: '60000' },
+    { key: 'timezone', label: 'Session timezone', type: 'text', value: 'SYSTEM' },
+    { key: 'pipesAsConcat', label: 'Set PIPES_AS_CONCAT SQL mode on connect', type: 'checkbox', value: true }
+  ] : [];
+  els.databaseProfileBuiltinSettings.classList.toggle('hidden', !builtinSettings.length);
+  els.databaseProfileBuiltinSettings.innerHTML = builtinSettings.map((field) => field.type === 'checkbox'
+    ? `<label class="field checkbox-field span-2"><input type="checkbox" data-database-builtin-setting="${field.key}" ${field.value ? 'checked' : ''}><span>${field.label}</span></label>`
+    : `<label class="field"><span>${field.label}</span><input type="${field.type}" value="${field.value}" data-database-builtin-setting="${field.key}" autocomplete="off"></label>`).join('');
   els.databaseProfilePluginSettings.classList.toggle('hidden', !settings.length);
   els.databaseProfilePluginSettings.innerHTML = settings.map((field) => {
     const key = escapeHtml(field.key);
@@ -5911,6 +6170,7 @@ function syncDatabaseProfileDriver({ resetPort = false } = {}) {
     if (Array.isArray(field.options) && field.options.length) return `<label class="field"><span>${label}</span><select data-database-plugin-setting="${key}" ${field.required ? 'required' : ''}>${field.options.slice(0, 100).map((option) => `<option value="${escapeHtml(option.value ?? option)}">${escapeHtml(option.label ?? option)}</option>`).join('')}</select></label>`;
     return `<label class="field"><span>${label}</span><input type="${field.type === 'number' ? 'number' : 'text'}" data-database-plugin-setting="${key}" autocomplete="off" ${field.required ? 'required' : ''}></label>`;
   }).join('');
+  renderDatabaseProfileDriverIdentity();
 }
 
 function populateDatabaseProfileProjects(selectedProjectId = '') {
@@ -5928,6 +6188,7 @@ function openDatabaseProfileModal(profile = null) {
   els.databaseProfileModalTitle.textContent = profile ? 'Edit database' : 'Add database';
   els.databaseProfileSaveButton.lastChild.textContent = profile ? ' Update profile' : ' Save profile';
   els.databaseProfileName.value = profile?.name || '';
+  els.databaseProfileConnectionString.value = '';
   els.databaseProfileHost.value = profile?.endpoint?.host || '';
   els.databaseProfilePort.value = String(profile?.endpoint?.port || databaseDriverUi(profile?.driverId || 'postgresql').defaultPort || '');
   els.databaseProfileUsername.value = profile?.settings?.username || '';
@@ -5938,18 +6199,31 @@ function openDatabaseProfileModal(profile = null) {
   els.databaseProfileEnvironment.value = profile?.environment || 'unclassified';
   els.databaseProfileAccessMode.value = profile?.accessMode || 'read-write';
   els.databaseProfileSslMode.value = profile?.ssl?.mode || 'disabled';
+  els.databaseProfileSslCa.checked = profile?.ssl?.caPathRequired === true;
+  els.databaseProfileSslClient.checked = profile?.ssl?.clientCertificateRequired === true;
+  els.databaseProfileSavePassword.checked = profile ? profile.credentialSecretRefs?.length > 0 : true;
+  els.databaseProfileDetectJson.checked = profile?.detectJsonInTextColumns === true;
+  els.databaseProfileStartupScript.value = profile?.startupScript || '';
+  els.databaseProfileQueryTimeout.value = String(profile?.queryTimeoutMs || 60000);
   els.databaseProfileTags.value = (profile?.tags || []).join(', ');
   populateDatabaseProfileProjects(profile?.projectId || '');
   els.databaseProfileFormError.textContent = '';
   els.databaseProfileFormError.classList.add('hidden');
-  syncDatabaseProfileDriver();
+  syncDatabaseProfileDriver({ resetPort: !profile });
   for (const input of els.databaseProfilePluginSettings.querySelectorAll('[data-database-plugin-setting]')) {
     const value = profile?.settings?.[input.dataset.databasePluginSetting];
     if (input.type === 'checkbox') input.checked = value === true;
     else if (value !== undefined && value !== null) input.value = String(value);
   }
+  for (const input of els.databaseProfileBuiltinSettings.querySelectorAll('[data-database-builtin-setting]')) {
+    const value = profile?.settings?.[input.dataset.databaseBuiltinSetting];
+    if (input.type === 'checkbox' && value !== undefined) input.checked = value === true;
+    else if (value !== undefined && value !== null) input.value = String(value);
+  }
+  renderDatabaseProfileCatalogue();
+  setDatabaseProfileConfigTab('general');
+  setDatabaseProfileWizardStep(profile ? 'configure' : 'choose');
   setModalVisible(true, els.databaseProfileModal);
-  requestAnimationFrame(() => els.databaseProfileName.focus());
 }
 
 function closeDatabaseProfileModal() {
@@ -5959,38 +6233,54 @@ function closeDatabaseProfileModal() {
 
 function databaseProfileFormPayload() {
   const driverId = els.databaseProfileDriver.value;
-  const isSqlite = driverId === 'sqlite';
   const driver = databaseDriverUi(driverId);
   const isPlugin = !DATABASE_DRIVER_UI[driverId];
+  const capabilities = databaseProfileDriverCapabilities(driver);
   const usesConnectionUri = isPlugin && Array.isArray(driver.credentialSlots) && driver.credentialSlots.some((slot) => slot.type === 'connection-uri');
-  const endpointKind = isSqlite || driver.capabilities?.fileBased ? 'file' : driver.capabilities?.folderBased ? 'folder' : driver.capabilities?.noConnectionRequired || usesConnectionUri ? 'none' : 'network';
+  const endpointKind = capabilities.fileBased ? 'file' : capabilities.folderBased ? 'folder' : capabilities.noConnectionRequired || usesConnectionUri ? 'none' : 'network';
   const projectId = endpointKind === 'network' ? els.databaseProfileProject.value : '';
-  const password = els.databaseProfilePassword.value;
-  const pluginCredentials = Object.fromEntries([...els.databaseProfilePluginCredentials.querySelectorAll('[data-database-plugin-credential]')]
-    .map((input) => [input.dataset.databasePluginCredential, input.value]).filter(([, value]) => value));
+  const password = els.databaseProfileSavePassword.checked ? els.databaseProfilePassword.value : '';
+  const pluginCredentials = els.databaseProfileSavePassword.checked ? Object.fromEntries([...els.databaseProfilePluginCredentials.querySelectorAll('[data-database-plugin-credential]')]
+    .map((input) => [input.dataset.databasePluginCredential, input.value]).filter(([, value]) => value))
+    : {};
   const pluginSettings = Object.fromEntries([...els.databaseProfilePluginSettings.querySelectorAll('[data-database-plugin-setting]')].map((input) => {
     const value = input.type === 'checkbox' ? input.checked : input.type === 'number' && input.value !== '' ? Number(input.value) : input.value;
     return [input.dataset.databasePluginSetting, value];
   }).filter(([, value]) => value !== ''));
+  const builtinSettings = Object.fromEntries([...els.databaseProfileBuiltinSettings.querySelectorAll('[data-database-builtin-setting]')].map((input) => {
+    const value = input.type === 'checkbox' ? input.checked : input.type === 'number' && input.value !== '' ? Number(input.value) : input.value;
+    return [input.dataset.databaseBuiltinSetting, value];
+  }).filter(([, value]) => value !== ''));
+  const username = els.databaseProfileUsername.value.trim();
   return {
     name: els.databaseProfileName.value,
     driverId,
     endpoint: endpointKind === 'network' ? { kind: 'network', host: els.databaseProfileHost.value, port: Number(els.databaseProfilePort.value) } : { kind: endpointKind },
-    database: isSqlite || endpointKind === 'none' ? null : els.databaseProfileDatabase.value,
-    defaultSchema: isSqlite || endpointKind === 'none' ? null : els.databaseProfileSchema.value,
+    database: endpointKind !== 'network' || capabilities.singleDatabase ? null : els.databaseProfileDatabase.value,
+    defaultSchema: endpointKind !== 'network' || capabilities.schemas !== true ? null : els.databaseProfileSchema.value,
     environment: els.databaseProfileEnvironment.value,
     accessMode: els.databaseProfileAccessMode.value,
     projectId: projectId || null,
     tunnel: projectId ? { type: 'server', projectId } : { type: 'none' },
-    ssl: { mode: endpointKind !== 'network' || (isPlugin && !driver.capabilities?.supportsSsl) ? 'disabled' : els.databaseProfileSslMode.value },
+    ssl: {
+      mode: endpointKind !== 'network' || (isPlugin && !driver.capabilities?.supportsSsl) ? 'disabled' : els.databaseProfileSslMode.value,
+      caPathRequired: endpointKind === 'network' && els.databaseProfileSslCa.checked,
+      clientCertificateRequired: endpointKind === 'network' && els.databaseProfileSslClient.checked
+    },
     tags: els.databaseProfileTags.value.split(',').map((tag) => tag.trim()).filter(Boolean),
-    settings: isPlugin ? pluginSettings : isSqlite || !els.databaseProfileUsername.value.trim() ? {} : { username: els.databaseProfileUsername.value.trim() },
+    settings: isPlugin ? pluginSettings : endpointKind !== 'network' ? {} : { ...(username ? { username } : {}), ...builtinSettings },
+    startupScript: els.databaseProfileStartupScript.value,
+    queryTimeoutMs: Number(els.databaseProfileQueryTimeout.value || 60000),
     credentials: isPlugin ? pluginCredentials : password ? { password } : {}
   };
 }
 
 async function saveDatabaseProfile(event) {
   event.preventDefault();
+  if (!els.databaseProfileChooser.classList.contains('hidden')) {
+    setDatabaseProfileWizardStep('configure');
+    return;
+  }
   const editing = state.databaseManager.profiles.find((profile) => profile.id === state.databaseManager.editingProfileId) || null;
   els.databaseProfileFormError.classList.add('hidden');
   setButtonLoading(els.databaseProfileSaveButton, true);
@@ -6477,7 +6767,7 @@ async function requestDatabaseNotebookDiscard() {
   return confirmDangerousAction('Discard unsaved notebook changes?', 'The current notebook has edits that are not saved.', 'Discard changes');
 }
 
-function renderDatabasePlugins() {
+function renderLegacyDatabasePlugins() {
   const plugins = state.databaseManager.plugins.items || [];
   const panel = els.databasePluginsPanel;
   if (!panel) return;
@@ -6521,32 +6811,127 @@ function renderDatabasePlugins() {
     }).join('') : '<div class="database-manager-empty compact"><strong>No approved driver plugins</strong><p>Built-in drivers remain available without plugins.</p></div>'}</div>`;
 }
 
+function databasePluginLogo(plugin) {
+  if (plugin.logo && /^[a-z0-9-]+\.svg$/.test(plugin.logo)) {
+    return `<img src="./assets/database-logos/${escapeHtml(plugin.logo)}" alt="" aria-hidden="true" />`;
+  }
+  return '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-database"></use></svg>';
+}
+
+function databasePluginCard(plugin) {
+  const health = plugin.health || {};
+  const integrityBlocked = ['failed', 'reinstall-required'].includes(plugin.integrityStatus);
+  const signatureBlocked = plugin.installed && plugin.signatureVerified === false;
+  const runtimeUnavailable = plugin.runtimeRequirement?.status === 'unavailable';
+  const runtimeBlocked = integrityBlocked || signatureBlocked || runtimeUnavailable;
+  const healthStatus = signatureBlocked ? 'warning' : plugin.integrityStatus === 'failed' ? 'crashed' : plugin.integrityStatus === 'reinstall-required' || runtimeUnavailable ? 'warning' : !plugin.installed ? 'not-installed' : !plugin.enabled ? 'disabled' : health.status || 'unknown';
+  const healthLabel = signatureBlocked ? 'Signature required' : plugin.integrityStatus === 'failed' ? 'Integrity failed' : plugin.integrityStatus === 'reinstall-required' ? 'Reinstall required' : runtimeUnavailable ? 'Runtime unavailable' : ({ ready: 'Ready', warning: 'Attention', crashed: 'Crashed', disabled: 'Disabled', unknown: 'Not checked', 'not-installed': 'Not installed' }[healthStatus] || 'Not checked');
+  const healthDetail = signatureBlocked ? 'Install a signed release before using this driver.' : integrityBlocked ? 'Driver files must be reinstalled before use.' : healthStatus === 'crashed'
+    ? `${health.crashCount || 1} recorded crash${health.crashCount === 1 ? '' : 'es'}${health.lastErrorCode ? ` - ${health.lastErrorCode}` : ''}`
+    : health.lastCheckedAt ? `Checked ${formatDateTime(health.lastCheckedAt)}` : health.lastErrorCode || '';
+  const runtimeDetail = plugin.runtimeRequirement?.id === 'python'
+    ? plugin.runtimeRequirement.status === 'unavailable'
+      ? plugin.runtimeRequirement.reason || 'Python is not available on this device.'
+      : `Requires Python ${plugin.runtimeRequirement.minimumVersion || '3.8'} or newer${plugin.runtimeRequirement.version ? ` (detected ${plugin.runtimeRequirement.version})` : ''}.`
+    : plugin.runtimeRequirement?.status === 'unavailable'
+      ? plugin.runtimeRequirement.reason || `${plugin.runtimeRequirement.label || 'A required component'} is not available on this device.`
+      : plugin.runtimeRequirement?.label ? `Requires ${plugin.runtimeRequirement.label} on this device.` : '';
+  const primaryAction = plugin.bundled
+    ? '<span class="database-plugin-installed-mark"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-check"></use></svg>Installed</span>'
+    : !plugin.installed
+      ? `<button class="button solid compact" data-database-plugin-install="${escapeHtml(plugin.pluginId)}" ${plugin.supported ? '' : 'disabled'}>Install</button>`
+      : signatureBlocked
+        ? plugin.supported
+          ? `<button class="button solid compact" data-database-plugin-install="${escapeHtml(plugin.pluginId)}">Reinstall</button>`
+          : '<button class="button outline compact" type="button" disabled>Signature required</button>'
+        : integrityBlocked
+          ? `<button class="button solid compact" data-database-plugin-install="${escapeHtml(plugin.pluginId)}" ${plugin.supported ? '' : 'disabled'}>Reinstall</button>`
+          : plugin.enabled
+            ? `<button class="button outline compact" data-database-plugin-disable="${escapeHtml(plugin.pluginId)}">Disable</button>`
+            : runtimeUnavailable
+              ? '<button class="button outline compact" type="button" data-database-plugin-runtime-refresh><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-refresh"></use></svg>Recheck</button>'
+              : `<button class="button outline compact" data-database-plugin-enable="${escapeHtml(plugin.pluginId)}">Enable</button>`;
+  const signatureLabel = plugin.bundled ? 'Bundled with DeployerX' : plugin.installed ? plugin.signatureVerified ? 'Signed release' : 'Signature required' : plugin.signature ? 'Signed release' : 'Unsigned';
+  return `<article class="database-plugin-row ${plugin.bundled ? 'is-bundled' : ''}">
+    <div class="database-plugin-visual">${databasePluginLogo(plugin)}</div>
+    <div class="database-plugin-body">
+      <div class="database-plugin-title"><strong>${escapeHtml(plugin.name)}</strong>${plugin.installed ? ` <span class="database-plugin-health status-${escapeHtml(healthStatus)}">${escapeHtml(healthLabel)}</span>` : ''}</div>
+      <small>${escapeHtml(plugin.pluginId)}${plugin.version ? ` v${escapeHtml(plugin.version)}` : ''} &middot; ${signatureLabel}</small>
+      <p>${escapeHtml(plugin.supported ? (plugin.description || 'Ready to install.') : (plugin.unsupportedReason || 'Unavailable on this device.'))}${runtimeDetail ? ` <span>${escapeHtml(runtimeDetail)}</span>` : ''}${healthDetail ? ` <span>${escapeHtml(healthDetail)}</span>` : ''}</p>
+      <div class="database-plugin-tags"><span>Database driver</span><span>${plugin.bundled ? 'Core' : 'Registry'}</span></div>
+    </div>
+    <div class="database-plugin-actions">${!plugin.bundled && plugin.installed && plugin.enabled && !runtimeBlocked ? `<button class="button outline compact" data-database-plugin-health="${escapeHtml(plugin.pluginId)}">Check</button>` : ''}${primaryAction}${plugin.installed && !plugin.bundled ? `<button class="button outline danger compact" data-database-plugin-remove="${escapeHtml(plugin.pluginId)}">Remove</button>` : ''}</div>
+  </article>`;
+}
+
+function renderDatabasePlugins() {
+  const plugins = state.databaseManager.plugins.items || [];
+  const panel = els.databasePluginsPanel;
+  if (!panel) return;
+  const installedCount = plugins.filter((plugin) => plugin.installed).length;
+  const enabledCount = plugins.filter((plugin) => plugin.installed && plugin.enabled).length;
+  const availableCount = plugins.filter((plugin) => !plugin.installed).length;
+  const updateCount = plugins.filter((plugin) => plugin.installedVersion && plugin.version && plugin.installedVersion !== plugin.version).length;
+  const query = state.databaseManager.plugins.search.trim().toLowerCase();
+  const filter = state.databaseManager.plugins.filter;
+  const visiblePlugins = plugins.filter((plugin) => {
+    if (filter === 'installed' && !plugin.installed) return false;
+    if (filter === 'available' && plugin.installed) return false;
+    if (filter === 'updates' && !(plugin.installedVersion && plugin.version && plugin.installedVersion !== plugin.version)) return false;
+    return !query || [plugin.name, plugin.pluginId, plugin.description].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+  const error = state.databaseManager.plugins.error;
+  panel.innerHTML = `<div class="database-plugin-hero">
+      <div class="database-plugin-hero-title"><span class="database-plugin-hero-icon"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-database"></use></svg></span><div><h2>Plugin Center</h2><p>Install and manage database integrations available on this device.</p></div></div>
+      <button class="button outline compact" type="button" data-database-plugin-refresh><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-refresh"></use></svg>Refresh</button>
+    </div>
+    <div class="database-plugin-summary" aria-label="Plugin summary">
+      <div><span>Installed</span><strong>${installedCount}</strong></div>
+      <div><span>Enabled</span><strong>${enabledCount}</strong></div>
+      <div><span>Available</span><strong>${availableCount}</strong></div>
+      <div><span>Updates</span><strong>${updateCount}</strong></div>
+    </div>
+    ${error ? `<div class="database-manager-error" role="alert">${escapeHtml(error)}</div>` : ''}
+    ${state.databaseManager.plugins.loading ? '<div class="database-manager-loading" role="status" aria-live="polite">Loading plugin catalog...</div>' : ''}
+    <div class="database-plugin-catalog-heading"><div><h3>Database plugins</h3><p>Bundled integrations are ready to use. Add approved drivers from the registry when needed.</p></div><label class="database-plugin-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input type="search" value="${escapeHtml(state.databaseManager.plugins.search)}" placeholder="Search plugins" aria-label="Search database plugins" data-database-plugin-search /></label></div>
+    <div class="database-plugin-filters" role="group" aria-label="Filter plugins">
+      <button class="${filter === 'all' ? 'active' : ''}" type="button" data-database-plugin-filter="all">All <span>${plugins.length}</span></button>
+      <button class="${filter === 'installed' ? 'active' : ''}" type="button" data-database-plugin-filter="installed">Installed <span>${installedCount}</span></button>
+      <button class="${filter === 'available' ? 'active' : ''}" type="button" data-database-plugin-filter="available">Available <span>${availableCount}</span></button>
+      <button class="${filter === 'updates' ? 'active' : ''}" type="button" data-database-plugin-filter="updates">Updates <span>${updateCount}</span></button>
+    </div>
+    <div class="database-plugin-list">${visiblePlugins.length ? visiblePlugins.map(databasePluginCard).join('') : '<div class="database-manager-empty compact"><strong>No matching plugins</strong><p>Try a different search or filter.</p></div>'}</div>`;
+}
+
 async function loadDatabasePlugins() {
-  if (!window.deployerx?.listDatabasePlugins || !els.databasePluginsPanel) return;
+  if (!els.databasePluginsPanel) return;
+  state.databaseManager.plugins.items = mergeBundledDatabasePlugins(state.databaseManager.plugins.items);
+  if (!window.deployerx?.listDatabasePlugins) {
+    renderDatabasePlugins();
+    return;
+  }
   state.databaseManager.plugins.loading = true;
   state.databaseManager.plugins.error = '';
   renderDatabasePlugins();
-  try { state.databaseManager.plugins.items = await window.deployerx.listDatabasePlugins(); }
+  try { setDatabasePluginItems(await window.deployerx.listDatabasePlugins()); }
   catch (error) { state.databaseManager.plugins.error = error.message || 'Could not load driver plugins.'; }
-  finally { state.databaseManager.plugins.loading = false; syncDatabaseProfileDriverOptions(); renderDatabasePlugins(); renderDatabaseProfiles(); }
+  finally { state.databaseManager.plugins.loading = false; syncDatabaseProfileDriverOptions(); renderDatabaseProfileCatalogue(); renderDatabasePlugins(); renderDatabaseProfiles(); }
 }
 
 async function setDatabaseManagerTab(tab) {
-  const active = ['query', 'notebooks', 'tasks', 'logs', 'plugins'].includes(tab) ? tab : 'connections';
+  const active = ['query', 'notebooks', 'tasks', 'logs'].includes(tab) ? tab : 'connections';
   if (state.databaseManager.activeTab === 'notebooks' && active !== 'notebooks' && !(await requestDatabaseNotebookDiscard())) return false;
   state.databaseManager.activeTab = active;
   const queryActive = active === 'query';
   const notebooksActive = active === 'notebooks';
   const tasksActive = active === 'tasks';
   const logsActive = active === 'logs';
-  const pluginsActive = active === 'plugins';
   const tabs = [
     ['connections', els.databaseConnectionsTab, els.databaseConnectionsPanel],
     ['query', els.databaseQueryTab, els.databaseQueryPanel],
     ['notebooks', els.databaseNotebooksTab, els.databaseNotebooksPanel],
     ['tasks', els.databaseTasksTab, els.databaseTasksPanel],
-    ['logs', els.databaseLogsTab, els.databaseLogsPanel],
-    ['plugins', els.databasePluginsTab, els.databasePluginsPanel]
+    ['logs', els.databaseLogsTab, els.databaseLogsPanel]
   ];
   for (const [name, tabElement, panel] of tabs) {
     if (!tabElement || !panel) continue;
@@ -6585,7 +6970,7 @@ async function setDatabaseManagerTab(tab) {
     syncDatabaseLogProfiles();
     loadDatabaseOperationalLogs().catch((error) => showAlert(error.message || 'Could not load operational logs.'));
   }
-  if (pluginsActive) loadDatabasePlugins().catch(() => {});
+  if (settingsActive) loadDatabasePlugins().catch(() => {});
   return true;
 }
 
@@ -9154,7 +9539,7 @@ function showView(view) {
   const isSshFile = view === 'ssh-file';
   const isProfile = view === 'profile';
   const isTeam = view === 'team';
-  const isFullPageView = isProfile || isTeam || isSshFile;
+  const isFullPageView = isProfile || isSshFile;
   if (isDashboard) startDashboardAutoRefresh();
   else stopDashboardAutoRefresh();
   if (!isProject && !isServerMonitoring) {
@@ -9164,15 +9549,7 @@ function showView(view) {
     });
   }
   els.appShell?.classList.toggle('full-page-view', isFullPageView);
-  if (isFullPageView) {
-    setSidebarCollapsed(true, { persist: false });
-  } else {
-    let prefersCollapsed = false;
-    try {
-      prefersCollapsed = window.localStorage.getItem('deployerx.sidebarCollapsed') === 'true';
-    } catch {}
-    setSidebarCollapsed(prefersCollapsed, { persist: false });
-  }
+  syncSidebarForView(view);
   els.dashboardView.classList.toggle('hidden', !isDashboard);
   els.serverMonitoringView.classList.toggle('hidden', !isServerMonitoring);
   els.uptimeView.classList.toggle('hidden', !isUptime);
@@ -17888,18 +18265,92 @@ function updateAuthFields() {
   els.modalPrivateKey.required = usesKey;
 }
 
+function closeModalAuthTypeMenu({ focusTrigger = false } = {}) {
+  els.modalAuthTypeMenu.classList.add('hidden');
+  els.modalAuthTypeButton.setAttribute('aria-expanded', 'false');
+  if (focusTrigger) els.modalAuthTypeButton.focus();
+}
+
+function openModalAuthTypeMenu() {
+  els.modalAuthTypeMenu.classList.remove('hidden');
+  els.modalAuthTypeButton.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => {
+    const selected = els.modalAuthTypeMenu.querySelector('[aria-selected="true"]');
+    (selected || els.modalAuthTypeMenu.querySelector('.workspace-switcher-option'))?.focus();
+  });
+}
+
+function renderModalAuthTypeSelect() {
+  const options = Array.from(els.modalAuthType.options);
+  const selected = options.find((option) => option.value === els.modalAuthType.value) || options[0];
+  if (!selected) return;
+
+  els.modalAuthType.value = selected.value;
+  els.modalAuthTypeLabel.textContent = selected.textContent;
+  els.modalAuthTypeButton.setAttribute('aria-label', `Authentication: ${selected.textContent}`);
+  els.modalAuthTypeMenu.replaceChildren();
+
+  for (const option of options) {
+    const optionButton = document.createElement('button');
+    const isSelected = option.value === selected.value;
+    optionButton.type = 'button';
+    optionButton.className = 'workspace-switcher-option';
+    optionButton.dataset.authType = option.value;
+    optionButton.setAttribute('role', 'option');
+    optionButton.setAttribute('aria-selected', String(isSelected));
+    optionButton.tabIndex = -1;
+    optionButton.innerHTML = `<span>${escapeHtml(option.textContent)}</span>${isSelected ? icon('check') : ''}`;
+    els.modalAuthTypeMenu.appendChild(optionButton);
+  }
+
+  closeModalAuthTypeMenu();
+}
+
+function sidebarCollapsedPreference() {
+  try {
+    return window.localStorage.getItem('deployerx.sidebarCollapsed') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function renderSidebarToggle(collapsed, { forcedOpen = false } = {}) {
+  if (!els.sidebarToggleButton) return;
+  const isCollapsed = Boolean(collapsed);
+  const label = forcedOpen && isCollapsed
+    ? 'Keep sidebar open across views'
+    : isCollapsed
+      ? 'Expand sidebar'
+      : 'Collapse sidebar';
+  els.sidebarToggleButton.setAttribute('aria-expanded', String(forcedOpen || !isCollapsed));
+  els.sidebarToggleButton.setAttribute('aria-label', label);
+  els.sidebarToggleButton.title = label;
+  els.sidebarToggleButton.classList.toggle('is-collapsed', isCollapsed);
+}
+
 function setSidebarCollapsed(collapsed, { persist = true } = {}) {
   const isCollapsed = Boolean(collapsed);
   els.appShell?.classList.toggle('sidebar-collapsed', isCollapsed);
-  if (els.sidebarToggleButton) {
-    els.sidebarToggleButton.setAttribute('aria-expanded', String(!isCollapsed));
-    els.sidebarToggleButton.setAttribute('aria-label', isCollapsed ? 'Expand sidebar' : 'Collapse sidebar');
-    els.sidebarToggleButton.title = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
-    els.sidebarToggleButton.classList.toggle('is-collapsed', isCollapsed);
-  }
+  renderSidebarToggle(isCollapsed);
   try {
     if (persist) window.localStorage.setItem('deployerx.sidebarCollapsed', String(isCollapsed));
   } catch {}
+}
+
+function syncSidebarForView(view = state.currentView) {
+  if (els.sidebarToggleButton) els.sidebarToggleButton.disabled = view === 'server-monitoring';
+  if (['profile', 'ssh-file'].includes(view)) {
+    setSidebarCollapsed(true, { persist: false });
+    return;
+  }
+  const prefersCollapsed = sidebarCollapsedPreference();
+  if (view === 'server-monitoring') {
+    setSidebarCollapsed(false, { persist: false });
+    els.sidebarToggleButton?.setAttribute('aria-label', 'Sidebar is required for real-time monitoring');
+    if (els.sidebarToggleButton) els.sidebarToggleButton.title = 'Sidebar is required for real-time monitoring';
+    return;
+  }
+  setSidebarCollapsed(prefersCollapsed, { persist: false });
 }
 
 function updateFtpAuthFields() {
@@ -17927,11 +18378,21 @@ function renderTemplateSelect() {
 
 function closeModalTemplateMenu({ focusTrigger = false } = {}) {
   els.modalTemplateMenu.classList.add('hidden');
+  els.modalTemplateMenu.classList.remove('opens-up');
+  els.modalTemplateMenu.style.removeProperty('--template-menu-space');
   els.modalTemplateButton.setAttribute('aria-expanded', 'false');
   if (focusTrigger) els.modalTemplateButton.focus();
 }
 
 function openModalTemplateMenu() {
+  const triggerRect = els.modalTemplateButton.getBoundingClientRect();
+  const modalRect = els.projectModalForm.getBoundingClientRect();
+  const spaceBelow = Math.max(0, modalRect.bottom - triggerRect.bottom - 76);
+  const spaceAbove = Math.max(0, triggerRect.top - modalRect.top - 12);
+  const opensUp = spaceBelow < 260 && spaceAbove > spaceBelow;
+  const availableSpace = Math.max(120, Math.min(280, opensUp ? spaceAbove : spaceBelow));
+  els.modalTemplateMenu.classList.toggle('opens-up', opensUp);
+  els.modalTemplateMenu.style.setProperty('--template-menu-space', `${availableSpace}px`);
   els.modalTemplateMenu.classList.remove('hidden');
   els.modalTemplateButton.setAttribute('aria-expanded', 'true');
   requestAnimationFrame(() => {
@@ -18275,7 +18736,7 @@ function addBackupHistory(label, detail = '') {
 }
 
 function setSettingsTab(tab) {
-  state.settingsTab = ['workspace', 'groups', 'members', 'notifications', 'monitoring', 'backup', 'templates', 'integrations', 'theme', 'about'].includes(tab) ? tab : 'workspace';
+  state.settingsTab = ['workspace', 'groups', 'members', 'notifications', 'monitoring', 'backup', 'database', 'templates', 'integrations', 'theme', 'about'].includes(tab) ? tab : 'workspace';
   renderSettingsView();
 }
 
@@ -18348,6 +18809,7 @@ function renderSettingsView() {
   if (state.settingsTab === 'integrations') loadMcpIntegration().catch((error) => showAlert(error.message || 'Could not load the MCP integration.'));
   if (state.settingsTab === 'notifications') loadBackupNotifications().catch((error) => showAlert(error.message || 'Could not load notification routes.'));
   if (state.settingsTab === 'monitoring') loadUptimeMonitoringSettings().catch((error) => showAlert(error.message || 'Could not load monitoring settings.'));
+  if (state.settingsTab === 'database') loadDatabasePlugins().catch((error) => showAlert(error.message || 'Could not load database plugins.'));
 }
 
 function mcpCodexConfiguration(url) {
@@ -19188,7 +19650,14 @@ async function finishCloudAuth(result, isRegister = false) {
   els.authPassword.value = '';
   els.authConfirmPassword.value = '';
   resetWorkspaceData();
-  showWorkspaceSetupPanel();
+  // A single linked workspace is unambiguous, so enter it immediately after
+  // login. Keep the chooser for accounts with multiple workspaces.
+  const linkedTeams = state.teams.teams || [];
+  if (linkedTeams.length === 1 && state.teams.activeTeamId) {
+    await enterCloudWorkspace();
+  } else {
+    showWorkspaceSetupPanel();
+  }
   if (isRegister) showToast('Confirmation email sent. Check your inbox to verify this account.');
 }
 
@@ -19348,6 +19817,12 @@ async function refreshCurrentPage() {
     }
 
     if (state.setup.mode === 'cloud') {
+      if (!state.setup.firebase?.configured) {
+        setSetupVisibility(true);
+        showAuthPanel();
+        showToast('Add the Firebase Web config to load cloud data.');
+        return;
+      }
       const sessionResult = await refreshCloudSession();
       if (!sessionResult.session) {
         setSetupVisibility(true);
@@ -19609,6 +20084,15 @@ async function initializeApp() {
       return;
     }
 
+    // Cloud reads cannot succeed until the Firebase Web config is present.
+    // Stop before invoking auth/session IPC so a misconfigured install does
+    // not emit repeated handler stack traces in the terminal.
+    if (!state.setup.firebase?.configured) {
+      setSetupVisibility(true);
+      showAuthPanel();
+      return;
+    }
+
     const sessionRefreshPromise = refreshCloudSession();
     let sessionResult;
     try {
@@ -19738,6 +20222,7 @@ function loadActiveModalSshUser() {
   clearModalSshUserValidity();
   els.modalSshUsername.value = user.username;
   els.modalAuthType.value = user.authType;
+  renderModalAuthTypeSelect();
   els.modalSshPassword.value = user.password;
   els.modalPrivateKey.value = user.privateKey;
   els.modalKeyPassphrase.value = user.passphrase;
@@ -21110,8 +21595,8 @@ function syncActiveFtpSession() {
   ftpSession.localBackStack = [...state.ftpLocalBackStack];
   ftpSession.localForwardStack = [...state.ftpLocalForwardStack];
   ftpSession.localFilter = state.ftpLocalFilter || '';
-  ftpSession.currentPath = state.ftpCurrentPath || '.';
-  ftpSession.parentPath = state.ftpParentPath || '.';
+  ftpSession.currentPath = state.ftpCurrentPath || '/';
+  ftpSession.parentPath = state.ftpParentPath || '/';
   ftpSession.entries = Array.isArray(state.ftpEntries) ? [...state.ftpEntries] : [];
   ftpSession.selectedPath = state.ftpSelectedPath || '';
   ftpSession.backStack = [...state.ftpBackStack];
@@ -21131,8 +21616,8 @@ function applyFtpSessionToState(projectId) {
   state.ftpLocalBackStack = Array.isArray(ftpSession?.localBackStack) ? [...ftpSession.localBackStack] : [];
   state.ftpLocalForwardStack = Array.isArray(ftpSession?.localForwardStack) ? [...ftpSession.localForwardStack] : [];
   state.ftpLocalFilter = ftpSession?.localFilter || '';
-  state.ftpCurrentPath = ftpSession?.currentPath || '.';
-  state.ftpParentPath = ftpSession?.parentPath || '.';
+  state.ftpCurrentPath = ftpSession?.currentPath || '/';
+  state.ftpParentPath = ftpSession?.parentPath || '/';
   state.ftpEntries = Array.isArray(ftpSession?.entries) ? [...ftpSession.entries] : [];
   state.ftpSelectedPath = ftpSession?.selectedPath || '';
   state.ftpBackStack = Array.isArray(ftpSession?.backStack) ? [...ftpSession.backStack] : [];
@@ -21260,7 +21745,7 @@ function renderLocalFtpBrowser() {
 }
 
 function renderRemoteFtpBrowser() {
-  els.ftpPathInput.value = state.ftpCurrentPath || '.';
+  els.ftpPathInput.value = state.ftpCurrentPath || '/';
   els.ftpRemoteFilter.value = state.ftpRemoteFilter;
   els.ftpFileList.innerHTML = '';
 
@@ -21374,10 +21859,10 @@ async function refreshFtpList(pathOverride = state.ftpCurrentPath, options = {})
     const result = await withFileActivity('Loading server files...', () =>
       window.deployerx.ftpList({
         sessionId: state.ftpSessionId,
-        path: pathOverride || '.'
+        path: pathOverride || '/'
       })
     );
-    state.ftpCurrentPath = result.path || pathOverride || '.';
+    state.ftpCurrentPath = result.path || pathOverride || '/';
     state.ftpParentPath = result.parentPath || parentFtpPath(state.ftpCurrentPath);
     state.ftpEntries = Array.isArray(result.items) ? result.items : [];
     state.ftpSelectedPath = '';
@@ -21406,7 +21891,7 @@ async function connectFtp() {
     );
     if (!response) return;
     state.ftpSessionId = response.sessionId || sessionId;
-    state.ftpCurrentPath = response.path || '.';
+    state.ftpCurrentPath = response.path || '/';
     state.ftpEntries = [];
     state.ftpBackStack = [];
     state.ftpForwardStack = [];
@@ -21416,8 +21901,8 @@ async function connectFtp() {
   } catch (error) {
   state.ftpSessionId = null;
   state.ftpConnected = false;
-  state.ftpCurrentPath = '.';
-  state.ftpParentPath = '.';
+  state.ftpCurrentPath = '/';
+  state.ftpParentPath = '/';
   state.ftpEntries = [];
   state.ftpSelectedPath = '';
   state.ftpBackStack = [];
@@ -21433,8 +21918,8 @@ async function disconnectFtp() {
   await withButtonLoading('ftp:disconnect', els.disconnectFtpButton, () => window.deployerx.ftpDisconnect(state.ftpSessionId));
   state.ftpSessionId = null;
   state.ftpConnected = false;
-  state.ftpCurrentPath = '.';
-  state.ftpParentPath = '.';
+  state.ftpCurrentPath = '/';
+  state.ftpParentPath = '/';
   state.ftpEntries = [];
   state.ftpSelectedPath = '';
   state.ftpBackStack = [];
@@ -21455,7 +21940,7 @@ async function chooseLocalFtpPath() {
 
 async function openFtpPath(remotePath, options = {}) {
   if (!state.ftpConnected) return;
-  await refreshFtpList(remotePath || els.ftpPathInput.value || '.', options);
+  await refreshFtpList(remotePath || els.ftpPathInput.value || '/', options);
 }
 
 async function goLocalFtpHistory(direction) {
@@ -22866,7 +23351,9 @@ async function ensureTerminal(terminalSession, project) {
   terminalSession.connected = false;
   terminalSession.status = 'Connecting...';
   terminalSession.output = 'Ready.\r\n';
-  terminalSession.pendingInput = startupDirectory ? `cd -- ${quoteShellPath(startupDirectory)}\r` : '';
+  terminalSession.pendingInput = startupDirectory
+    ? `cd -- ${quoteShellPath(startupDirectory)}; stty echo echonl\r`
+    : '';
   terminalSession.outputBuffer = '';
   terminalSession.rawBuffer = '';
   terminalSession.currentDirectory = '';
@@ -23081,8 +23568,8 @@ async function emergencyStop() {
   state.rdpStatus = 'disconnected';
   state.ftpSessionId = null;
   state.ftpConnected = false;
-  state.ftpCurrentPath = '.';
-  state.ftpParentPath = '.';
+  state.ftpCurrentPath = '/';
+  state.ftpParentPath = '/';
   state.ftpEntries = [];
   state.ftpSelectedPath = '';
   state.ftpBackStack = [];
@@ -23359,23 +23846,32 @@ els.topBackupsButton.addEventListener('click', () => {
   showView('backup');
 });
 els.topDatabasesButton.addEventListener('click', () => showView('database'));
+els.databasePluginSettingsButton?.addEventListener('click', () => {
+  state.settingsTab = 'database';
+  showView('team');
+});
 els.databaseConnectionsTab.addEventListener('click', () => setDatabaseManagerTab('connections'));
-els.databasePluginsTab?.addEventListener('click', () => setDatabaseManagerTab('plugins'));
 els.databaseQueryTab.addEventListener('click', () => setDatabaseManagerTab('query'));
 els.databaseNotebooksTab.addEventListener('click', () => setDatabaseManagerTab('notebooks'));
 els.databaseTasksTab.addEventListener('click', () => setDatabaseManagerTab('tasks'));
 els.databaseLogsTab.addEventListener('click', () => setDatabaseManagerTab('logs'));
 els.databaseConnectionsTab.closest('[role="tablist"]').addEventListener('keydown', (event) => {
-  const names = ['connections', 'query', 'notebooks', 'tasks', 'logs', 'plugins'];
-  const tabs = [els.databaseConnectionsTab, els.databaseQueryTab, els.databaseNotebooksTab, els.databaseTasksTab, els.databaseLogsTab, els.databasePluginsTab];
+  const names = ['connections', 'query', 'notebooks', 'tasks', 'logs'];
+  const tabs = [els.databaseConnectionsTab, els.databaseQueryTab, els.databaseNotebooksTab, els.databaseTasksTab, els.databaseLogsTab];
   handleDatabaseTablistKeydown(event, tabs, (index) => setDatabaseManagerTab(names[index]));
 });
-els.databasePluginsPanel?.addEventListener('click', async (event) => {
+async function handleDatabasePluginPanelClick(event) {
+  const filterButton = event.target.closest('[data-database-plugin-filter]');
+  if (filterButton) {
+    state.databaseManager.plugins.filter = filterButton.dataset.databasePluginFilter;
+    renderDatabasePlugins();
+    return;
+  }
   if (event.target.closest('[data-database-plugin-runtime-refresh]')) {
     state.databaseManager.plugins.loading = true;
     state.databaseManager.plugins.error = '';
     renderDatabasePlugins();
-    try { state.databaseManager.plugins.items = await window.deployerx.recheckDatabasePluginRequirements(); }
+    try { setDatabasePluginItems(await window.deployerx.recheckDatabasePluginRequirements()); }
     catch (error) { state.databaseManager.plugins.error = error.message || 'Could not recheck device requirements.'; }
     finally { state.databaseManager.plugins.loading = false; syncDatabaseProfileDriverOptions(); renderDatabasePlugins(); }
     return;
@@ -23383,7 +23879,7 @@ els.databasePluginsPanel?.addEventListener('click', async (event) => {
   if (event.target.closest('[data-database-plugin-refresh]')) {
     state.databaseManager.plugins.loading = true;
     renderDatabasePlugins();
-    try { state.databaseManager.plugins.items = await window.deployerx.refreshDatabasePlugins(); }
+    try { setDatabasePluginItems(await window.deployerx.refreshDatabasePlugins()); }
     catch (error) { state.databaseManager.plugins.error = error.message || 'Could not refresh the driver catalog.'; }
     finally { state.databaseManager.plugins.loading = false; syncDatabaseProfileDriverOptions(); renderDatabasePlugins(); }
     return;
@@ -23399,12 +23895,49 @@ els.databasePluginsPanel?.addEventListener('click', async (event) => {
     else await window.deployerx.removeDatabasePlugin(pluginId);
     await loadDatabasePlugins();
   } catch (error) { showAlert(error.message || 'Could not update the database plugin.'); }
-});
+}
+
+function handleDatabasePluginPanelInput(event) {
+  if (!event.target.matches('[data-database-plugin-search]')) return;
+  state.databaseManager.plugins.search = event.target.value;
+  renderDatabasePlugins();
+  const search = els.databasePluginsPanel?.querySelector('[data-database-plugin-search]');
+  search?.focus();
+  search?.setSelectionRange(search.value.length, search.value.length);
+}
+
+els.databasePluginsPanel?.addEventListener('click', (event) => handleDatabasePluginPanelClick(event));
+els.databasePluginsPanel?.addEventListener('input', handleDatabasePluginPanelInput);
 els.databaseProfilesRefreshButton.addEventListener('click', () => loadDatabaseProfiles().catch((error) => showAlert(error.message || 'Could not refresh database profiles.')));
 els.databaseProfileAddButton.addEventListener('click', () => openDatabaseProfileModal());
 els.databaseProfileEmptyAddButton.addEventListener('click', () => openDatabaseProfileModal());
 els.databaseProfileSearch.addEventListener('input', renderDatabaseProfiles);
 els.databaseProfileDriver.addEventListener('change', () => syncDatabaseProfileDriver({ resetPort: true }));
+els.databaseProfileNextButton?.addEventListener('click', () => {
+  if (!els.databaseProfileDriver.value) return;
+  setDatabaseProfileWizardStep('configure');
+});
+els.databaseProfileBackButton?.addEventListener('click', () => setDatabaseProfileWizardStep('choose'));
+els.databaseProfileChangeDriverButton?.addEventListener('click', () => setDatabaseProfileWizardStep('choose'));
+els.databaseProfileCatalogueSearch?.addEventListener('input', renderDatabaseProfileCatalogue);
+els.databaseProfileConnectionString?.addEventListener('change', applyDatabaseProfileConnectionString);
+els.databaseProfileCatalogueFilters?.addEventListener('click', (event) => {
+  const filter = event.target.closest('[data-database-profile-filter]');
+  if (!filter) return;
+  els.databaseProfileCatalogueFilters.dataset.activeFilter = filter.dataset.databaseProfileFilter || 'All';
+  renderDatabaseProfileCatalogue();
+});
+els.databaseProfileCatalogue?.addEventListener('click', (event) => {
+  const card = event.target.closest('[data-database-profile-driver]');
+  if (!card) return;
+  syncDatabaseProfileDriverOptions(card.dataset.databaseProfileDriver);
+  els.databaseProfileConnectionString.value = '';
+  syncDatabaseProfileDriver({ resetPort: true });
+  setDatabaseProfileWizardStep('configure');
+});
+els.databaseProfileConfigure?.querySelectorAll('[data-database-profile-tab]').forEach((button) => {
+  button.addEventListener('click', () => setDatabaseProfileConfigTab(button.dataset.databaseProfileTab || 'general'));
+});
 els.databaseProfileCloseButton.addEventListener('click', closeDatabaseProfileModal);
 els.databaseProfileCancelButton.addEventListener('click', closeDatabaseProfileModal);
 els.databaseProfileModal.querySelector('[data-database-profile-close]').addEventListener('click', closeDatabaseProfileModal);
@@ -24799,15 +25332,12 @@ let scriptRailWasCompact = window.innerWidth <= 1180;
 let sidebarCollapsedBeforeScriptRailOpen = null;
 function syncResponsivePanels({ initial = false } = {}) {
   const isCompact = window.innerWidth <= 1180;
-  if (['team', 'profile'].includes(state.currentView)) {
-    setSidebarCollapsed(true, { persist: false });
+  if (['profile', 'ssh-file', 'server-monitoring'].includes(state.currentView)) {
+    syncSidebarForView(state.currentView);
     scriptRailWasCompact = isCompact;
     return;
   }
-  let prefersSidebarCollapsed = false;
-  try {
-    prefersSidebarCollapsed = window.localStorage.getItem('deployerx.sidebarCollapsed') === 'true';
-  } catch {}
+  const prefersSidebarCollapsed = sidebarCollapsedPreference();
   if (isCompact) {
     // Compact layouts keep the saved sidebar state and start with Scripts closed.
     if (initial || !scriptRailWasCompact) {
@@ -25308,6 +25838,46 @@ els.modalSshUsername.addEventListener('input', () => {
 });
 els.modalSshPassword.addEventListener('input', () => els.modalSshPassword.setCustomValidity(''));
 els.modalPrivateKey.addEventListener('input', () => els.modalPrivateKey.setCustomValidity(''));
+els.modalAuthTypeButton.addEventListener('click', () => {
+  if (els.modalAuthTypeButton.getAttribute('aria-expanded') === 'true') closeModalAuthTypeMenu();
+  else openModalAuthTypeMenu();
+});
+els.modalAuthTypeButton.addEventListener('keydown', (event) => {
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+  event.preventDefault();
+  openModalAuthTypeMenu();
+});
+els.modalAuthTypeMenu.addEventListener('click', (event) => {
+  const option = event.target.closest('.workspace-switcher-option');
+  if (!option) return;
+  els.modalAuthType.value = option.dataset.authType || 'password';
+  els.modalAuthType.dispatchEvent(new Event('change', { bubbles: true }));
+  renderModalAuthTypeSelect();
+  els.modalAuthTypeButton.focus();
+});
+els.modalAuthTypeMenu.addEventListener('keydown', (event) => {
+  const options = Array.from(els.modalAuthTypeMenu.querySelectorAll('.workspace-switcher-option'));
+  const currentIndex = options.indexOf(document.activeElement);
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % options.length;
+  else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + options.length) % options.length;
+  else if (event.key === 'Home') nextIndex = 0;
+  else if (event.key === 'End') nextIndex = options.length - 1;
+  else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    document.activeElement?.click();
+    return;
+  } else if (event.key === 'Escape' || event.key === 'Tab') {
+    if (event.key === 'Escape') event.preventDefault();
+    closeModalAuthTypeMenu({ focusTrigger: event.key === 'Escape' });
+    return;
+  } else return;
+  event.preventDefault();
+  options[nextIndex]?.focus();
+});
+document.addEventListener('click', (event) => {
+  if (!els.modalAuthTypeDropdown.contains(event.target)) closeModalAuthTypeMenu();
+});
 els.modalAuthType.addEventListener('change', () => {
   clearModalSshUserValidity();
   updateAuthFields();

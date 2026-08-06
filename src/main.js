@@ -3875,6 +3875,8 @@ function isRecoverableCloudDataError(error) {
     details.includes('permission denied') ||
     details.includes('cloud firestore api has not been used') ||
     details.includes('firestore.googleapis.com') ||
+    details.includes('firebase web config is missing') ||
+    details.includes('firebase web config must include') ||
     details.includes('resource exhausted') ||
     details.includes('quota exceeded') ||
     details.includes('too many requests')
@@ -6617,7 +6619,7 @@ function startTerminal(project, sessionId, size = {}) {
         });
 
         const promptDirectoryTracking = "if [ -n \"$BASH_VERSION\" ]; then PS1='\\[\\e]1337;DeployerXPwd=$PWD\\a\\]'\"$PS1\"; fi";
-        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; printf '\\r\\033[2K'\n`);
+        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; stty -echo -echonl; printf '\\r\\033[2K'\n`);
         emitTerminal(sessionId, 'connected', 'Terminal connected.');
       }
     );
@@ -7032,7 +7034,7 @@ function connectFtp(project, sessionId) {
         }
 
         ftpState.sftp = sftp;
-        resolve({ sessionId, path: '.' });
+        resolve({ sessionId, path: '/' });
       });
     });
 
@@ -7044,7 +7046,7 @@ function connectFtp(project, sessionId) {
   });
 }
 
-async function listFtpDirectory(sessionId, remotePath = '.') {
+async function listFtpDirectory(sessionId, remotePath = '/') {
   const { sftp } = ftpSessionOrThrow(sessionId);
   const normalizedPath = normalizeRemotePath(remotePath);
   const items = await sftpReaddir(sftp, normalizedPath);

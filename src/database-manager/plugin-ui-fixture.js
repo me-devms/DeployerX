@@ -75,8 +75,7 @@ app.whenReady().then(async () => {
       state.databaseManager.plugins.loading = false;
       state.databaseManager.plugins.error = '';
       showView('database');
-      setDatabaseManagerTab('plugins');
-      renderDatabasePlugins();
+      document.getElementById('databasePluginSettingsButton').click();
       true;
     `);
     const desktop = await window.webContents.executeJavaScript(`(() => ({
@@ -98,9 +97,10 @@ app.whenReady().then(async () => {
     const tabKeyboard = await window.webContents.executeJavaScript(`(async () => {
       const tabs = [...document.querySelectorAll('.database-manager-tabs [role="tab"]')];
       const initialTabIndexes = tabs.map((tab) => [tab.id, tab.tabIndex]);
-      const pluginsTab = document.getElementById('databasePluginsTab');
-      pluginsTab.focus();
-      pluginsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      setDatabaseManagerTab('connections');
+      const logsTab = document.getElementById('databaseLogsTab');
+      logsTab.focus();
+      logsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const wrappedForward = {
         selected: document.querySelector('.database-manager-tabs [aria-selected="true"]')?.id,
@@ -116,6 +116,11 @@ app.whenReady().then(async () => {
           focused: document.activeElement?.id
         }
       };
+    })()`);
+    await window.webContents.executeJavaScript(`(async () => {
+      await setDatabaseManagerTab('settings');
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return true;
     })()`);
     const desktopPath = path.join(outputDirectory, 'database-plugin-drivers-desktop.png');
     await fs.writeFile(desktopPath, (await window.webContents.capturePage()).toPNG());
@@ -144,8 +149,14 @@ app.whenReady().then(async () => {
 
     await window.webContents.executeJavaScript(`(() => {
       openDatabaseProfileModal();
-      els.databaseProfileDriver.value = 'vendor.elasticsearch';
-      syncDatabaseProfileDriver({ resetPort: true });
+      const cards = [...document.querySelectorAll('[data-database-profile-driver]')];
+      window.__databaseProfileChooserCheck = {
+        builtinsVisible: ['mysql', 'postgresql', 'sqlite'].every((id) => cards.some((card) => card.dataset.databaseProfileDriver === id)),
+        installedPluginsVisible: ['vendor.elasticsearch', 'vendor.db2'].every((id) => cards.some((card) => card.dataset.databaseProfileDriver === id)),
+        disabledDriverHidden: !cards.some((card) => card.dataset.databaseProfileDriver === 'vendor.redis'),
+        allStatusesInstalled: cards.every((card) => card.querySelector('.database-profile-catalogue-status')?.textContent.trim() === 'Installed')
+      };
+      document.querySelector('[data-database-profile-driver="vendor.elasticsearch"]').click();
       return true;
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -156,7 +167,10 @@ app.whenReady().then(async () => {
         credentialFields: els.databaseProfilePluginCredentials.querySelectorAll('[data-database-plugin-credential]').length,
         settingFields: els.databaseProfilePluginSettings.querySelectorAll('[data-database-plugin-setting]').length,
         networkVisible: !els.databaseProfileNetworkFields.classList.contains('hidden'),
-        usernameHidden: els.databaseProfileUsername.closest('.field').classList.contains('hidden')
+        usernameHidden: els.databaseProfileUsername.closest('.field').classList.contains('hidden'),
+        chooser: window.__databaseProfileChooserCheck,
+        selectedDriver: els.databaseProfileDriver.value,
+        configureVisible: !els.databaseProfileConfigure.classList.contains('hidden')
       };
     })()`);
     const modalAccessibility = await accessibilityTree(window);
@@ -186,6 +200,37 @@ app.whenReady().then(async () => {
         connectionUriPreserved: payload.credentials['connection-uri'] === credential.value
       };
     })()`);
+    const builtinLayouts = await window.webContents.executeJavaScript(`(() => {
+      const inspect = (driverId) => {
+        els.databaseProfileDriver.value = driverId;
+        syncDatabaseProfileDriver({ resetPort: true });
+        return {
+          tabs: [...els.databaseProfileConfigure.querySelectorAll('[data-database-profile-tab]')].filter((button) => !button.classList.contains('hidden')).map((button) => button.dataset.databaseProfileTab),
+          networkVisible: !els.databaseProfileNetworkFields.classList.contains('hidden'),
+          databaseFieldsVisible: !els.databaseProfileDatabaseFields.classList.contains('hidden'),
+          databaseFieldsParent: els.databaseProfileDatabaseFields.parentElement.id,
+          schemaVisible: !els.databaseProfileSchemaField.classList.contains('hidden'),
+          localResourceVisible: !els.databaseProfileLocalResourcePanel.classList.contains('hidden'),
+          connectionStringVisible: !els.databaseProfileConnectionStringField.classList.contains('hidden'),
+          credentialsVisible: !els.databaseProfileSavePassword.closest('label').classList.contains('hidden'),
+          username: els.databaseProfileUsername.value,
+          port: els.databaseProfilePort.value
+        };
+      };
+      return { mysql: inspect('mysql'), postgresql: inspect('postgresql'), sqlite: inspect('sqlite') };
+    })()`);
+    const builtinLayoutPaths = [];
+    for (const driverId of ['mysql', 'postgresql', 'sqlite']) {
+      await window.webContents.executeJavaScript(`(() => {
+        els.databaseProfileDriver.value = '${driverId}';
+        syncDatabaseProfileDriver({ resetPort: true });
+        setDatabaseProfileConfigTab('general');
+      })()`);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const layoutPath = path.join(outputDirectory, `database-profile-${driverId}-mobile.png`);
+      await fs.writeFile(layoutPath, (await window.webContents.capturePage()).toPNG());
+      builtinLayoutPaths.push(layoutPath);
+    }
     const modalKeyboard = await window.webContents.executeJavaScript(`(async () => {
       const modal = document.getElementById('databaseProfileModal');
       const opener = document.getElementById('databaseProfileAddButton');
@@ -217,7 +262,7 @@ app.whenReady().then(async () => {
         restoredFocus: document.activeElement?.id
       };
     })()`);
-    process.stdout.write(`${JSON.stringify({ desktop, tabKeyboard, mobile, form, connectionUriForm, modalKeyboard, imagePaths: [desktopPath, mobilePath, formPath] })}\n`);
+    process.stdout.write(`${JSON.stringify({ desktop, tabKeyboard, mobile, form, connectionUriForm, builtinLayouts, modalKeyboard, imagePaths: [desktopPath, mobilePath, formPath, ...builtinLayoutPaths] })}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

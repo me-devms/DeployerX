@@ -29,6 +29,11 @@ test('binds monitoring navigation, sidebar selection, preload APIs, and main-pro
   assert.match(main, /serverMonitoringSessionManager\.stopAll\(\)/);
 });
 
+test('forces the server sidebar open and disables its toggle during monitoring', () => {
+  assert.match(renderer, /function syncSidebarForView[\s\S]*sidebarToggleButton\.disabled = view === 'server-monitoring'[\s\S]*view === 'server-monitoring'[\s\S]*setSidebarCollapsed\(false, \{ persist: false \}\)/);
+  assert.match(renderer, /Sidebar is required for real-time monitoring/);
+});
+
 test('keeps breathing room above the live monitoring dashboard', () => {
   assert.match(styles, /\.server-monitoring-header\s*\{[^}]*padding-block:\s*14px 12px;/s);
   assert.match(styles, /\.server-monitoring-workspace\s*\{[^}]*padding:\s*16px 28px 34px;/s);

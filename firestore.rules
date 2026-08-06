@@ -28,181 +28,10 @@ service cloud.firestore {
       return isTeamMember(teamId) && member(teamId).data.role == 'owner';
     }
 
-    function isInvitableRole(role) {
-      return role == 'member' || role == 'admin';
-    }
-
     function isTeamOwner(teamId) {
       return signedIn()
         && exists(/databases/$(database)/documents/teams/$(teamId))
         && get(/databases/$(database)/documents/teams/$(teamId)).data.ownerUid == request.auth.uid;
-    }
-
-    function validNullableString(value, maximum) {
-      return value == null || (value is string && value.size() > 0 && value.size() <= maximum);
-    }
-
-    function validDatabaseEndpoint(endpoint) {
-      return endpoint is map
-        && (
-          (
-            endpoint.keys().hasAll(['kind', 'host', 'port'])
-            && endpoint.keys().hasOnly(['kind', 'host', 'port'])
-            && endpoint.kind == 'network'
-            && endpoint.host is string
-            && endpoint.host.size() > 0
-            && endpoint.host.size() <= 253
-            && endpoint.port is int
-            && endpoint.port >= 1
-            && endpoint.port <= 65535
-          )
-          || (
-            endpoint.keys().hasAll(['kind', 'localResourceRequired'])
-            && endpoint.keys().hasOnly(['kind', 'localResourceRequired'])
-            && endpoint.kind in ['file', 'folder']
-            && endpoint.localResourceRequired == true
-          )
-          || (
-            endpoint.keys().hasAll(['kind', 'baseUrl'])
-            && endpoint.keys().hasOnly(['kind', 'baseUrl'])
-            && endpoint.kind == 'api'
-            && (
-              endpoint.baseUrl == null
-              || (
-                endpoint.baseUrl is string
-                && endpoint.baseUrl.size() > 0
-                && endpoint.baseUrl.size() <= 2048
-                && endpoint.baseUrl.matches('^[^?#]+$')
-              )
-            )
-          )
-          || (endpoint.keys().hasOnly(['kind']) && endpoint.kind == 'none')
-        );
-    }
-
-    function validDatabaseSsl(ssl) {
-      return ssl is map
-        && ssl.keys().hasAll(['mode', 'caPathRequired', 'clientCertificateRequired'])
-        && ssl.keys().hasOnly(['mode', 'caPathRequired', 'clientCertificateRequired'])
-        && ssl.mode in ['disabled', 'preferred', 'required', 'verify-ca', 'verify-full']
-        && ssl.caPathRequired is bool
-        && ssl.clientCertificateRequired is bool;
-    }
-
-    function validDatabaseTunnel(tunnel) {
-      return tunnel is map
-        && (
-          (tunnel.keys().hasOnly(['type']) && tunnel.type == 'none')
-          || (
-            tunnel.keys().hasAll(['type', 'projectId'])
-            && tunnel.keys().hasOnly(['type', 'projectId'])
-            && tunnel.type == 'server'
-            && tunnel.projectId is string
-            && tunnel.projectId.size() > 0
-            && tunnel.projectId.size() <= 200
-          )
-        );
-    }
-
-    function validDatabaseAppearance(appearance) {
-      return appearance is map
-        && appearance.keys().hasAll(['icon', 'accentColor'])
-        && appearance.keys().hasOnly(['icon', 'accentColor'])
-        && validNullableString(appearance.icon, 200)
-        && validNullableString(appearance.accentColor, 20);
-    }
-
-    function validDatabaseCredentialSlot(slot) {
-      return slot is map
-        && slot.keys().hasAll(['id', 'type', 'required', 'label'])
-        && slot.keys().hasOnly(['id', 'type', 'required', 'label'])
-        && slot.id is string
-        && slot.id.matches('^[a-z0-9][a-z0-9._-]{0,99}$')
-        && slot.type in ['password', 'token', 'username', 'certificate', 'private-key', 'connection-uri']
-        && slot.required is bool
-        && slot.label is string
-        && slot.label.size() > 0
-        && slot.label.size() <= 80;
-    }
-
-    function validDatabaseCredentialSlotAt(slots, index) {
-      return slots.size() <= index || validDatabaseCredentialSlot(slots[index]);
-    }
-
-    function validDatabaseCredentialSlots(slots) {
-      return slots is list
-        && slots.size() <= 20
-        && validDatabaseCredentialSlotAt(slots, 0)
-        && validDatabaseCredentialSlotAt(slots, 1)
-        && validDatabaseCredentialSlotAt(slots, 2)
-        && validDatabaseCredentialSlotAt(slots, 3)
-        && validDatabaseCredentialSlotAt(slots, 4)
-        && validDatabaseCredentialSlotAt(slots, 5)
-        && validDatabaseCredentialSlotAt(slots, 6)
-        && validDatabaseCredentialSlotAt(slots, 7)
-        && validDatabaseCredentialSlotAt(slots, 8)
-        && validDatabaseCredentialSlotAt(slots, 9)
-        && validDatabaseCredentialSlotAt(slots, 10)
-        && validDatabaseCredentialSlotAt(slots, 11)
-        && validDatabaseCredentialSlotAt(slots, 12)
-        && validDatabaseCredentialSlotAt(slots, 13)
-        && validDatabaseCredentialSlotAt(slots, 14)
-        && validDatabaseCredentialSlotAt(slots, 15)
-        && validDatabaseCredentialSlotAt(slots, 16)
-        && validDatabaseCredentialSlotAt(slots, 17)
-        && validDatabaseCredentialSlotAt(slots, 18)
-        && validDatabaseCredentialSlotAt(slots, 19);
-    }
-
-    function validDatabaseProfileMetadata(metadata) {
-      return metadata is map
-        && metadata.keys().hasAll([
-          'schemaVersion', 'name', 'driverId', 'sharedConnectionId', 'projectId',
-          'endpoint', 'database', 'defaultSchema', 'environment', 'accessMode',
-          'tags', 'ssl', 'tunnel', 'credentialSlots', 'appearance'
-        ])
-        && metadata.keys().hasOnly([
-          'schemaVersion', 'name', 'driverId', 'sharedConnectionId', 'projectId',
-          'endpoint', 'database', 'defaultSchema', 'environment', 'accessMode',
-          'tags', 'ssl', 'tunnel', 'credentialSlots', 'appearance'
-        ])
-        && metadata.schemaVersion == 1
-        && metadata.name is string
-        && metadata.name.size() > 0
-        && metadata.name.size() <= 120
-        && metadata.driverId is string
-        && metadata.driverId.matches('^[a-z0-9][a-z0-9._-]{0,99}$')
-        && validNullableString(metadata.sharedConnectionId, 200)
-        && validNullableString(metadata.projectId, 200)
-        && validDatabaseEndpoint(metadata.endpoint)
-        && validNullableString(metadata.database, 512)
-        && validNullableString(metadata.defaultSchema, 512)
-        && metadata.environment in ['development', 'staging', 'production', 'unclassified']
-        && metadata.accessMode in ['read-write', 'read-only']
-        && metadata.tags is list
-        && metadata.tags.size() <= 50
-        && validDatabaseSsl(metadata.ssl)
-        && validDatabaseTunnel(metadata.tunnel)
-        && validDatabaseCredentialSlots(metadata.credentialSlots)
-        && validDatabaseAppearance(metadata.appearance);
-    }
-
-    function validDatabaseProfileDocument(profileId) {
-      return request.resource.data.keys().hasAll([
-          'schemaVersion', 'profileId', 'revision', 'metadata', 'updatedAt', 'deletedAt'
-        ])
-        && request.resource.data.keys().hasOnly([
-          'schemaVersion', 'profileId', 'revision', 'metadata', 'updatedAt', 'deletedAt'
-        ])
-        && request.resource.data.schemaVersion == 1
-        && request.resource.data.profileId == profileId
-        && request.resource.data.revision is int
-        && request.resource.data.revision >= 0
-        && request.resource.data.updatedAt is string
-        && request.resource.data.updatedAt.size() > 0
-        && request.resource.data.updatedAt.size() <= 100
-        && validNullableString(request.resource.data.deletedAt, 100)
-        && validDatabaseProfileMetadata(request.resource.data.metadata);
     }
 
     function inviteMatchesUser(teamId, inviteId) {
@@ -228,7 +57,6 @@ service cloud.firestore {
       return signedIn()
         && request.resource.data.emailLower == emailLower
         && request.resource.data.teamId is string
-        && isInvitableRole(request.resource.data.role)
         && isTeamManager(request.resource.data.teamId);
     }
 
@@ -241,8 +69,7 @@ service cloud.firestore {
     function acceptingOwnInvite(teamId, uid) {
       return isSelf(uid)
         && request.resource.data.acceptedInviteId is string
-        && inviteMatchesUser(teamId, request.resource.data.acceptedInviteId)
-        && get(/databases/$(database)/documents/teams/$(teamId)/invites/$(request.resource.data.acceptedInviteId)).data.role == request.resource.data.role;
+        && inviteMatchesUser(teamId, request.resource.data.acceptedInviteId);
     }
 
     match /users/{uid} {
@@ -258,11 +85,11 @@ service cloud.firestore {
       match /members/{uid} {
         allow read: if isTeamMember(teamId) || isTeamOwner(teamId);
         allow create: if isTeamOwnerDocument(teamId, uid)
-          || (acceptingOwnInvite(teamId, uid) && isInvitableRole(request.resource.data.role))
-          || (isTeamManager(teamId) && isInvitableRole(request.resource.data.role));
+          || (acceptingOwnInvite(teamId, uid) && request.resource.data.role == 'member')
+          || (isTeamManager(teamId) && request.resource.data.role == 'member');
         allow update: if isTeamManager(teamId)
           && resource.data.role != 'owner'
-          && isInvitableRole(request.resource.data.role);
+          && request.resource.data.role == 'member';
         allow delete: if isTeamOwner(teamId) || (isTeamManager(teamId) && resource.data.role != 'owner');
       }
 
@@ -273,8 +100,7 @@ service cloud.firestore {
           || (
             inviteResourceMatchesUser()
             && request.resource.data.emailLower == resource.data.emailLower
-            && request.resource.data.role == resource.data.role
-            && isInvitableRole(request.resource.data.role)
+            && request.resource.data.role == 'member'
             && request.resource.data.status == 'accepted'
             && request.resource.data.acceptedBy == request.auth.uid
           );
@@ -289,28 +115,12 @@ service cloud.firestore {
         allow read, create, update: if isTeamMember(teamId);
         allow delete: if isTeamMember(teamId) || isTeamOwner(teamId);
       }
-
-      match /databaseProfiles/{profileId} {
-        allow read: if isTeamMember(teamId);
-        allow create: if isTeamMember(teamId)
-          && validDatabaseProfileDocument(profileId)
-          && request.resource.data.revision >= 1;
-        allow update: if isTeamMember(teamId)
-          && validDatabaseProfileDocument(profileId)
-          && resource.data.revision is int
-          && request.resource.data.revision == resource.data.revision + 1;
-        allow delete: if isTeamMember(teamId) || isTeamOwner(teamId);
-      }
     }
 
     match /{path=**}/invites/{inviteId} {
       allow read: if signedIn()
         && request.auth.token.email != null
         && resource.data.emailLower == request.auth.token.email;
-    }
-
-    match /{path=**}/members/{uid} {
-      allow read: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
     match /inviteInboxes/{emailLower}/items/{inviteId} {

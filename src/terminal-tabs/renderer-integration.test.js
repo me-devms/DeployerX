@@ -18,15 +18,15 @@ test('renders accessible SSH terminal tabs with a fixed new-tab control', async 
   assert.equal(styles.includes('.terminal-tab.connected .terminal-tab-status'), true, 'per-tab connection indicator');
 });
 
-test('keeps SSH shells isolated by tab and inherits the active remote directory', async () => {
+test('keeps SSH shells isolated by tab and starts every terminal at the filesystem root', async () => {
   const source = await fs.readFile(path.join(rendererDirectory, 'renderer.js'), 'utf8');
 
   assert.equal(source.includes('activeTerminalTabIds: {}'), true, 'active tab state per server');
   assert.equal(source.includes("find((session) => session.sessionId === sessionId)"), true, 'events resolve their own terminal session');
   assert.equal(source.includes('state.activeTerminalTabIds[session.projectId] === session.tabId'), true, 'only the selected tab writes to xterm');
   assert.equal(source.includes('terminalSessions?.some((session) => session.sessionId && session.connected)'), true, 'project SSH state includes every tab');
-  assert.equal(source.includes('currentSession?.currentDirectory || currentSession?.homeDirectory'), true, 'new tabs inherit the current server path');
-  assert.equal(source.includes('`cd -- ${quoteShellPath(startupDirectory)}\\r`'), true, 'inherited paths are shell quoted');
+  assert.equal(source.includes("createTerminalTabSession(projectId, { startupDirectory = '/' } = {})"), true, 'every terminal defaults to the filesystem root');
+  assert.equal(source.includes('`cd -- ${quoteShellPath(startupDirectory)}; stty echo echonl\\r`'), true, 'the default path is shell quoted and restores terminal echo');
   assert.equal(source.includes('await window.deployerx.stopTerminal(session.sessionId)'), true, 'closing a tab stops only its own shell');
   assert.equal(source.includes('if (!isVisibleTerminalSession(terminalSession)) return;'), true, 'background connections cannot steal focus');
 });

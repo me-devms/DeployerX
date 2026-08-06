@@ -173,7 +173,6 @@ test('hardens the renderer boundary and Database Manager keyboard accessibility'
     ['databaseNotebooksTab', 'databaseNotebooksPanel'],
     ['databaseTasksTab', 'databaseTasksPanel'],
     ['databaseLogsTab', 'databaseLogsPanel'],
-    ['databasePluginsTab', 'databasePluginsPanel'],
     ['databaseSchemaLibraryTab', 'databaseSchemaLibraryPanel'],
     ['databaseSavedLibraryTab', 'databaseSavedLibraryPanel'],
     ['databaseHistoryLibraryTab', 'databaseHistoryLibraryPanel']
@@ -191,6 +190,11 @@ test('hardens the renderer boundary and Database Manager keyboard accessibility'
   assert.match(rendererSource, /event\.stopImmediatePropagation\(\)[\s\S]*if \(!event\.repeat\) close\(\)/);
   assert.match(stylesSource, /\.database-manager-tab:focus-visible/);
   assert.match(stylesSource, /\.database-query-tab-main:focus-visible/);
+  assert.match(htmlSource, /database-catalog-toolbar[\s\S]*database-search[\s\S]*database-summary[\s\S]*database-catalog-table-area/);
+  assert.match(stylesSource, /#databaseConnectionsPanel\s*\{[\s\S]*display: flex;[\s\S]*flex-direction: column;[\s\S]*overflow: hidden;/);
+  assert.match(stylesSource, /\.database-catalog-table-area\s*\{[\s\S]*flex: 1 1 auto;[\s\S]*overflow: hidden;/);
+  assert.match(stylesSource, /\.database-profile-list\s*\{[\s\S]*overflow: auto;/);
+  assert.match(stylesSource, /\.database-manager-view-header #databaseProfileAddButton\s*\{[\s\S]*max-width: none;[\s\S]*white-space: nowrap;/);
 });
 
 test('renders and routes a complete Database Manager catalog and query shell', () => {
@@ -330,4 +334,23 @@ test('renders and routes a complete Database Manager catalog and query shell', (
 
   const ids = [...htmlSource.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
   assert.equal(ids.length, new Set(ids).size, 'renderer HTML must not contain duplicate IDs');
+});
+
+test('exposes bundled database plugins only from Database Manager settings', () => {
+  for (const id of ['databasePluginSettingsButton', 'settingsDatabasePanel', 'databasePluginsPanel']) {
+    assert.match(htmlSource, new RegExp(`id="${id}"`));
+  }
+  assert.match(htmlSource, /data-settings-tab="database"/);
+  assert.match(htmlSource, /data-settings-panel="database"/);
+  assert.doesNotMatch(htmlSource, /databasePluginsTab|settingsPluginsPanel|settingsDatabasePlugins|data-settings-tab="plugins"/);
+  for (const pluginId of ['mysql', 'mariadb', 'postgresql', 'supabase', 'mongodb', 'clickhouse', 'redis', 'sqlite']) {
+    assert.match(rendererSource, new RegExp(`pluginId: '${pluginId}'`));
+  }
+  assert.match(rendererSource, /function mergeBundledDatabasePlugins\(/);
+  assert.match(rendererSource, /function renderDatabasePlugins\(/);
+  assert.match(rendererSource, /databasePluginSettingsButton\?\.addEventListener\('click',[\s\S]*state\.settingsTab = 'database';[\s\S]*showView\('team'\)/);
+  assert.match(rendererSource, /state\.settingsTab === 'database'\) loadDatabasePlugins/);
+  assert.match(rendererSource, /const isFullPageView = isProfile \|\| isSshFile/);
+  assert.match(rendererSource, /function syncSidebarForView\(view = state\.currentView\) \{\s*if \(\['profile', 'ssh-file'\]\.includes\(view\)\)/);
+  assert.match(stylesSource, /\.database-plugin-list\s*\{[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
 });

@@ -318,7 +318,7 @@
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-server"></use>
             </svg>
-            <span>Servers</span>
+            <span>Hosts</span>
           </button>
           <button id="serverMonitoringButton" class="top-nav-action" type="button">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -668,7 +668,7 @@
               </button>
               <button id="dashboardCreateButton" class="button solid" type="button">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <use href="#icon-folder-plus"></use>
+                  <use href="#icon-plus"></use>
                 </svg>
                 Add server
               </button>
@@ -1103,6 +1103,9 @@
               <p class="header-copy">Connections and database workspaces</p>
             </div>
             <div class="header-actions">
+              <button id="databasePluginSettingsButton" class="button outline compact icon-only" type="button" aria-label="Database Manager settings" title="Database Manager settings">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-settings"></use></svg>
+              </button>
               <button id="databaseProfilesRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh database profiles" title="Refresh database profiles">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
               </button>
@@ -1120,33 +1123,33 @@
               <button id="databaseNotebooksTab" class="database-manager-tab" type="button" role="tab" aria-selected="false" aria-controls="databaseNotebooksPanel" tabindex="-1">Notebooks</button>
               <button id="databaseTasksTab" class="database-manager-tab" type="button" role="tab" aria-selected="false" aria-controls="databaseTasksPanel" tabindex="-1">Tasks</button>
               <button id="databaseLogsTab" class="database-manager-tab" type="button" role="tab" aria-selected="false" aria-controls="databaseLogsPanel" tabindex="-1">Logs</button>
-              <button id="databasePluginsTab" class="database-manager-tab" type="button" role="tab" aria-selected="false" aria-controls="databasePluginsPanel" tabindex="-1">Drivers</button>
             </div>
 
             <section id="databaseConnectionsPanel" class="database-manager-panel" role="tabpanel" aria-labelledby="databaseConnectionsTab">
-              <div class="database-summary" aria-label="Database profile summary">
-                <div><span>Profiles</span><strong id="databaseProfileCount">0</strong></div>
-                <div><span>Production</span><strong id="databaseProductionCount">0</strong></div>
-                <div><span>Read only</span><strong id="databaseReadOnlyCount">0</strong></div>
-              </div>
-
               <div class="database-catalog-toolbar">
                 <label class="database-search">
                   <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
                   <input id="databaseProfileSearch" type="search" placeholder="Search databases" aria-label="Search database profiles" />
                 </label>
+                <div class="database-summary" aria-label="Database profile summary">
+                  <div><span>Profiles</span><strong id="databaseProfileCount">0</strong></div>
+                  <div><span>Production</span><strong id="databaseProductionCount">0</strong></div>
+                  <div><span>Read only</span><strong id="databaseReadOnlyCount">0</strong></div>
+                </div>
               </div>
 
-              <div id="databaseProfilesError" class="database-manager-error hidden" role="alert"></div>
-              <div id="databaseProfilesLoading" class="database-manager-loading hidden" role="status">Loading database profiles...</div>
-              <div id="databaseProfileList" class="database-profile-list hidden" aria-live="polite"></div>
-              <div id="databaseProfilesEmpty" class="database-manager-empty">
-                <span class="database-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-database"></use></svg></span>
-                <strong>No database profiles</strong>
-                <button id="databaseProfileEmptyAddButton" class="button outline compact" type="button">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-plus"></use></svg>
-                  Add database
-                </button>
+              <div class="database-catalog-table-area">
+                <div id="databaseProfilesError" class="database-manager-error hidden" role="alert"></div>
+                <div id="databaseProfilesLoading" class="database-manager-loading hidden" role="status">Loading database profiles...</div>
+                <div id="databaseProfileList" class="database-profile-list hidden" aria-live="polite"></div>
+                <div id="databaseProfilesEmpty" class="database-manager-empty">
+                  <span class="database-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-database"></use></svg></span>
+                  <strong>No database profiles</strong>
+                  <button id="databaseProfileEmptyAddButton" class="button outline compact" type="button">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-plus"></use></svg>
+                    Add database
+                  </button>
+                </div>
               </div>
             </section>
 
@@ -1349,8 +1352,6 @@
               <div id="databaseLogsList" class="database-log-list hidden" aria-live="polite"></div>
               <div id="databaseLogsEmpty" class="database-query-empty hidden">No operational logs</div>
             </section>
-
-            <section id="databasePluginsPanel" class="database-manager-panel hidden" role="tabpanel" aria-labelledby="databasePluginsTab"></section>
           </div>
         </section>
 
@@ -1847,6 +1848,12 @@
                 </svg>
                 Backup & Restore
               </button>
+              <button class="settings-nav-item" type="button" data-settings-tab="database">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <use href="#icon-database"></use>
+                </svg>
+                Database Manager
+              </button>
               <button class="settings-nav-item" type="button" data-settings-tab="templates">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-templates"></use>
@@ -2113,6 +2120,12 @@
                       </section>
                     </div>
                   </div>
+                </div>
+              </section>
+
+              <section id="settingsDatabasePanel" class="settings-panel database-settings-panel" data-settings-panel="database">
+                <div class="settings-panel-body">
+                  <div id="databasePluginsPanel" aria-label="Database Manager plugin settings"></div>
                 </div>
               </section>
 
@@ -2946,13 +2959,33 @@ tool_timeout_sec = 300</pre>
                 <span>Username</span>
                 <input id="modalSshUsername" type="text" placeholder="root" required />
               </label>
-              <label class="field span-2">
+              <div class="field span-2">
                 <span>Authentication</span>
-                <select id="modalAuthType">
-                  <option value="password">Password</option>
-                  <option value="key">SSH private key</option>
-                </select>
-              </label>
+                <div id="modalAuthTypeDropdown" class="top-workspace-switcher auth-type-switcher">
+                  <select id="modalAuthType" class="hidden" tabindex="-1" aria-hidden="true">
+                    <option value="password">Password</option>
+                    <option value="key">SSH private key</option>
+                  </select>
+                  <button
+                    id="modalAuthTypeButton"
+                    class="workspace-switcher-trigger"
+                    type="button"
+                    aria-label="Authentication: Password"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-controls="modalAuthTypeMenu"
+                  >
+                    <span class="workspace-switcher-icon" aria-hidden="true">
+                      <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
+                        <use href="#icon-key"></use>
+                      </svg>
+                    </span>
+                    <span id="modalAuthTypeLabel" class="workspace-switcher-label">Password</span>
+                    <span class="workspace-switcher-chevron" aria-hidden="true"></span>
+                  </button>
+                  <div id="modalAuthTypeMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose authentication type"></div>
+                </div>
+              </div>
                   </div>
 
               <label id="modalPasswordField" class="field modal-secret">
@@ -3128,110 +3161,208 @@ tool_timeout_sec = 300</pre>
 
     <div id="databaseProfileModal" class="modal hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="databaseProfileModalTitle">
       <div class="modal-backdrop" data-database-profile-close></div>
-      <form id="databaseProfileForm" class="modal-card database-profile-modal-card" novalidate>
-        <header class="modal-header">
+      <form id="databaseProfileForm" class="modal-card database-profile-modal-card database-profile-wizard" novalidate>
+        <label class="hidden" aria-hidden="true">
+          <span>Database type</span>
+          <select id="databaseProfileDriver" tabindex="-1">
+            <option value="postgresql">PostgreSQL</option>
+            <option value="mysql">MySQL / MariaDB</option>
+            <option value="sqlite">SQLite</option>
+          </select>
+        </label>
+        <header class="modal-header database-profile-wizard-header">
           <div>
             <h2 id="databaseProfileModalTitle">Add database</h2>
-            <p>Connection profile</p>
+            <p id="databaseProfileModalSubtitle">Choose a database</p>
+          </div>
+          <div class="database-profile-stepper" aria-label="Connection setup progress">
+            <span id="databaseProfileStepChoose" class="active"><b>1</b> Choose</span>
+            <i aria-hidden="true"></i>
+            <span id="databaseProfileStepConfigure"><b>2</b> Configure</span>
           </div>
           <button id="databaseProfileCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
           </button>
         </header>
-        <div class="modal-body database-profile-modal-body">
-          <div class="field-grid modal-columns">
-            <label class="field">
-              <span>Database type</span>
-              <select id="databaseProfileDriver">
-                <option value="postgresql">PostgreSQL</option>
-                <option value="mysql">MySQL / MariaDB</option>
-                <option value="sqlite">SQLite</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Profile name</span>
-              <input id="databaseProfileName" type="text" maxlength="120" placeholder="Production database" required />
-            </label>
-          </div>
 
-          <div id="databaseProfileNetworkFields" class="field-grid modal-columns database-profile-field-group">
-            <label class="field span-2">
-              <span>Host</span>
-              <input id="databaseProfileHost" type="text" maxlength="253" placeholder="db.example.com" autocomplete="off" />
+        <section id="databaseProfileChooser" class="database-profile-step database-profile-chooser" aria-label="Choose a database">
+          <div class="database-profile-chooser-toolbar">
+            <label class="database-profile-search">
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
+              <input id="databaseProfileCatalogueSearch" type="search" placeholder="Search databases..." autocomplete="off" />
             </label>
-            <label class="field">
-              <span>Port</span>
-              <input id="databaseProfilePort" type="number" min="1" max="65535" value="5432" />
-            </label>
-            <label class="field">
-              <span>Username</span>
-              <input id="databaseProfileUsername" type="text" maxlength="200" autocomplete="off" />
-            </label>
-            <label class="field span-2">
-              <span>Password</span>
-              <div class="secret-input">
-                <input id="databaseProfilePassword" type="password" autocomplete="new-password" />
-                <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="databaseProfilePassword" data-show-label="Show database password" data-hide-label="Hide database password" aria-controls="databaseProfilePassword">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-eye"></use></svg>
-                </button>
+            <div id="databaseProfileCatalogueFilters" class="database-profile-catalogue-filters" role="group" aria-label="Database categories"></div>
+          </div>
+          <div id="databaseProfileCatalogue" class="database-profile-catalogue"></div>
+        </section>
+
+        <section id="databaseProfileConfigure" class="database-profile-step database-profile-configure hidden" aria-label="Configure connection">
+          <div class="database-profile-configure-summary">
+            <div id="databaseProfileDriverIdentity" class="database-profile-driver-identity"></div>
+            <button id="databaseProfileChangeDriverButton" class="button outline compact" type="button">
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-arrow-left"></use></svg>
+              Change database
+            </button>
+          </div>
+          <div class="database-profile-config-tabs" role="tablist" aria-label="Connection configuration">
+            <button type="button" class="active" role="tab" aria-selected="true" data-database-profile-tab="general">General</button>
+            <button type="button" role="tab" aria-selected="false" data-database-profile-tab="databases">Databases</button>
+            <button type="button" role="tab" aria-selected="false" data-database-profile-tab="ssl">SSL</button>
+            <button type="button" role="tab" aria-selected="false" data-database-profile-tab="ssh">SSH</button>
+            <button type="button" role="tab" aria-selected="false" data-database-profile-tab="kubernetes">Kubernetes</button>
+            <button type="button" role="tab" aria-selected="false" data-database-profile-tab="advanced">Advanced</button>
+            <button type="button" role="tab" aria-selected="false" data-database-profile-tab="appearance">Appearance</button>
+          </div>
+          <div class="modal-body database-profile-modal-body">
+            <div class="database-profile-tab-panel" data-database-profile-panel="general">
+              <div class="field-grid modal-columns">
+                <label class="field span-2">
+                  <span>Connection name</span>
+                  <input id="databaseProfileName" type="text" maxlength="120" placeholder="Production database" required />
+                </label>
               </div>
-            </label>
-          </div>
-          <div id="databaseProfilePluginCredentials" class="field-grid modal-columns database-profile-field-group hidden"></div>
-          <div id="databaseProfilePluginSettings" class="field-grid modal-columns database-profile-field-group hidden"></div>
+              <label id="databaseProfileConnectionStringField" class="field database-profile-field-group">
+                <span>Connection string</span>
+                <input id="databaseProfileConnectionString" type="text" autocomplete="off" spellcheck="false" placeholder="mysql://user:pass@localhost:3306/database" />
+              </label>
+              <div id="databaseProfileNetworkFields" class="field-grid modal-columns database-profile-field-group">
+                <label class="field span-2">
+                  <span>Host</span>
+                  <input id="databaseProfileHost" type="text" maxlength="253" placeholder="localhost" autocomplete="off" />
+                </label>
+                <label class="field">
+                  <span>Port</span>
+                  <input id="databaseProfilePort" type="number" min="1" max="65535" value="5432" />
+                </label>
+                <label class="field">
+                  <span>Username</span>
+                  <input id="databaseProfileUsername" type="text" maxlength="200" autocomplete="off" />
+                </label>
+                <label class="field span-2">
+                  <span>Password</span>
+                  <div class="secret-input">
+                    <input id="databaseProfilePassword" type="password" autocomplete="new-password" />
+                    <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="databaseProfilePassword" data-show-label="Show database password" data-hide-label="Hide database password" aria-controls="databaseProfilePassword">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-eye"></use></svg>
+                    </button>
+                  </div>
+                </label>
+              </div>
+              <div id="databaseProfilePluginCredentials" class="field-grid modal-columns database-profile-field-group hidden"></div>
+              <div id="databaseProfileGeneralDatabaseFields"></div>
+              <div id="databaseProfileLocalResourcePanel" class="database-profile-driver-panel hidden">
+                <span class="database-profile-driver-panel-icon"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg></span>
+                <div><strong id="databaseProfileLocalResourceTitle">Local database file</strong><p id="databaseProfileLocalResourceHelp">Choose the SQLite database file after saving this profile.</p></div>
+              </div>
+              <div id="databaseProfileNoConnectionPanel" class="database-profile-driver-panel hidden">
+                <span class="database-profile-driver-panel-icon"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-check"></use></svg></span>
+                <div><strong>No connection details needed</strong><p>This driver connects without a host or port. Give the connection a name and save it.</p></div>
+              </div>
+              <label class="checkbox-field database-profile-option"><input id="databaseProfileSavePassword" type="checkbox" checked /><span>Save credentials in secure local storage</span></label>
+              <label class="checkbox-field database-profile-option"><input id="databaseProfileDetectJson" type="checkbox" /><span>Detect JSON in text columns</span></label>
+            </div>
 
-          <div class="field-grid modal-columns database-profile-field-group">
-            <label id="databaseProfileDatabaseField" class="field">
-              <span>Database</span>
-              <input id="databaseProfileDatabase" type="text" maxlength="512" placeholder="app" />
-            </label>
-            <label id="databaseProfileSchemaField" class="field">
-              <span>Default schema</span>
-              <input id="databaseProfileSchema" type="text" maxlength="512" placeholder="public" />
-            </label>
-            <label class="field">
-              <span>Environment</span>
-              <select id="databaseProfileEnvironment">
-                <option value="unclassified">Unclassified</option>
-                <option value="development">Development</option>
-                <option value="staging">Staging</option>
-                <option value="production">Production</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Access</span>
-              <select id="databaseProfileAccessMode">
-                <option value="read-write">Read and write</option>
-                <option value="read-only">Read only</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Linked server</span>
-              <select id="databaseProfileProject"><option value="">Direct connection</option></select>
-            </label>
-            <label id="databaseProfileSslField" class="field">
-              <span>SSL mode</span>
-              <select id="databaseProfileSslMode">
-                <option value="disabled">Disabled</option>
-                <option value="preferred">Preferred</option>
-                <option value="required">Required</option>
-                <option value="verify-ca">Verify CA</option>
-                <option value="verify-full">Verify identity</option>
-              </select>
-            </label>
-            <label class="field span-2">
-              <span>Tags</span>
-              <input id="databaseProfileTags" type="text" maxlength="500" placeholder="critical, reporting" />
-            </label>
+            <div class="database-profile-tab-panel hidden" data-database-profile-panel="databases">
+              <div class="database-profile-panel-heading"><strong>Database selection</strong><span>Choose the default database and schema used when this connection opens.</span></div>
+              <div id="databaseProfileDatabasesPanelFields"></div>
+              <div id="databaseProfileDatabaseFields" class="field-grid modal-columns database-profile-database-fields">
+                <label id="databaseProfileDatabaseField" class="field">
+                  <span>Database</span>
+                  <input id="databaseProfileDatabase" type="text" maxlength="512" placeholder="app" />
+                </label>
+                <label id="databaseProfileSchemaField" class="field">
+                  <span>Default schema</span>
+                  <input id="databaseProfileSchema" type="text" maxlength="512" placeholder="public" />
+                </label>
+              </div>
+              <p class="field-note">Drivers with multiple databases can use this value as the initial database. Leave it blank when the driver discovers databases automatically.</p>
+            </div>
+
+            <div class="database-profile-tab-panel hidden" data-database-profile-panel="ssl">
+              <div class="database-profile-panel-heading"><strong>SSL / TLS</strong><span>Secure the connection and optionally require certificate material.</span></div>
+              <label id="databaseProfileSslField" class="field">
+                <span>SSL mode</span>
+                <select id="databaseProfileSslMode">
+                  <option value="disabled">Disabled</option>
+                  <option value="preferred">Preferred</option>
+                  <option value="required">Required</option>
+                  <option value="verify-ca">Verify CA</option>
+                  <option value="verify-full">Verify identity</option>
+                </select>
+              </label>
+              <label class="checkbox-field database-profile-option"><input id="databaseProfileSslCa" type="checkbox" /><span>Require a trusted CA certificate</span></label>
+              <label class="checkbox-field database-profile-option"><input id="databaseProfileSslClient" type="checkbox" /><span>Use a client certificate</span></label>
+            </div>
+
+            <div class="database-profile-tab-panel hidden" data-database-profile-panel="ssh">
+              <div class="database-profile-panel-heading"><strong>SSH tunnel</strong><span>Route database traffic through a DeployerX server connection.</span></div>
+              <label class="field">
+                <span>Linked server</span>
+                <select id="databaseProfileProject"><option value="">Direct connection</option></select>
+              </label>
+              <p class="field-note">The linked server must be configured and reachable before the database connection can open.</p>
+            </div>
+
+            <div class="database-profile-tab-panel hidden" data-database-profile-panel="kubernetes">
+              <div class="database-profile-panel-heading"><strong>Kubernetes discovery</strong><span>Use a service or port-forward from a Kubernetes context when the selected driver supports it.</span></div>
+              <p class="database-profile-empty-panel">Kubernetes routing is managed by the linked server. Select an SSH tunnel in the SSH tab to use a cluster-hosted database.</p>
+            </div>
+
+            <div class="database-profile-tab-panel hidden" data-database-profile-panel="advanced">
+              <div class="field-grid modal-columns">
+                <label class="field">
+                  <span>Environment</span>
+                  <select id="databaseProfileEnvironment">
+                    <option value="unclassified">Unclassified</option>
+                    <option value="development">Development</option>
+                    <option value="staging">Staging</option>
+                    <option value="production">Production</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Access</span>
+                  <select id="databaseProfileAccessMode">
+                    <option value="read-write">Read and write</option>
+                    <option value="read-only">Read only</option>
+                  </select>
+                </label>
+                <label class="field span-2">
+                  <span>Tags</span>
+                  <input id="databaseProfileTags" type="text" maxlength="500" placeholder="critical, reporting" />
+                </label>
+              </div>
+              <div id="databaseProfileBuiltinSettings" class="field-grid modal-columns database-profile-field-group hidden"></div>
+              <div id="databaseProfilePluginSettings" class="field-grid modal-columns database-profile-field-group hidden"></div>
+              <label class="field database-profile-field-group">
+                <span>Startup script</span>
+                <textarea id="databaseProfileStartupScript" rows="4" maxlength="100000" placeholder="SQL to run when this connection opens"></textarea>
+              </label>
+              <label class="field">
+                <span>Query timeout (milliseconds)</span>
+                <input id="databaseProfileQueryTimeout" type="number" min="1000" max="1800000" value="60000" />
+              </label>
+            </div>
+
+            <div class="database-profile-tab-panel hidden" data-database-profile-panel="appearance">
+              <div class="database-profile-panel-heading"><strong>Appearance</strong><span>Keep the profile easy to identify in the database manager.</span></div>
+              <p class="database-profile-empty-panel">Profile colors and icons are inherited from the selected database driver in this version of DeployerX.</p>
+            </div>
+            <div id="databaseProfileFormError" class="database-manager-error hidden" role="alert"></div>
           </div>
-          <div id="databaseProfileFormError" class="database-manager-error hidden" role="alert"></div>
-        </div>
-        <footer class="modal-footer">
+        </section>
+        <footer class="modal-footer database-profile-wizard-footer">
           <button id="databaseProfileCancelButton" class="button outline" type="button">Cancel</button>
-          <button id="databaseProfileSaveButton" class="button solid" type="submit">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-save"></use></svg>
-            Save profile
-          </button>
+          <div class="database-profile-wizard-actions">
+            <button id="databaseProfileBackButton" class="button outline hidden" type="button">
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-arrow-left"></use></svg>
+              Back
+            </button>
+            <button id="databaseProfileNextButton" class="button solid" type="button">Configure <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-chevron-right"></use></svg></button>
+            <button id="databaseProfileSaveButton" class="button solid hidden" type="submit">
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-save"></use></svg>
+              Save profile
+            </button>
+          </div>
         </footer>
       </form>
     </div>

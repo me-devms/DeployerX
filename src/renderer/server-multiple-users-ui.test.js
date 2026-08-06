@@ -62,3 +62,15 @@ test('wires the responsive SSH user editor and validation controls', async () =>
   assert.match(styles, /@media \(max-width: 560px\)[\s\S]*\.ssh-user-editor-heading/);
   assert.match(main, /if \(defaultUser\) defaultUser\[field\] = ssh\[field\]/);
 });
+
+test('keeps the Add Server command template menu inside the modal', async () => {
+  const [renderer, styles] = await Promise.all([
+    fs.readFile(path.join(__dirname, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'styles.css'), 'utf8')
+  ]);
+
+  assert.match(renderer, /function openModalTemplateMenu\(\)[\s\S]*const spaceBelow[\s\S]*const spaceAbove[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
+  assert.match(renderer, /--template-menu-space/);
+  assert.match(styles, /\.modal-template-switcher \.workspace-switcher-menu\.opens-up\s*\{[\s\S]*bottom: calc\(100% \+ 6px\)/);
+  assert.match(styles, /max-height: min\(280px, var\(--template-menu-space, 280px\)\)/);
+});
