@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, Notification } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, Notification, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
@@ -8,17 +8,179 @@ const os = require('os');
 const net = require('net');
 const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
+const nodemailer = require('nodemailer');
 const { Client } = require('ssh2');
+const { DeployerXMcpServer } = require('./mcp-server');
+const { RdpSessionManager } = require('./rdp-session');
+const { BackupAuditStore, StructuredLogStore } = require('./backup-manager/audit');
+const { BackupJobService } = require('./backup-manager/backup-job');
+const { BackupControlDatabase } = require('./backup-manager/control-database');
+const { CORE_DATABASE_ADAPTER_IDS, isCoreDatabaseAdapterId } = require('./backup-manager/core-database-scope');
+const { DatabaseAdapterRegistry } = require('./backup-manager/database-adapter');
+const { DatabaseSourceService } = require('./backup-manager/database-source');
+const { ADAPTER_ID: CASSANDRA_SCYLLA_ADAPTER_ID, CassandraScyllaAdapter, CassandraScyllaConnectionService } = require('./backup-manager/cassandra-scylla');
+const { CassandraScyllaRestoreService } = require('./backup-manager/cassandra-scylla-restore');
+const { CassandraScyllaSourceReaderService } = require('./backup-manager/cassandra-scylla-source-reader');
+const { FileSourceService } = require('./backup-manager/file-selection');
+const { FileSourceReaderService } = require('./backup-manager/file-source-reader');
+const { FileRestoreService, createConnectionRestoreTarget } = require('./backup-manager/file-restore');
+const { LocalConnectionService, loadOrCreateBackupDeviceId } = require('./backup-manager/local-connection');
+const { ADAPTER_ID: LOCAL_REPOSITORY_ADAPTER_ID, LocalRepositoryService } = require('./backup-manager/local-repository');
+const { ManualBackupService } = require('./backup-manager/manual-backup');
+const { ADAPTER_ID: MARIADB_ADAPTER_ID, MariadbConnectionService, MariadbLogicalAdapter } = require('./backup-manager/mariadb-logical');
+const { MariadbRestoreService, RESTORE_CONFIRMATIONS: MARIADB_RESTORE_CONFIRMATIONS } = require('./backup-manager/mariadb-restore');
+const { MariadbSourceReaderService } = require('./backup-manager/mariadb-source-reader');
+const { ADAPTER_ID: MYSQL_ADAPTER_ID, MysqlConnectionService, MysqlLogicalAdapter } = require('./backup-manager/mysql-logical');
+const { MysqlRestoreService, RESTORE_CONFIRMATIONS: MYSQL_RESTORE_CONFIRMATIONS } = require('./backup-manager/mysql-restore');
+const { MysqlPhysicalRestoreService, RESTORE_CONFIRMATIONS: MYSQL_PHYSICAL_RESTORE_CONFIRMATIONS } = require('./backup-manager/mysql-physical-restore');
+const { MariadbPointInTimeRestoreService, MysqlPointInTimeRestoreService, PROFILES: MYSQL_FAMILY_PITR_PROFILES } = require('./backup-manager/mysql-family-pitr');
+const { BackupSourceReaderRouter, MysqlSourceReaderService } = require('./backup-manager/mysql-source-reader');
+const { BackupNotificationService } = require('./backup-manager/notifications');
+const { BackupObjectiveStatusService } = require('./backup-manager/objectives');
+const { ADAPTER_ID: MONGODB_ADAPTER_ID, MongoDbConnectionService, MongoDbNativeAdapter } = require('./backup-manager/mongodb');
+const { MongoDbRestoreService, RESTORE_CONFIRMATIONS: MONGODB_RESTORE_CONFIRMATIONS } = require('./backup-manager/mongodb-restore');
+const { MongoDbSourceReaderService } = require('./backup-manager/mongodb-source-reader');
+const { ADAPTER_ID: NEO4J_ADAPTER_ID, Neo4jAdapter, Neo4jConnectionService } = require('./backup-manager/neo4j');
+const { ADAPTER_ID: CLICKHOUSE_ADAPTER_ID, DESTINATION_CONFIRMATION: CLICKHOUSE_DESTINATION_CONFIRMATION, ClickHouseAdapter, ClickHouseConnectionService } = require('./backup-manager/clickhouse');
+const { ADAPTER_ID: COCKROACHDB_ADAPTER_ID, BACKUP_DESTINATION_CONFIRMATION: COCKROACHDB_BACKUP_DESTINATION_CONFIRMATION, CockroachDbAdapter, CockroachDbConnectionService } = require('./backup-manager/cockroachdb');
+const { CockroachDbSourceReaderService } = require('./backup-manager/cockroachdb-source-reader');
+const { CockroachDbRetentionService } = require('./backup-manager/cockroachdb-retention');
+const { createCockroachDbRetentionAdapters } = require('./backup-manager/cockroachdb-retention-adapters');
+const { RESTORE_CONFIRMATION: COCKROACHDB_RESTORE_CONFIRMATION } = require('./backup-manager/cockroachdb-restore');
+const { CockroachDbRestoreRunService } = require('./backup-manager/cockroachdb-restore-run');
+const { CockroachDbScheduleService } = require('./backup-manager/cockroachdb-schedule-service');
+const { DRILL_CONFIRMATION: COCKROACHDB_DRILL_CONFIRMATION, DRILL_MODE: COCKROACHDB_DRILL_MODE, METADATA_MODE: COCKROACHDB_METADATA_MODE, CockroachDbRecoveryTestService } = require('./backup-manager/cockroachdb-verification');
+const { ADAPTER_ID: INFLUXDB_ADAPTER_ID, InfluxDbConnectionService, InfluxDbOssV2Adapter } = require('./backup-manager/influxdb');
+const { ADAPTER_ID: INFLUXDB3_CORE_ADAPTER_ID, InfluxDb3CoreAdapter, InfluxDb3CoreConnectionService } = require('./backup-manager/influxdb3-core');
+const { ADAPTER_ID: INFLUXDB3_ENTERPRISE_ADAPTER_ID, InfluxDb3EnterpriseAdapter, InfluxDb3EnterpriseConnectionService } = require('./backup-manager/influxdb3-enterprise');
+const { InfluxDb3EnterpriseSourceReaderService } = require('./backup-manager/influxdb3-enterprise-source-reader');
+const { InfluxDb3EnterpriseLegacySourceReaderService } = require('./backup-manager/influxdb3-enterprise-legacy-source-reader');
+const { InfluxDb3EnterpriseSourceReaderRouter } = require('./backup-manager/influxdb3-enterprise-source-router');
+const { InfluxDb3EnterpriseRestoreService, RESTORE_CONFIRMATION: INFLUXDB3_ENTERPRISE_RESTORE_CONFIRMATION } = require('./backup-manager/influxdb3-enterprise-restore');
+const { DELETE_CONFIRMATION: INFLUXDB3_ENTERPRISE_DELETE_CONFIRMATION, InfluxDb3EnterpriseRetentionService } = require('./backup-manager/influxdb3-enterprise-retention');
+const { InfluxDb3EnterpriseLegacyRetentionService } = require('./backup-manager/influxdb3-enterprise-legacy-retention');
+const { InfluxDb3EnterpriseLegacyRestoreService } = require('./backup-manager/influxdb3-enterprise-legacy-restore');
+const { RESTORE_CONFIRMATION: INFLUXDB3_ENTERPRISE_LEGACY_RESTORE_CONFIRMATION } = require('./backup-manager/influxdb3-enterprise-legacy');
+const { InfluxDb3EnterpriseLegacyStopBindingService } = require('./backup-manager/influxdb3-enterprise-legacy-stop-binding');
+const { InfluxDb3EnterpriseLegacyStopProofService } = require('./backup-manager/influxdb3-enterprise-legacy-stop-proof');
+const { DRILL_CONFIRMATION: INFLUXDB3_ENTERPRISE_LEGACY_DRILL_CONFIRMATION, DRILL_MODE: INFLUXDB3_ENTERPRISE_LEGACY_DRILL_MODE, METADATA_MODE: INFLUXDB3_ENTERPRISE_LEGACY_METADATA_MODE, InfluxDb3EnterpriseLegacyRecoveryTestService } = require('./backup-manager/influxdb3-enterprise-legacy-verification');
+const { METADATA_MODE: INFLUXDB3_ENTERPRISE_METADATA_MODE, InfluxDb3EnterpriseRecoveryTestService } = require('./backup-manager/influxdb3-enterprise-verification');
+const { InfluxDb3CoreSourceReaderService } = require('./backup-manager/influxdb3-core-source-reader');
+const { InfluxDb3CoreRestoreService, RESTORE_CONFIRMATION: INFLUXDB3_CORE_RESTORE_CONFIRMATION } = require('./backup-manager/influxdb3-core-restore');
+const { DRILL_CONFIRMATION: INFLUXDB3_CORE_DRILL_CONFIRMATION, DRILL_MODE: INFLUXDB3_CORE_DRILL_MODE, InfluxDb3CoreRecoveryTestService } = require('./backup-manager/influxdb3-core-verification');
+const { InfluxDbRestoreService, RESTORE_CONFIRMATION: INFLUXDB_RESTORE_CONFIRMATION } = require('./backup-manager/influxdb-restore');
+const { InfluxDbSourceReaderService } = require('./backup-manager/influxdb-source-reader');
+const { DRILL_CONFIRMATION: INFLUXDB_DRILL_CONFIRMATION, DRILL_MODE: INFLUXDB_DRILL_MODE, InfluxDbRecoveryTestService } = require('./backup-manager/influxdb-verification');
+const { ClickHouseRestoreService, RESTORE_CONFIRMATION: CLICKHOUSE_RESTORE_CONFIRMATION } = require('./backup-manager/clickhouse-restore');
+const { ClickHouseSourceReaderService } = require('./backup-manager/clickhouse-source-reader');
+const { DRILL_CONFIRMATION: CLICKHOUSE_DRILL_CONFIRMATION, DRILL_MODE: CLICKHOUSE_DRILL_MODE, ClickHouseRecoveryTestService } = require('./backup-manager/clickhouse-verification');
+const { AGGREGATION_CONFIRMATION: NEO4J_AGGREGATION_CONFIRMATION, Neo4jAggregationService } = require('./backup-manager/neo4j-aggregation');
+const { Neo4jRestoreService, RESTORE_CONFIRMATION: NEO4J_RESTORE_CONFIRMATION } = require('./backup-manager/neo4j-restore');
+const { Neo4jSourceReaderService } = require('./backup-manager/neo4j-source-reader');
+const { DRILL_CONFIRMATION: NEO4J_DRILL_CONFIRMATION, DRILL_MODE: NEO4J_DRILL_MODE, Neo4jRecoveryTestService } = require('./backup-manager/neo4j-verification');
+const { ADAPTER_ID: REDIS_ADAPTER_ID, RedisConnectionService, RedisNativeAdapter } = require('./backup-manager/redis');
+const { RedisRestoreService, RESTORE_CONFIRMATIONS: REDIS_RESTORE_CONFIRMATIONS } = require('./backup-manager/redis-restore');
+const { RedisSourceReaderService } = require('./backup-manager/redis-source-reader');
+const { ADAPTER_ID: SEARCH_SNAPSHOT_ADAPTER_ID, SearchSnapshotAdapter, SearchSnapshotConnectionService } = require('./backup-manager/search-snapshot');
+const {
+  CLEANUP_CONFIRMATION: SEARCH_CLEANUP_CONFIRMATION,
+  DRILL_CONFIRMATION: SEARCH_DRILL_CONFIRMATION,
+  RESTORE_CONFIRMATION: SEARCH_RESTORE_CONFIRMATION,
+  SearchSnapshotMaintenanceService,
+  SearchSnapshotRecoveryTestService,
+  SearchSnapshotRestoreService
+} = require('./backup-manager/search-snapshot-operations');
+const { SearchSnapshotSourceReaderService } = require('./backup-manager/search-snapshot-source-reader');
+const { ADAPTER_ID: SCYLLA_MANAGER_ADAPTER_ID, ScyllaManagerAdapter, ScyllaManagerConnectionService } = require('./backup-manager/scylla-manager');
+const { RESTORE_CONFIRMATION: SCYLLA_MANAGER_RESTORE_CONFIRMATION, ScyllaManagerRestoreService } = require('./backup-manager/scylla-manager-restore');
+const { ScyllaManagerSourceReaderService } = require('./backup-manager/scylla-manager-source-reader');
+const { DRILL_CONFIRMATION: SCYLLA_MANAGER_DRILL_CONFIRMATION, ScyllaManagerRecoveryTestService } = require('./backup-manager/scylla-manager-verification');
+const { ADAPTER_ID: SQLITE_ADAPTER_ID, SqliteConnectionService, SqliteNativeAdapter } = require('./backup-manager/sqlite');
+const { RESTORE_CONFIRMATIONS: SQLITE_RESTORE_CONFIRMATIONS, SqliteRestoreService } = require('./backup-manager/sqlite-restore');
+const { SqliteSourceReaderService } = require('./backup-manager/sqlite-source-reader');
+const { ADAPTER_ID: ORACLE_ADAPTER_ID, OracleConnectionService, OracleRmanAdapter } = require('./backup-manager/oracle');
+const { OracleRestoreService, RESETLOGS_CONFIRMATION: ORACLE_RESETLOGS_CONFIRMATION, RESTORE_CONFIRMATIONS: ORACLE_RESTORE_CONFIRMATIONS } = require('./backup-manager/oracle-restore');
+const { OracleSourceReaderService } = require('./backup-manager/oracle-source-reader');
+const { ADAPTER_ID: POSTGRESQL_ADAPTER_ID, PostgresqlConnectionService, PostgresqlLogicalAdapter } = require('./backup-manager/postgresql-logical');
+const { PostgresqlRestoreService, RESTORE_CONFIRMATIONS: POSTGRESQL_RESTORE_CONFIRMATIONS } = require('./backup-manager/postgresql-restore');
+const { PostgresqlPitrRestoreService, RESTORE_CONFIRMATIONS: POSTGRESQL_PITR_RESTORE_CONFIRMATIONS } = require('./backup-manager/postgresql-pitr-restore');
+const { PostgresqlSourceReaderService } = require('./backup-manager/postgresql-source-reader');
+const { ADAPTER_ID: SQLSERVER_ADAPTER_ID, SqlServerConnectionService, SqlServerNativeAdapter } = require('./backup-manager/sqlserver');
+const { SqlServerSourceReaderService } = require('./backup-manager/sqlserver-source-reader');
+const { DAMAGED_TAIL_CONFIRMATION: SQLSERVER_DAMAGED_TAIL_CONFIRMATION, RESTORE_CONFIRMATIONS: SQLSERVER_RESTORE_CONFIRMATIONS, SqlServerRestoreService, TAIL_CONFIRMATION: SQLSERVER_TAIL_CONFIRMATION } = require('./backup-manager/sqlserver-restore');
+const { RunCheckpointStore } = require('./backup-manager/run-checkpoint');
+const { RepositoryVerificationService } = require('./backup-manager/repository-verification');
+const { RepositoryPruningService } = require('./backup-manager/repository-pruning');
+const { ScheduledBackupWorkerService, effectiveJobDispatchTime } = require('./backup-manager/scheduled-backup-worker');
+const { SnapshotBrowserService } = require('./backup-manager/snapshot-browser');
+const { ADAPTER_ID: S3_REPOSITORY_ADAPTER_ID, S3RepositoryService } = require('./backup-manager/s3-repository');
+const { BackupSecretStore } = require('./backup-manager/secrets');
+const { ADAPTER_ID: SFTP_REPOSITORY_ADAPTER_ID, SftpRepositoryService } = require('./backup-manager/sftp-repository');
+const { SshConnectionService } = require('./backup-manager/ssh-connection');
+const { DatabaseBackupHandoffService } = require('./database-manager/backup-handoff');
+const { DatabaseConnectionService } = require('./database-manager/connection-service');
+const { DirectDatabaseDriverRuntime } = require('./database-manager/direct-driver-runtime');
+const { DatabaseDriverRuntimeRegistry, SidecarDriverRuntime, createInstalledPluginRuntime, resolveDatabaseDriverHostPath } = require('./database-manager/driver-runtime');
+const { DatabaseDefinitionExecutor } = require('./database-manager/definition-executor');
+const { DatabaseExplainService } = require('./database-manager/explain-service');
+const { DatabaseTransferService } = require('./database-manager/transfer-service');
+const { DatabaseConnectionImportService } = require('./database-manager/connection-import');
+const { createDatabaseManagerEvent } = require('./database-manager/event-contract');
+const { wrapDatabaseManagerIpc } = require('./database-manager/ipc-contract');
+const { DatabaseLocalResourceStore } = require('./database-manager/local-resource-store');
+const { DatabaseOperationalLogService } = require('./database-manager/operational-log');
+const { DatabaseOperationalEvidenceStore } = require('./database-manager/operational-evidence-store');
+const { DatabaseProfileService } = require('./database-manager/profile-service');
+const { DatabaseProfileStore } = require('./database-manager/profile-store');
+const { DatabasePrincipalAdministrationService } = require('./database-manager/principal-administration');
+const { DatabaseQueryService } = require('./database-manager/query-service');
+const { DatabaseQueryWorkspaceStore } = require('./database-manager/query-workspace-store');
+const { DatabaseResultExportService } = require('./database-manager/result-export-service');
+const { DatabaseRowCrudService } = require('./database-manager/row-crud');
+const { DatabaseSchemaAdministrationService } = require('./database-manager/schema-administration');
+const { DatabaseSchemaService } = require('./database-manager/schema-service');
+const { DatabaseServerTunnelService } = require('./database-manager/server-tunnel');
+const { DatabaseTaskService, DatabaseTaskStore } = require('./database-manager/task-service');
+const { DatabasePluginRegistry, safeArchiveEntries } = require('./database-manager/plugin-registry');
+const { DatabasePluginHealthStore } = require('./database-manager/plugin-health-store');
+const { inspectPluginRuntimeRequirement, pluginRuntimeRequirement } = require('./database-manager/plugin-runtime-requirement');
+const { TabulariumClient } = require('./database-manager/tabularium-client');
+const { TabularisLauncher } = require('./database-manager/tabularis-launcher');
+const { mergeCloudProfiles, normalizeCloudProfileDocument } = require('./database-manager/cloud-metadata');
+const { DatabaseCloudSyncOutbox } = require('./database-manager/cloud-sync-outbox');
+const { planCloudSyncOperation } = require('./database-manager/cloud-sync-policy');
+const { UptimeControlDatabase } = require('./uptime-monitor/control-database');
+const { runMonitorCheck } = require('./uptime-monitor/check-engine');
+const { normalizeMonitorInput } = require('./uptime-monitor/domain');
+const { UptimeIncidentPolicyService } = require('./uptime-monitor/incident-policy');
+const { wrapUptimeIpc } = require('./uptime-monitor/ipc-contract');
+const { migrateLegacyUptime } = require('./uptime-monitor/legacy-migration');
+const { buildUptimeReport, reportToCsv, uptimeReportHtml } = require('./uptime-monitor/reporting');
+const { ScheduledUptimeWorkerService } = require('./uptime-monitor/scheduled-worker');
+const { evaluateWorkerHeartbeat, workerHealthEvent } = require('./uptime-monitor/worker-health');
+const { buildLinuxAutostartEntry, buildLoginItemSettings, buildWorkerLaunchArgs } = require('./uptime-monitor/worker-launch');
+const { uptimeWindowCloseDisposition } = require('./uptime-monitor/window-lifecycle');
 const appPackage = require('../package.json');
 
 const STORE_FILE = 'projects.json';
 const SETTINGS_FILE = 'settings.json';
 const APP_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'deployerx-logo.ico' : 'deployerx-logo.png');
+const DATABASE_MANAGER_PACKAGED_SMOKE_ARGUMENT = '--database-manager-packaged-smoke';
+const DATABASE_MANAGER_PACKAGED_SMOKE_RELEASE_ARGUMENT = '--database-manager-packaged-smoke-release=';
+const DATABASE_MANAGER_PACKAGED_SMOKE_SCHEMA_VERSION = 1;
+const RDP_WASM_FILE = path.join(path.dirname(require.resolve('ironrdp-wasm')), 'rdp_client_bg.wasm');
 const AUTO_UPDATE_CHECK_DELAY_MS = 12000;
 const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const GITHUB_API_BASE_URL = 'https://api.github.com';
 const WINDOWS_UPDATE_MANIFEST = 'latest.yml';
 let mainWindow;
+let databaseManagerPackagedSmokePublished = false;
+let rdpSessionManager;
+let rdpRestoreBounds = null;
+let tray;
+let isAppQuitting = false;
+let hasShownTrayNotice = false;
+let mcpServer;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
 const activeFtpSessions = new Map();
@@ -29,9 +191,14 @@ const FIREBASE_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
 const UPTIME_HISTORY_LIMIT = 200;
 const UPTIME_CONFIG_REFRESH_MS = 60 * 1000;
 const UPTIME_COMMAND_POLL_MS = 4000;
+const DATABASE_CLOUD_SYNC_INTERVAL_MS = 60 * 1000;
 const UPTIME_RUNTIME_FILE = 'runtime.json';
+const SESSION_DATA_PATH = path.join(os.tmpdir(), `DeployerX-session-${process.pid}`);
+app.setPath('sessionData', SESSION_DATA_PATH);
+if (process.platform === 'win32') app.setAppUserModelId('com.everythingx.deployerx');
 let settingsCache = null;
 let firebaseConfigCache = null;
+let authRefreshPromise = null;
 let cloudUnlock = { teamId: '', key: null };
 const pendingConfirmations = new Map();
 const BUILT_IN_TEMPLATE_PREFIX = 'builtin:';
@@ -58,8 +225,117 @@ let uptimeWorkerState = {
 let uptimeWorkerInterval = null;
 let uptimeConfigRefreshTimer = null;
 let uptimeCommandPollTimer = null;
+let databaseCloudSyncTimer = null;
+let databaseManagerEventSequence = 0;
 const uptimeRunNowQueue = new Set();
 let uptimeWorkerOwnsLock = false;
+let backupSecretStore = null;
+let backupAuditStore = null;
+let backupLogStore = null;
+let backupControlDatabase = null;
+let backupControlDatabaseError = null;
+let databaseProfileService = null;
+let databaseConnectionImportService = null;
+let databaseBackupHandoffService = null;
+let databaseConnectionService = null;
+let databaseDriverRuntimeRegistry = null;
+let databaseLocalResourceStore = null;
+let databaseOperationalLogService = null;
+let databaseOperationalEvidenceStore = null;
+let databaseQueryService = null;
+let databaseQueryWorkspaceStore = null;
+let databaseResultExportService = null;
+let databaseRowCrudService = null;
+let databaseSchemaAdministrationService = null;
+let databasePrincipalAdministrationService = null;
+let databaseDefinitionExecutor = null;
+let databaseExplainService = null;
+let databaseTransferService = null;
+let databaseSchemaService = null;
+let databaseTaskService = null;
+let databasePluginRegistry = null;
+let databasePluginHealthStore = null;
+let tabulariumClient = null;
+let tabularisLauncher = null;
+let databaseCloudSyncOutbox = null;
+let backupLocalConnectionService = null;
+let backupSshConnectionService = null;
+let backupMysqlConnectionService = null;
+let backupMariadbConnectionService = null;
+let backupPostgresqlConnectionService = null;
+let backupSqlServerConnectionService = null;
+let backupOracleConnectionService = null;
+let backupMongoDbConnectionService = null;
+let backupNeo4jConnectionService = null;
+let backupClickHouseConnectionService = null;
+let backupCockroachDbConnectionService = null;
+let backupCockroachDbScheduleService = null;
+let backupCockroachDbRetentionService = null;
+let backupInfluxDbConnectionService = null;
+let backupInfluxDb3CoreConnectionService = null;
+let backupInfluxDb3EnterpriseConnectionService = null;
+let backupInfluxDb3EnterpriseRestoreService = null;
+let backupInfluxDb3EnterpriseRetentionService = null;
+let backupInfluxDb3EnterpriseRecoveryTestService = null;
+let backupInfluxDb3EnterpriseLegacyRetentionService = null;
+let backupInfluxDb3EnterpriseLegacyStopBindingService = null;
+let backupInfluxDb3EnterpriseLegacyStopProofService = null;
+let backupInfluxDb3EnterpriseLegacyRestoreService = null;
+let backupInfluxDb3EnterpriseLegacyRecoveryTestService = null;
+let backupInfluxDb3CoreRestoreService = null;
+let backupInfluxDb3CoreRecoveryTestService = null;
+let backupInfluxDbRestoreService = null;
+let backupInfluxDbRecoveryTestService = null;
+let backupClickHouseRestoreService = null;
+let backupClickHouseRecoveryTestService = null;
+let backupCockroachDbRestoreService = null;
+let backupCockroachDbRecoveryTestService = null;
+let backupNeo4jRestoreService = null;
+let backupNeo4jAggregationService = null;
+let backupNeo4jRecoveryTestService = null;
+let backupRedisConnectionService = null;
+let backupSearchSnapshotConnectionService = null;
+let backupCassandraScyllaConnectionService = null;
+let backupCassandraScyllaRestoreService = null;
+let backupScyllaManagerConnectionService = null;
+let backupScyllaManagerRestoreService = null;
+let backupScyllaManagerRecoveryTestService = null;
+let backupSqliteConnectionService = null;
+let backupDatabaseSourceService = null;
+let backupFileSourceService = null;
+let backupLocalRepositoryService = null;
+let backupSftpRepositoryService = null;
+let backupS3RepositoryService = null;
+let backupJobService = null;
+let backupManualBackupService = null;
+let backupScheduledWorkerService = null;
+let backupSnapshotBrowserService = null;
+let backupFileRestoreService = null;
+let backupMysqlRestoreService = null;
+let backupMysqlPhysicalRestoreService = null;
+let backupMariadbRestoreService = null;
+let backupMysqlPitrService = null;
+let backupMariadbPitrService = null;
+let backupPostgresqlRestoreService = null;
+let backupPostgresqlPitrRestoreService = null;
+let backupSqlServerRestoreService = null;
+let backupOracleRestoreService = null;
+let backupMongoDbRestoreService = null;
+let backupRedisRestoreService = null;
+let backupSearchSnapshotRestoreService = null;
+let backupSearchSnapshotMaintenanceService = null;
+let backupSearchSnapshotRecoveryTestService = null;
+let backupSqliteRestoreService = null;
+let backupRepositoryVerificationService = null;
+let backupRepositoryPruningService = null;
+let backupNotificationService = null;
+let backupObjectiveStatusService = null;
+let backupDeviceId = null;
+const backupInfluxDb3EnterpriseLegacyStopProofKey = crypto.randomBytes(32);
+let uptimeControlDatabase = null;
+let uptimeControlDatabaseError = null;
+let uptimeIncidentPolicyService = null;
+let uptimeScheduledWorkerService = null;
 let uptimeWindowPollTimer = null;
 let uptimeWindowLastHeartbeat = '';
 let uptimeWorkerProjects = [];
@@ -917,6 +1193,2036 @@ function getUptimeRootPath() {
   return path.join(app.getPath('userData'), 'uptime');
 }
 
+function getUptimeControlRootPath() {
+  return path.join(app.getPath('userData'), 'uptime-monitor');
+}
+
+function getBackupManagerRootPath() {
+  return path.join(app.getPath('userData'), 'backup-manager');
+}
+
+function getDatabasePluginRegistry() {
+  if (!databasePluginRegistry) throw new Error('Database plugin registry is not initialized.');
+  return databasePluginRegistry;
+}
+
+function getDatabasePluginHealthStore() {
+  if (!databasePluginHealthStore) throw new Error('Database plugin health store is not initialized.');
+  return databasePluginHealthStore;
+}
+
+async function listDatabasePluginsWithHealth() {
+  const plugins = getDatabasePluginRegistry().list();
+  const [healthRecords, runtimeRequirements] = await Promise.all([
+    getDatabasePluginHealthStore().list(),
+    Promise.all(plugins.map((plugin) => inspectCachedPluginRuntimeRequirement(plugin.runtimeRequirement)))
+  ]);
+  const health = new Map(healthRecords.map((record) => [record.pluginId, record]));
+  return plugins.map((plugin, index) => ({ ...plugin, runtimeRequirement: runtimeRequirements[index], health: health.get(plugin.pluginId) || null }));
+}
+
+const databasePluginRuntimeRequirementCache = new Map();
+
+async function inspectCachedPluginRuntimeRequirement(requirement) {
+  if (!requirement) return null;
+  const key = `${requirement.id}:${requirement.minimumVersion || ''}:${requirement.label || ''}`;
+  const cached = databasePluginRuntimeRequirementCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const value = await inspectPluginRuntimeRequirement(requirement);
+  databasePluginRuntimeRequirementCache.set(key, { value, expiresAt: Date.now() + 30000 });
+  return value;
+}
+
+async function checkDatabasePluginHealth(pluginId) {
+  const installed = getDatabasePluginRegistry().getInstalled(pluginId);
+  if (!installed) throw Object.assign(new Error('Enable this plugin before checking its runtime health.'), { code: 'DATABASE_PLUGIN_NOT_ENABLED' });
+  try {
+    await databaseDriverRuntimeRegistry.get(pluginId).health({ timeoutMs: 5000 });
+    const health = await getDatabasePluginHealthStore().recordHealth(pluginId, { ok: true });
+    sendDatabaseManagerEvent('device', 'plugin-state', { pluginId, state: health.status });
+    return health;
+  } catch (error) {
+    const health = await getDatabasePluginHealthStore().recordHealth(pluginId, { ok: false, errorCode: error.code });
+    sendDatabaseManagerEvent('device', 'plugin-state', { pluginId, state: health.status, code: health.lastErrorCode });
+    return health;
+  }
+}
+
+async function registerDatabasePluginRuntime(pluginId) {
+  const installed = getDatabasePluginRegistry().getInstalled(pluginId);
+  if (!installed?.entrypoint || !installed.driverManifest) return false;
+  const runtimeRequirement = await inspectCachedPluginRuntimeRequirement(pluginRuntimeRequirement(installed.entrypoint, installed.pluginId));
+  if (runtimeRequirement?.status === 'unavailable') {
+    throw Object.assign(new Error(runtimeRequirement.reason), { code: 'DATABASE_PLUGIN_RUNTIME_UNAVAILABLE' });
+  }
+  const closedSessions = await databaseConnectionService?.closeDriver(pluginId) || [];
+  for (const session of closedSessions) {
+    sendDatabaseManagerEvent(session.workspaceId, 'connection-status', { profileId: session.profileId, state: 'closed', operation: 'driver-reload' });
+  }
+  await databaseDriverRuntimeRegistry.unregister(pluginId);
+  databaseDriverRuntimeRegistry.register(pluginId, createInstalledPluginRuntime({
+    installed,
+    beforeStart: () => getDatabasePluginRegistry().verifyInstalled(pluginId),
+    onDiagnostic: (diagnostic) => {
+      databasePluginHealthStore?.recordDiagnostic(pluginId, diagnostic.event, diagnostic.details).then((health) => {
+        if (['ready', 'warning', 'crashed'].includes(health.status)) sendDatabaseManagerEvent('device', 'plugin-state', { pluginId, state: health.status, code: health.lastErrorCode });
+      }).catch(() => {});
+      getBackupLogStore().logger({ workspaceId: 'local', component: 'database-plugin-runtime' }).warn('Database plugin runtime diagnostic.', { pluginId, event: diagnostic.event, details: diagnostic.details }).catch(() => {});
+    }
+  }), installed.driverManifest);
+  await databasePluginHealthStore?.recordDiagnostic(pluginId, 'registered').catch(() => {});
+  return true;
+}
+
+async function refreshDatabasePluginCatalog() {
+  if (!tabulariumClient) tabulariumClient = new TabulariumClient();
+  const catalog = await tabulariumClient.loadCatalog();
+  getDatabasePluginRegistry().setCatalog(catalog);
+  databasePluginRuntimeRequirementCache.clear();
+  sendDatabaseManagerEvent('device', 'plugin-state', { state: 'catalog-refreshed' });
+  return listDatabasePluginsWithHealth();
+}
+
+async function recheckDatabasePluginRuntimeRequirements() {
+  databasePluginRuntimeRequirementCache.clear();
+  return listDatabasePluginsWithHealth();
+}
+
+async function extractDatabasePluginArchive(archive, destination, options = {}) {
+  const temporaryPath = path.join(os.tmpdir(), `deployerx-plugin-${crypto.randomUUID()}.archive`);
+  try {
+    await fs.writeFile(temporaryPath, archive, { mode: 0o600 });
+    const listing = await new Promise((resolve, reject) => {
+      execFile('tar.exe', ['-tf', temporaryPath], { windowsHide: true, maxBuffer: 2 * 1024 * 1024 }, (error, stdout) => error ? reject(error) : resolve(String(stdout || '')));
+    });
+    const entries = listing.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map((entry) => ({ path: entry, size: 0, executable: entry.replaceAll('\\', '/') === String(options.entrypoint || '').replaceAll('\\', '/') }));
+    safeArchiveEntries(entries, options.entrypoint);
+    await fs.mkdir(destination, { recursive: true, mode: 0o700 });
+    await new Promise((resolve, reject) => {
+      execFile('tar.exe', ['-xf', temporaryPath, '-C', destination, '--no-same-owner', '--no-same-permissions'], { windowsHide: true, maxBuffer: 2 * 1024 * 1024 }, (error) => error ? reject(error) : resolve());
+    });
+    return entries;
+  } catch (error) {
+    throw Object.assign(new Error('The plugin archive could not be safely extracted.'), { code: 'DATABASE_PLUGIN_EXTRACTION_FAILED', category: 'database-plugin', retryable: false, cause: error });
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+  }
+}
+
+function getBackupSecretStore() {
+  if (!backupSecretStore) {
+    backupSecretStore = new BackupSecretStore({
+      rootPath: getBackupManagerRootPath(),
+      secureStorage: safeStorage,
+      isReferenced: async ({ workspaceId, id }) => {
+        if (!backupControlDatabase) return true;
+        const [connections, repositories, routes, uptimeMonitors] = await Promise.all([
+          backupControlDatabase.repository('connection').list(workspaceId, { includeDeleted: true, limit: 1000 }),
+          backupControlDatabase.repository('repository').list(workspaceId, { includeDeleted: true, limit: 1000 }),
+          backupControlDatabase.repository('notificationRoute').list(workspaceId, { includeDeleted: true, limit: 1000 }),
+          uptimeControlDatabase ? uptimeControlDatabase.listMonitors(workspaceId, { includeDeleted: true, limit: 10000 }).catch(() => []) : Promise.resolve([])
+        ]);
+        return connections.some((record) => !record.deletedAt && record.secretRefIds?.includes(id))
+          || routes.some((record) => !record.deletedAt && record.secretRefIds?.includes(id))
+          || repositories.some((record) => record.encryptionKeyRefId === id || (!record.deletedAt && record.secretRefIds?.includes(id)))
+          || uptimeMonitors.some((monitor) => !monitor.deletedAt && Object.values(monitor.config?.secretHeaderRefs || {}).includes(id));
+      }
+    });
+  }
+  return backupSecretStore;
+}
+
+function getBackupAuditStore() {
+  if (!backupAuditStore) {
+    backupAuditStore = new BackupAuditStore({ rootPath: path.join(getBackupManagerRootPath(), 'audit') });
+  }
+  return backupAuditStore;
+}
+
+function getBackupLogStore() {
+  if (!backupLogStore) {
+    backupLogStore = new StructuredLogStore({ rootPath: path.join(getBackupManagerRootPath(), 'logs') });
+  }
+  return backupLogStore;
+}
+
+async function initializeBackupControlDatabase() {
+  const controlDatabase = new BackupControlDatabase({ rootPath: getBackupManagerRootPath() });
+  try {
+    await controlDatabase.initialize();
+    backupControlDatabase = controlDatabase;
+    backupDeviceId = await loadOrCreateBackupDeviceId(getBackupManagerRootPath());
+    const databaseProfileStore = new DatabaseProfileStore({ controlDatabase });
+    databaseProfileService = new DatabaseProfileService({
+      profileStore: databaseProfileStore,
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      driverResolver: (driverId) => databasePluginRegistry?.getDriverManifest(driverId) || null
+    });
+    const databaseDriverHostPath = resolveDatabaseDriverHostPath({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: app.getAppPath()
+    });
+    const databaseDriverHostAvailable = await fs.stat(databaseDriverHostPath).then((stat) => stat.isFile()).catch(() => false);
+    const databaseDriverHost = databaseDriverHostAvailable
+      ? new SidecarDriverRuntime({ executablePath: databaseDriverHostPath })
+      : new DirectDatabaseDriverRuntime();
+    databaseDriverRuntimeRegistry = new DatabaseDriverRuntimeRegistry()
+      .register('postgresql', databaseDriverHost)
+      .register('mysql', databaseDriverHost)
+      .register('sqlite', databaseDriverHost);
+    databaseLocalResourceStore = new DatabaseLocalResourceStore({ rootPath: path.join(getBackupManagerRootPath(), 'database-manager') });
+    await databaseLocalResourceStore.initialize();
+    databaseConnectionImportService = new DatabaseConnectionImportService({
+      controlDatabase,
+      profileStore: databaseProfileStore,
+      localResourceStore: databaseLocalResourceStore,
+      deviceId: backupDeviceId
+    });
+    databasePluginHealthStore = new DatabasePluginHealthStore({ rootPath: path.join(getBackupManagerRootPath(), 'database-manager', 'plugins') });
+    await databasePluginHealthStore.initialize();
+    databaseOperationalEvidenceStore = new DatabaseOperationalEvidenceStore({ rootPath: path.join(getBackupManagerRootPath(), 'database-manager') });
+    await databaseOperationalEvidenceStore.initialize();
+    try {
+      databaseCloudSyncOutbox = new DatabaseCloudSyncOutbox({ rootPath: path.join(getBackupManagerRootPath(), 'database-manager') });
+      await databaseCloudSyncOutbox.initialize();
+    } catch (error) {
+      databaseCloudSyncOutbox = null;
+      await getBackupLogStore().logger({ workspaceId: 'local', component: 'database-cloud-sync' }).warn(
+        'Database profile cloud synchronization could not initialize.',
+        { code: error.code || 'DATABASE_MANAGER_CLOUD_SYNC_INIT_FAILED' }
+      ).catch(() => {});
+    }
+    tabulariumClient = new TabulariumClient();
+    databasePluginRegistry = new DatabasePluginRegistry({
+      rootPath: path.join(getBackupManagerRootPath(), 'database-manager', 'plugins'),
+      download: async (url, { maxBytes } = {}) => {
+        const response = await fetch(url);
+        if (!response.ok) throw Object.assign(new Error('The plugin archive could not be downloaded.'), { code: 'DATABASE_PLUGIN_DOWNLOAD_FAILED', retryable: true });
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.byteLength > Number(maxBytes || 0)) throw Object.assign(new Error('The plugin archive is larger than its manifest limit.'), { code: 'DATABASE_PLUGIN_RELEASE_TOO_LARGE' });
+        return buffer;
+      },
+      extract: extractDatabasePluginArchive,
+      verifySignature: ({ release }) => tabulariumClient.verifyRelease(release)
+    });
+    await databasePluginRegistry.initialize();
+    for (const plugin of databasePluginRegistry.listInstalled()) {
+      await registerDatabasePluginRuntime(plugin.pluginId).catch(() => {});
+    }
+    refreshDatabasePluginCatalog().catch(() => {});
+    const databaseTunnelService = new DatabaseServerTunnelService({
+      projectResolver: async ({ projectId }) => {
+        const store = await readCurrentStore();
+        return (store.projects || []).find((project) => String(project.id) === String(projectId)) || null;
+      },
+      sshConfigResolver: (project) => toConnectionConfig(project)
+    });
+    databaseConnectionService = new DatabaseConnectionService({
+      profileService: databaseProfileService,
+      secretStore: getBackupSecretStore(),
+      runtimeRegistry: databaseDriverRuntimeRegistry,
+      localResourceResolver: (input) => databaseLocalResourceStore.resolve(input),
+      tunnelProvider: databaseTunnelService
+    });
+    databaseQueryWorkspaceStore = new DatabaseQueryWorkspaceStore({ controlDatabase });
+    databaseTaskService = new DatabaseTaskService({
+      store: new DatabaseTaskStore({ controlDatabase }),
+      onEvent: (workspaceId, task) => sendDatabaseManagerEvent(workspaceId, 'task-state', {
+        taskId: task.id,
+        profileId: task.profileId,
+        state: task.state,
+        phase: task.progress?.phase,
+        percent: task.progress?.percent
+      })
+    });
+    databaseOperationalLogService = new DatabaseOperationalLogService({
+      profileService: databaseProfileService,
+      queryWorkspaceStore: databaseQueryWorkspaceStore,
+      taskService: databaseTaskService,
+      pluginHealthStore: databasePluginHealthStore,
+      operationalEvidenceStore: databaseOperationalEvidenceStore
+    });
+    databaseQueryService = new DatabaseQueryService({
+      profileService: databaseProfileService,
+      secretStore: getBackupSecretStore(),
+      runtimeRegistry: databaseDriverRuntimeRegistry,
+      connectionService: databaseConnectionService,
+      localResourceResolver: (input) => databaseLocalResourceStore.resolve(input),
+      tunnelProvider: databaseTunnelService,
+      historyRecorder: (workspaceId, actorId, input) => databaseQueryWorkspaceStore.recordHistory(workspaceId, actorId, input)
+    });
+    databaseDefinitionExecutor = new DatabaseDefinitionExecutor({
+      profileService: databaseProfileService,
+      secretStore: getBackupSecretStore(),
+      runtimeRegistry: databaseDriverRuntimeRegistry,
+      localResourceResolver: (input) => databaseLocalResourceStore.resolve(input),
+      tunnelProvider: databaseTunnelService
+    });
+    databaseExplainService = new DatabaseExplainService({
+      profileService: databaseProfileService,
+      queryService: databaseQueryService,
+      taskService: databaseTaskService
+    });
+    databaseTransferService = new DatabaseTransferService({
+      profileService: databaseProfileService,
+      secretStore: getBackupSecretStore(),
+      taskService: databaseTaskService,
+      localResourceResolver: (input) => databaseLocalResourceStore.resolve(input),
+      tunnelProvider: databaseTunnelService,
+      showOpenDialog: (options) => dialog.showOpenDialog(mainWindow, options),
+      showSaveDialog: (options) => dialog.showSaveDialog(mainWindow, options)
+    });
+    databaseSchemaService = new DatabaseSchemaService({
+      profileService: databaseProfileService,
+      secretStore: getBackupSecretStore(),
+      runtimeRegistry: databaseDriverRuntimeRegistry,
+      connectionService: databaseConnectionService,
+      localResourceResolver: (input) => databaseLocalResourceStore.resolve(input),
+      tunnelProvider: databaseTunnelService
+    });
+    databaseSchemaAdministrationService = new DatabaseSchemaAdministrationService({
+      profileService: databaseProfileService,
+      queryService: databaseQueryService,
+      taskService: databaseTaskService,
+      definitionExecutor: databaseDefinitionExecutor
+    });
+    databasePrincipalAdministrationService = new DatabasePrincipalAdministrationService({
+      profileService: databaseProfileService,
+      queryService: databaseQueryService,
+      taskService: databaseTaskService,
+      definitionExecutor: databaseDefinitionExecutor
+    });
+    databaseRowCrudService = new DatabaseRowCrudService({
+      profileService: databaseProfileService,
+      schemaService: databaseSchemaService,
+      queryService: databaseQueryService
+    });
+    databaseBackupHandoffService = new DatabaseBackupHandoffService({
+      controlDatabase,
+      profileService: databaseProfileService,
+      deviceId: backupDeviceId,
+      localResourceResolver: (input) => databaseLocalResourceStore.resolve(input)
+    });
+    backupLocalConnectionService = new LocalConnectionService({
+      controlDatabase,
+      deviceId: backupDeviceId
+    });
+    backupSshConnectionService = new SshConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    const mysqlAdapter = new MysqlLogicalAdapter();
+    const mariadbAdapter = new MariadbLogicalAdapter();
+    const postgresqlAdapter = new PostgresqlLogicalAdapter();
+    const sqlServerAdapter = new SqlServerNativeAdapter();
+    const oracleAdapter = new OracleRmanAdapter();
+    const mongoDbAdapter = new MongoDbNativeAdapter();
+    const neo4jAdapter = new Neo4jAdapter();
+    const clickHouseAdapter = new ClickHouseAdapter();
+    const cockroachDbAdapter = new CockroachDbAdapter();
+    const influxDbAdapter = new InfluxDbOssV2Adapter();
+    const influxDb3CoreAdapter = new InfluxDb3CoreAdapter();
+    const influxDb3EnterpriseAdapter = new InfluxDb3EnterpriseAdapter();
+    const redisAdapter = new RedisNativeAdapter();
+    const searchSnapshotAdapter = new SearchSnapshotAdapter();
+    const cassandraScyllaAdapter = new CassandraScyllaAdapter();
+    const scyllaManagerAdapter = new ScyllaManagerAdapter();
+    const sqliteAdapter = new SqliteNativeAdapter();
+    const databaseAdapterRegistry = new DatabaseAdapterRegistry([mysqlAdapter, mariadbAdapter, postgresqlAdapter, sqlServerAdapter, oracleAdapter, mongoDbAdapter, neo4jAdapter, clickHouseAdapter, cockroachDbAdapter, influxDbAdapter, influxDb3CoreAdapter, influxDb3EnterpriseAdapter, redisAdapter, searchSnapshotAdapter, cassandraScyllaAdapter, scyllaManagerAdapter, sqliteAdapter]);
+    backupMysqlConnectionService = new MysqlConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: mysqlAdapter });
+    backupMariadbConnectionService = new MariadbConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: mariadbAdapter });
+    backupPostgresqlConnectionService = new PostgresqlConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: postgresqlAdapter });
+    backupSqlServerConnectionService = new SqlServerConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: sqlServerAdapter });
+    backupOracleConnectionService = new OracleConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: oracleAdapter });
+    backupMongoDbConnectionService = new MongoDbConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: mongoDbAdapter });
+    backupNeo4jConnectionService = new Neo4jConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: neo4jAdapter });
+    backupClickHouseConnectionService = new ClickHouseConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: clickHouseAdapter });
+    backupCockroachDbConnectionService = new CockroachDbConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: cockroachDbAdapter });
+    backupCockroachDbScheduleService = new CockroachDbScheduleService({ controlDatabase, connectionService: backupCockroachDbConnectionService, deviceId: backupDeviceId });
+    backupInfluxDbConnectionService = new InfluxDbConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: influxDbAdapter });
+    backupInfluxDb3CoreConnectionService = new InfluxDb3CoreConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: influxDb3CoreAdapter });
+    backupInfluxDb3EnterpriseConnectionService = new InfluxDb3EnterpriseConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: influxDb3EnterpriseAdapter });
+    backupRedisConnectionService = new RedisConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: redisAdapter });
+    backupSearchSnapshotConnectionService = new SearchSnapshotConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: searchSnapshotAdapter });
+    backupCassandraScyllaConnectionService = new CassandraScyllaConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: cassandraScyllaAdapter });
+    backupScyllaManagerConnectionService = new ScyllaManagerConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: scyllaManagerAdapter });
+    backupSqliteConnectionService = new SqliteConnectionService({ controlDatabase, deviceId: backupDeviceId, adapter: sqliteAdapter });
+    backupDatabaseSourceService = new DatabaseSourceService({
+      controlDatabase,
+      adapterRegistry: databaseAdapterRegistry,
+      deviceId: backupDeviceId,
+      allowedAdapterIds: CORE_DATABASE_ADAPTER_IDS
+    });
+    backupFileSourceService = new FileSourceService({ controlDatabase });
+    backupLocalRepositoryService = new LocalRepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    backupSftpRepositoryService = new SftpRepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    backupS3RepositoryService = new S3RepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    backupJobService = new BackupJobService({ controlDatabase, deviceId: backupDeviceId });
+    backupObjectiveStatusService = new BackupObjectiveStatusService({ controlDatabase });
+    backupNotificationService = new BackupNotificationService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      desktopNotifier: async ({ title, body, silent, event }) => {
+        if (!Notification.isSupported()) throw new Error('Desktop notifications are unavailable.');
+        const notification = new Notification({ title, body, silent });
+        notification.on('click', () => openNotificationTarget(event));
+        notification.show();
+      },
+      fetchImpl: global.fetch,
+      mailerFactory: (configuration) => nodemailer.createTransport(configuration)
+    });
+    const fileSourceReader = new FileSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    const mysqlSourceReader = new MysqlSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: mysqlAdapter });
+    const mariadbSourceReader = new MariadbSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: mariadbAdapter });
+    const postgresqlSourceReader = new PostgresqlSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: postgresqlAdapter });
+    const sqlServerSourceReader = new SqlServerSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: sqlServerAdapter });
+    const oracleSourceReader = new OracleSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: oracleAdapter });
+    const mongoDbSourceReader = new MongoDbSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: mongoDbAdapter });
+    let openRepository = null;
+    const cockroachDbSourceReader = new CockroachDbSourceReaderService({ controlDatabase, deviceId: backupDeviceId, connectionService: backupCockroachDbConnectionService, adapterRegistry: databaseAdapterRegistry, openRepository: (...args) => openRepository(...args) });
+    const neo4jSourceReader = new Neo4jSourceReaderService({ controlDatabase, deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: neo4jAdapter, connectionService: backupNeo4jConnectionService, openRepository: (...args) => openRepository(...args) });
+    const clickHouseSourceReader = new ClickHouseSourceReaderService({ controlDatabase, deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: clickHouseAdapter, connectionService: backupClickHouseConnectionService, openRepository: (...args) => openRepository(...args) });
+    const influxDbSourceReader = new InfluxDbSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: influxDbAdapter, connectionService: backupInfluxDbConnectionService });
+    const influxDb3CoreSourceReader = new InfluxDb3CoreSourceReaderService({ controlDatabase, deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: influxDb3CoreAdapter, connectionService: backupInfluxDb3CoreConnectionService });
+    const influxDb3EnterpriseNativeSourceReader = new InfluxDb3EnterpriseSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: influxDb3EnterpriseAdapter });
+    const influxDb3EnterpriseLegacySourceReader = new InfluxDb3EnterpriseLegacySourceReaderService({ controlDatabase, deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry });
+    const influxDb3EnterpriseSourceReader = new InfluxDb3EnterpriseSourceReaderRouter({ controlDatabase, nativeReader: influxDb3EnterpriseNativeSourceReader, legacyReader: influxDb3EnterpriseLegacySourceReader });
+    const sqliteSourceReader = new SqliteSourceReaderService({ controlDatabase, deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: sqliteAdapter });
+    const redisSourceReader = new RedisSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: redisAdapter });
+    const searchSnapshotSourceReader = new SearchSnapshotSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: searchSnapshotAdapter });
+    const cassandraScyllaSourceReader = new CassandraScyllaSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: cassandraScyllaAdapter });
+    const scyllaManagerSourceReader = new ScyllaManagerSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: scyllaManagerAdapter });
+    const sourceReader = new BackupSourceReaderRouter({ controlDatabase, fileReader: fileSourceReader, databaseReaders: { [MYSQL_ADAPTER_ID]: mysqlSourceReader, [MARIADB_ADAPTER_ID]: mariadbSourceReader, [POSTGRESQL_ADAPTER_ID]: postgresqlSourceReader, [SQLSERVER_ADAPTER_ID]: sqlServerSourceReader, [ORACLE_ADAPTER_ID]: oracleSourceReader, [MONGODB_ADAPTER_ID]: mongoDbSourceReader, [NEO4J_ADAPTER_ID]: neo4jSourceReader, [CLICKHOUSE_ADAPTER_ID]: clickHouseSourceReader, [COCKROACHDB_ADAPTER_ID]: cockroachDbSourceReader, [INFLUXDB_ADAPTER_ID]: influxDbSourceReader, [INFLUXDB3_CORE_ADAPTER_ID]: influxDb3CoreSourceReader, [INFLUXDB3_ENTERPRISE_ADAPTER_ID]: influxDb3EnterpriseSourceReader, [REDIS_ADAPTER_ID]: redisSourceReader, [SEARCH_SNAPSHOT_ADAPTER_ID]: searchSnapshotSourceReader, [CASSANDRA_SCYLLA_ADAPTER_ID]: cassandraScyllaSourceReader, [SCYLLA_MANAGER_ADAPTER_ID]: scyllaManagerSourceReader, [SQLITE_ADAPTER_ID]: sqliteSourceReader } });
+    const checkpointStore = new RunCheckpointStore({ rootPath: path.join(getBackupManagerRootPath(), 'checkpoints') });
+    openRepository = async (workspaceId, repositoryId) => {
+      const repository = await controlDatabase.repository('repository').get(workspaceId, repositoryId);
+      if (!repository) throw new Error('Backup repository was not found.');
+      if (repository.adapterId === LOCAL_REPOSITORY_ADAPTER_ID) return backupLocalRepositoryService.open(workspaceId, repositoryId);
+      if (repository.adapterId === SFTP_REPOSITORY_ADAPTER_ID) return backupSftpRepositoryService.open(workspaceId, repositoryId);
+      if (repository.adapterId === S3_REPOSITORY_ADAPTER_ID) return backupS3RepositoryService.open(workspaceId, repositoryId);
+      throw new Error('This repository adapter cannot run file backups.');
+    };
+    const cockroachDbRetentionAdapters = createCockroachDbRetentionAdapters({ controlDatabase, openRepository, deviceId: backupDeviceId });
+    backupCockroachDbRetentionService = new CockroachDbRetentionService(cockroachDbRetentionAdapters);
+    backupManualBackupService = new ManualBackupService({ controlDatabase, sourceReader, checkpointStore, deviceId: backupDeviceId, openRepository, logStore: getBackupLogStore(), notificationService: backupNotificationService });
+    backupSnapshotBrowserService = new SnapshotBrowserService({ controlDatabase, openRepository });
+    backupCassandraScyllaRestoreService = new CassandraScyllaRestoreService({ controlDatabase, secretStore: getBackupSecretStore(), snapshotBrowser: backupSnapshotBrowserService, adapter: cassandraScyllaAdapter, deviceId: backupDeviceId });
+    backupScyllaManagerRestoreService = new ScyllaManagerRestoreService({ controlDatabase, secretStore: getBackupSecretStore(), snapshotBrowser: backupSnapshotBrowserService, adapter: scyllaManagerAdapter, deviceId: backupDeviceId });
+    backupFileRestoreService = new FileRestoreService({
+      controlDatabase,
+      snapshotBrowser: backupSnapshotBrowserService,
+      deviceId: backupDeviceId,
+      createTarget: (options) => createConnectionRestoreTarget({ ...options, secretStore: getBackupSecretStore() })
+    });
+    backupMysqlRestoreService = new MysqlRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      adapter: mysqlAdapter,
+      openRepository
+    });
+    backupMysqlPhysicalRestoreService = new MysqlPhysicalRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      mysqlAdapter,
+      openRepository
+    });
+    backupMariadbRestoreService = new MariadbRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      adapter: mariadbAdapter,
+      openRepository
+    });
+    backupMysqlPitrService = new MysqlPointInTimeRestoreService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: mysqlAdapter, baseRestoreService: backupMysqlRestoreService, openRepository });
+    backupMariadbPitrService = new MariadbPointInTimeRestoreService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: mariadbAdapter, baseRestoreService: backupMariadbRestoreService, openRepository });
+    backupPostgresqlRestoreService = new PostgresqlRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      adapter: postgresqlAdapter,
+      openRepository
+    });
+    backupPostgresqlPitrRestoreService = new PostgresqlPitrRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      adapter: postgresqlAdapter,
+      openRepository
+    });
+    backupSqlServerRestoreService = new SqlServerRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      adapter: sqlServerAdapter,
+      openRepository
+    });
+    backupOracleRestoreService = new OracleRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      adapter: oracleAdapter,
+      openRepository
+    });
+    backupMongoDbRestoreService = new MongoDbRestoreService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      adapter: mongoDbAdapter,
+      openRepository
+    });
+    backupInfluxDbRestoreService = new InfluxDbRestoreService({ controlDatabase, deviceId: backupDeviceId, adapter: influxDbAdapter, connectionService: backupInfluxDbConnectionService, openRepository });
+    backupInfluxDb3CoreRestoreService = new InfluxDb3CoreRestoreService({ controlDatabase, deviceId: backupDeviceId, adapter: influxDb3CoreAdapter, connectionService: backupInfluxDb3CoreConnectionService, openRepository });
+    backupInfluxDb3EnterpriseRestoreService = new InfluxDb3EnterpriseRestoreService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: influxDb3EnterpriseAdapter, openRepository });
+    backupInfluxDb3EnterpriseRetentionService = new InfluxDb3EnterpriseRetentionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapter: influxDb3EnterpriseAdapter, recoveryPointAuthenticator: backupInfluxDb3EnterpriseRestoreService });
+    backupInfluxDb3EnterpriseRecoveryTestService = new InfluxDb3EnterpriseRecoveryTestService({ controlDatabase, restoreService: backupInfluxDb3EnterpriseRestoreService, deviceId: backupDeviceId, notificationService: backupNotificationService });
+    backupInfluxDb3EnterpriseLegacyRetentionService = new InfluxDb3EnterpriseLegacyRetentionService({ controlDatabase, deviceId: backupDeviceId, openRepository });
+    backupInfluxDb3EnterpriseLegacyStopBindingService = new InfluxDb3EnterpriseLegacyStopBindingService({ controlDatabase, deviceId: backupDeviceId });
+    backupInfluxDb3EnterpriseLegacyStopProofService = new InfluxDb3EnterpriseLegacyStopProofService({
+      controlDatabase,
+      secretStore: getBackupSecretStore(),
+      deviceId: backupDeviceId,
+      resolveBindings: (workspaceId) => backupInfluxDb3EnterpriseLegacyStopBindingService.resolveBindings(workspaceId),
+      resolveProofKey: async () => Buffer.from(backupInfluxDb3EnterpriseLegacyStopProofKey)
+    });
+    backupInfluxDb3EnterpriseLegacyRestoreService = new InfluxDb3EnterpriseLegacyRestoreService({ controlDatabase, deviceId: backupDeviceId, openRepository, stopProofService: backupInfluxDb3EnterpriseLegacyStopProofService });
+    backupInfluxDb3EnterpriseLegacyRecoveryTestService = new InfluxDb3EnterpriseLegacyRecoveryTestService({
+      controlDatabase,
+      restoreService: backupInfluxDb3EnterpriseLegacyRestoreService,
+      assertTargetIsolated: assertBackupInfluxDb3EnterpriseLegacyTargetIsolated,
+      deviceId: backupDeviceId,
+      notificationService: backupNotificationService
+    });
+    backupInfluxDb3CoreRecoveryTestService = new InfluxDb3CoreRecoveryTestService({ controlDatabase, deviceId: backupDeviceId, adapter: influxDb3CoreAdapter, connectionService: backupInfluxDb3CoreConnectionService, restoreService: backupInfluxDb3CoreRestoreService, notificationService: backupNotificationService });
+    backupInfluxDbRecoveryTestService = new InfluxDbRecoveryTestService({ controlDatabase, deviceId: backupDeviceId, adapter: influxDbAdapter, connectionService: backupInfluxDbConnectionService, restoreService: backupInfluxDbRestoreService, notificationService: backupNotificationService });
+    backupClickHouseRestoreService = new ClickHouseRestoreService({ controlDatabase, deviceId: backupDeviceId, adapter: clickHouseAdapter, connectionService: backupClickHouseConnectionService, openRepository });
+    backupClickHouseRecoveryTestService = new ClickHouseRecoveryTestService({ controlDatabase, deviceId: backupDeviceId, adapter: clickHouseAdapter, connectionService: backupClickHouseConnectionService, restoreService: backupClickHouseRestoreService, notificationService: backupNotificationService });
+    backupCockroachDbRestoreService = new CockroachDbRestoreRunService({ controlDatabase, deviceId: backupDeviceId, connectionService: backupCockroachDbConnectionService, openRepository });
+    backupCockroachDbRecoveryTestService = new CockroachDbRecoveryTestService({ controlDatabase, deviceId: backupDeviceId, adapter: cockroachDbAdapter, connectionService: backupCockroachDbConnectionService, restoreService: backupCockroachDbRestoreService, notificationService: backupNotificationService });
+    backupNeo4jRestoreService = new Neo4jRestoreService({ controlDatabase, deviceId: backupDeviceId, adapter: neo4jAdapter, connectionService: backupNeo4jConnectionService, openRepository });
+    backupNeo4jAggregationService = new Neo4jAggregationService({ controlDatabase, deviceId: backupDeviceId, adapter: neo4jAdapter, connectionService: backupNeo4jConnectionService, chainService: backupNeo4jRestoreService, openRepository });
+    backupNeo4jRecoveryTestService = new Neo4jRecoveryTestService({ controlDatabase, deviceId: backupDeviceId, adapter: neo4jAdapter, connectionService: backupNeo4jConnectionService, restoreService: backupNeo4jRestoreService, notificationService: backupNotificationService });
+    backupRedisRestoreService = new RedisRestoreService({ controlDatabase, deviceId: backupDeviceId, adapter: redisAdapter, openRepository });
+    backupSqliteRestoreService = new SqliteRestoreService({ controlDatabase, deviceId: backupDeviceId, adapter: sqliteAdapter, openRepository });
+    backupSearchSnapshotRestoreService = new SearchSnapshotRestoreService({ controlDatabase, secretStore: getBackupSecretStore(), snapshotBrowser: backupSnapshotBrowserService, adapter: searchSnapshotAdapter, deviceId: backupDeviceId });
+    backupSearchSnapshotMaintenanceService = new SearchSnapshotMaintenanceService({ controlDatabase, secretStore: getBackupSecretStore(), snapshotBrowser: backupSnapshotBrowserService, adapter: searchSnapshotAdapter, deviceId: backupDeviceId });
+    backupSearchSnapshotRecoveryTestService = new SearchSnapshotRecoveryTestService({ controlDatabase, secretStore: getBackupSecretStore(), snapshotBrowser: backupSnapshotBrowserService, adapter: searchSnapshotAdapter, restoreService: backupSearchSnapshotRestoreService, deviceId: backupDeviceId, notificationService: backupNotificationService });
+    backupScyllaManagerRecoveryTestService = new ScyllaManagerRecoveryTestService({ controlDatabase, secretStore: getBackupSecretStore(), snapshotBrowser: backupSnapshotBrowserService, adapter: scyllaManagerAdapter, restoreService: backupScyllaManagerRestoreService, deviceId: backupDeviceId, notificationService: backupNotificationService });
+    backupRepositoryVerificationService = new RepositoryVerificationService({ controlDatabase, snapshotBrowser: backupSnapshotBrowserService, deviceId: backupDeviceId, notificationService: backupNotificationService });
+    backupRepositoryPruningService = new RepositoryPruningService({ controlDatabase, openRepository, deviceId: backupDeviceId });
+    backupScheduledWorkerService = new ScheduledBackupWorkerService({
+      controlDatabase,
+      manualBackupService: backupManualBackupService,
+      notificationService: backupNotificationService,
+      deviceId: backupDeviceId
+    });
+    const settings = await readSettings();
+    const activeWorkspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
+    if (activeWorkspaceId) {
+      if (settings.mode === 'cloud') {
+        await reconcileDatabaseProfileMetadata(activeWorkspaceId).then(async (summary) => {
+          if (!summary.failed?.length) return;
+          await logDatabaseCloudSyncFailure(activeWorkspaceId, summary.failed[0].code);
+        }).catch(async (error) => logDatabaseCloudSyncFailure(activeWorkspaceId, error.code));
+      }
+      await backupManualBackupService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-manual-execution' }).warn(
+          'Backup run reconciliation could not complete.',
+          { code: error.code || 'BACKUP_RUN_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+      await backupSftpRepositoryService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).then(async (summary) => {
+        const failures = summary.repositories.filter((result) => result.status === 'failed');
+        if (!failures.length) return;
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-sftp-repository' }).warn(
+          'One or more SFTP repository staging directories require attention.',
+          { repositories: failures.map((result) => ({ repositoryId: result.repositoryId, status: result.status, code: result.error?.code || 'SFTP_REPOSITORY_RECONCILIATION_FAILED' })) }
+        ).catch(() => {});
+      }).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-sftp-repository' }).warn(
+          'SFTP repository staging reconciliation could not complete.',
+          { code: error.code || 'SFTP_REPOSITORY_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+      await backupFileRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-file-restore' }).warn(
+          'Restore run reconciliation could not complete.',
+          { code: error.code || 'RESTORE_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+      await backupMysqlRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-mysql-restore' }).warn(
+          'MySQL restore run reconciliation could not complete.',
+          { code: error.code || 'MYSQL_RESTORE_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+      await backupMysqlPhysicalRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-mysql-physical-restore' }).warn(
+          'MySQL physical restore run reconciliation could not complete.',
+          { code: error.code || 'MYSQL_PHYSICAL_RESTORE_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+      await backupMariadbRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-mariadb-restore' }).warn(
+          'MariaDB restore run reconciliation could not complete.',
+          { code: error.code || 'MARIADB_RESTORE_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+      await backupMysqlPitrService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-mysql-pitr' }).warn('MySQL point-in-time recovery reconciliation could not complete.', { code: error.code || 'MYSQL_PITR_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupMariadbPitrService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-mariadb-pitr' }).warn('MariaDB point-in-time recovery reconciliation could not complete.', { code: error.code || 'MARIADB_PITR_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupPostgresqlRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-postgresql-restore' }).warn(
+          'PostgreSQL restore run reconciliation could not complete.',
+          { code: error.code || 'POSTGRESQL_RESTORE_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+      await backupPostgresqlPitrRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-postgresql-pitr' }).warn('PostgreSQL point-in-time recovery reconciliation could not complete.', { code: error.code || 'POSTGRESQL_PITR_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupSqlServerRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-sqlserver-restore' }).warn('SQL Server restore reconciliation could not complete.', { code: error.code || 'SQLSERVER_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupOracleRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-oracle-restore' }).warn('Oracle restore reconciliation could not complete.', { code: error.code || 'ORACLE_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupMongoDbRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-mongodb-restore' }).warn('MongoDB restore reconciliation could not complete.', { code: error.code || 'MONGODB_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupCockroachDbScheduleService.reconcileAll(activeWorkspaceId, 'system').catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-cockroachdb-schedule' }).warn('CockroachDB native schedule reconciliation could not complete.', { code: error.code || 'COCKROACH_NATIVE_SCHEDULE_RECONCILIATION_FAILED' }).catch(() => {});
+      });
+      await backupCockroachDbRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-cockroachdb-restore' }).warn('CockroachDB recovery reconciliation could not complete.', { code: error.code || 'COCKROACH_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupClickHouseRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-clickhouse-restore' }).warn('ClickHouse recovery reconciliation could not complete.', { code: error.code || 'CLICKHOUSE_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupInfluxDbRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb-restore' }).warn('InfluxDB recovery reconciliation could not complete.', { code: error.code || 'INFLUXDB_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupInfluxDb3CoreRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb3-core-restore' }).warn('InfluxDB 3 Core recovery reconciliation could not complete.', { code: error.code || 'INFLUXDB3_CORE_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupInfluxDb3EnterpriseRetentionService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb3-enterprise-retention' }).warn('InfluxDB 3 Enterprise native retention reconciliation could not complete.', { code: error.code || 'INFLUXDB3_ENTERPRISE_RETENTION_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupInfluxDb3EnterpriseRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb3-enterprise-restore' }).warn('InfluxDB 3 Enterprise live-cluster recovery reconciliation could not complete.', { code: error.code || 'INFLUXDB3_ENTERPRISE_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupInfluxDb3EnterpriseLegacyRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async () => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb3-enterprise-legacy-restore' }).warn('InfluxDB 3 Enterprise legacy recovery reconciliation could not complete.', { code: 'INFLUXDB3_ENTERPRISE_LEGACY_RESTORE_RECONCILIATION_FAILED' }).catch(() => {});
+      });
+      await backupInfluxDb3EnterpriseRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async () => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb3-enterprise-verification' }).warn('InfluxDB 3 Enterprise recovery-test reconciliation could not complete.', { code: 'INFLUXDB3_ENTERPRISE_VERIFICATION_RECONCILIATION_FAILED' }).catch(() => {});
+      });
+      await backupInfluxDb3EnterpriseLegacyRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async () => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb3-enterprise-legacy-verification' }).warn('InfluxDB 3 Enterprise legacy recovery-test reconciliation could not complete.', { code: 'INFLUXDB3_ENTERPRISE_LEGACY_VERIFICATION_RECONCILIATION_FAILED' }).catch(() => {});
+      });
+      await backupInfluxDb3CoreRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb3-core-verification' }).warn('InfluxDB 3 Core recovery-test reconciliation could not complete.', { code: error.code || 'INFLUXDB3_CORE_VERIFICATION_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupInfluxDbRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-influxdb-verification' }).warn('InfluxDB recovery-test reconciliation could not complete.', { code: error.code || 'INFLUXDB_VERIFICATION_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupClickHouseRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-clickhouse-verification' }).warn('ClickHouse recovery-test reconciliation could not complete.', { code: error.code || 'CLICKHOUSE_VERIFICATION_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupCockroachDbRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-cockroachdb-verification' }).warn('CockroachDB recovery-test reconciliation could not complete.', { code: error.code || 'COCKROACH_VERIFICATION_RECONCILIATION_FAILED' }).catch(() => {});
+      });
+      await backupNeo4jRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-neo4j-restore' }).warn('Neo4j recovery reconciliation could not complete.', { code: error.code || 'NEO4J_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupNeo4jAggregationService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-neo4j-aggregation' }).warn('Neo4j aggregation reconciliation could not complete.', { code: error.code || 'NEO4J_AGGREGATE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupNeo4jRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-neo4j-verification' }).warn('Neo4j recovery-test reconciliation could not complete.', { code: error.code || 'NEO4J_VERIFICATION_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupRedisRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-redis-restore' }).warn('Redis restore reconciliation could not complete.', { code: error.code || 'REDIS_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupSqliteRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-sqlite-restore' }).warn('SQLite restore reconciliation could not complete.', { code: error.code || 'SQLITE_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupSearchSnapshotRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-search-restore' }).warn('Search restore reconciliation could not complete.', { code: error.code || 'SEARCH_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupCassandraScyllaRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-cassandra-scylla-restore' }).warn('Cassandra/Scylla recovery reconciliation could not complete.', { code: error.code || 'CASSANDRA_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupScyllaManagerRestoreService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-scylla-manager-restore' }).warn('ScyllaDB Manager recovery reconciliation could not complete.', { code: error.code || 'SCYLLA_MANAGER_RESTORE_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupScyllaManagerRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-scylla-manager-verification' }).warn('ScyllaDB Manager recovery-test reconciliation could not complete.', { code: error.code || 'SCYLLA_MANAGER_VERIFICATION_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupSearchSnapshotRecoveryTestService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-search-verification' }).warn('Search recovery-test reconciliation could not complete.', { code: error.code || 'SEARCH_VERIFICATION_RECONCILIATION_FAILED', error }).catch(() => {});
+      });
+      await backupRepositoryVerificationService.reconcile(activeWorkspaceId, String(settings.auth?.uid || 'local-user')).catch(async (error) => {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-repository-verification' }).warn(
+          'Verification run reconciliation could not complete.',
+          { code: error.code || 'VERIFICATION_RECONCILIATION_FAILED', error }
+        ).catch(() => {});
+      });
+    }
+    if (databaseCloudSyncTimer) clearInterval(databaseCloudSyncTimer);
+    databaseCloudSyncTimer = setInterval(async () => {
+      const current = await readSettings().catch(() => null);
+      const workspaceId = current?.mode === 'cloud' ? String(current.activeTeamId || '') : '';
+      if (!workspaceId) return;
+      await reconcileDatabaseProfileMetadata(workspaceId).then(async (summary) => {
+        if (summary.failed?.length) await logDatabaseCloudSyncFailure(workspaceId, summary.failed[0].code);
+      }).catch(async (error) => logDatabaseCloudSyncFailure(workspaceId, error.code));
+    }, DATABASE_CLOUD_SYNC_INTERVAL_MS);
+    databaseCloudSyncTimer.unref?.();
+    backupControlDatabaseError = null;
+  } catch (error) {
+    if (databaseCloudSyncTimer) clearInterval(databaseCloudSyncTimer);
+    databaseCloudSyncTimer = null;
+    await controlDatabase.close().catch(() => {});
+    backupControlDatabase = null;
+    databaseProfileService = null;
+    databaseConnectionImportService = null;
+    databaseBackupHandoffService = null;
+    databaseConnectionService = null;
+    databaseDriverRuntimeRegistry = null;
+    databaseLocalResourceStore = null;
+    databaseOperationalLogService = null;
+    databaseOperationalEvidenceStore = null;
+    databaseQueryService = null;
+    databaseQueryWorkspaceStore = null;
+    databaseResultExportService = null;
+    databaseRowCrudService = null;
+    databaseDefinitionExecutor = null;
+    databaseExplainService = null;
+    databaseTransferService = null;
+    databaseSchemaAdministrationService = null;
+    databasePrincipalAdministrationService = null;
+    databaseSchemaService = null;
+    databaseTaskService = null;
+    databasePluginRegistry = null;
+    databasePluginHealthStore = null;
+    tabulariumClient = null;
+    databaseCloudSyncOutbox = null;
+    backupLocalConnectionService = null;
+    backupSshConnectionService = null;
+    backupMysqlConnectionService = null;
+    backupMariadbConnectionService = null;
+    backupPostgresqlConnectionService = null;
+    backupSqlServerConnectionService = null;
+    backupOracleConnectionService = null;
+    backupMongoDbConnectionService = null;
+    backupNeo4jConnectionService = null;
+    backupClickHouseConnectionService = null;
+    backupCockroachDbConnectionService = null;
+    backupCockroachDbScheduleService = null;
+    backupCockroachDbRetentionService = null;
+    backupInfluxDbConnectionService = null;
+    backupInfluxDb3CoreConnectionService = null;
+    backupInfluxDb3EnterpriseConnectionService = null;
+    backupInfluxDb3EnterpriseRestoreService = null;
+    backupInfluxDb3EnterpriseRetentionService = null;
+    backupInfluxDb3EnterpriseRecoveryTestService = null;
+    backupInfluxDb3EnterpriseLegacyRetentionService = null;
+    backupInfluxDb3EnterpriseLegacyStopBindingService = null;
+    backupInfluxDb3EnterpriseLegacyStopProofService = null;
+    backupInfluxDb3EnterpriseLegacyRestoreService = null;
+    backupInfluxDb3EnterpriseLegacyRecoveryTestService = null;
+    backupInfluxDb3CoreRestoreService = null;
+    backupInfluxDb3CoreRecoveryTestService = null;
+    backupInfluxDbRestoreService = null;
+    backupInfluxDbRecoveryTestService = null;
+    backupClickHouseRestoreService = null;
+    backupClickHouseRecoveryTestService = null;
+    backupCockroachDbRestoreService = null;
+    backupCockroachDbRecoveryTestService = null;
+    backupNeo4jRestoreService = null;
+    backupNeo4jAggregationService = null;
+    backupNeo4jRecoveryTestService = null;
+    backupRedisConnectionService = null;
+    backupSearchSnapshotConnectionService = null;
+    backupCassandraScyllaConnectionService = null;
+    backupCassandraScyllaRestoreService = null;
+    backupScyllaManagerConnectionService = null;
+    backupScyllaManagerRestoreService = null;
+    backupScyllaManagerRecoveryTestService = null;
+    backupSqliteConnectionService = null;
+    backupDatabaseSourceService = null;
+    backupFileSourceService = null;
+    backupLocalRepositoryService = null;
+    backupSftpRepositoryService = null;
+    backupS3RepositoryService = null;
+    backupJobService = null;
+    backupManualBackupService = null;
+    backupScheduledWorkerService = null;
+    backupSnapshotBrowserService = null;
+    backupFileRestoreService = null;
+    backupMysqlRestoreService = null;
+    backupMysqlPhysicalRestoreService = null;
+    backupMariadbRestoreService = null;
+    backupMysqlPitrService = null;
+    backupMariadbPitrService = null;
+    backupPostgresqlRestoreService = null;
+    backupPostgresqlPitrRestoreService = null;
+    backupSqlServerRestoreService = null;
+    backupOracleRestoreService = null;
+    backupMongoDbRestoreService = null;
+    backupRedisRestoreService = null;
+    backupSearchSnapshotRestoreService = null;
+    backupSearchSnapshotMaintenanceService = null;
+    backupSearchSnapshotRecoveryTestService = null;
+    backupScyllaManagerRecoveryTestService = null;
+    backupSqliteRestoreService = null;
+    backupRepositoryVerificationService = null;
+    backupRepositoryPruningService = null;
+    backupNotificationService = null;
+    backupObjectiveStatusService = null;
+    backupDeviceId = null;
+    backupControlDatabaseError = error;
+    await getBackupLogStore().logger({ workspaceId: 'local', component: 'control-database' }).error(
+      'Backup Manager control database could not be opened.',
+      { code: error.code || 'BACKUP_CONTROL_DB_OPEN_FAILED', error }
+    );
+  }
+}
+
+function getBackupControlDatabase() {
+  if (backupControlDatabaseError) throw backupControlDatabaseError;
+  if (!backupControlDatabase) throw new Error('Backup Manager control database is not initialized.');
+  return backupControlDatabase;
+}
+
+function getDatabaseProfileService() {
+  getBackupControlDatabase();
+  if (!databaseProfileService) throw new Error('Database Manager profiles are not initialized.');
+  return databaseProfileService;
+}
+
+function getTabularisLauncher() {
+  if (!tabularisLauncher) {
+    tabularisLauncher = new TabularisLauncher({ rootPath: path.join(app.getPath('userData'), 'third-party', 'tabularis') });
+  }
+  return tabularisLauncher;
+}
+
+function getDatabaseBackupHandoffService() {
+  getBackupControlDatabase();
+  if (!databaseBackupHandoffService) throw new Error('Database Manager backup handoff is not initialized.');
+  return databaseBackupHandoffService;
+}
+
+function getDatabaseConnectionService() {
+  getBackupControlDatabase();
+  if (!databaseConnectionService) throw new Error('Database Manager connections are not initialized.');
+  return databaseConnectionService;
+}
+
+function getDatabaseLocalResourceStore() {
+  getBackupControlDatabase();
+  if (!databaseLocalResourceStore) throw new Error('Database Manager local resources are not initialized.');
+  return databaseLocalResourceStore;
+}
+
+function getDatabaseQueryService() {
+  getBackupControlDatabase();
+  if (!databaseQueryService) throw new Error('Database Manager queries are not initialized.');
+  return databaseQueryService;
+}
+
+function getDatabaseQueryWorkspaceStore() {
+  getBackupControlDatabase();
+  if (!databaseQueryWorkspaceStore) throw new Error('Database Manager query workspace is not initialized.');
+  return databaseQueryWorkspaceStore;
+}
+
+function getDatabaseTaskService() {
+  getBackupControlDatabase();
+  if (!databaseTaskService) throw new Error('Database Manager tasks are not initialized.');
+  return databaseTaskService;
+}
+
+function getDatabaseOperationalLogService() {
+  getBackupControlDatabase();
+  if (!databaseOperationalLogService) throw new Error('Database Manager operational logs are not initialized.');
+  return databaseOperationalLogService;
+}
+
+function getDatabaseExplainService() {
+  getBackupControlDatabase();
+  if (!databaseExplainService) throw new Error('Database Manager EXPLAIN is not initialized.');
+  return databaseExplainService;
+}
+
+function getDatabaseTransferService() {
+  getBackupControlDatabase();
+  if (!databaseTransferService) throw new Error('Database Manager transfers are not initialized.');
+  return databaseTransferService;
+}
+
+function getDatabaseResultExportService() {
+  if (!databaseResultExportService) {
+    databaseResultExportService = new DatabaseResultExportService({
+      showSaveDialog: (options) => dialog.showSaveDialog(mainWindow, options),
+      writeFile: (...args) => fs.writeFile(...args),
+      openFile: (...args) => fs.open(...args),
+      renameFile: (...args) => fs.rename(...args),
+      removeFile: (filePath) => fs.rm(filePath, { force: true }),
+      queryService: getDatabaseQueryService()
+    });
+  }
+  return databaseResultExportService;
+}
+
+function getDatabaseSchemaService() {
+  getBackupControlDatabase();
+  if (!databaseSchemaService) throw new Error('Database Manager schema discovery is not initialized.');
+  return databaseSchemaService;
+}
+
+function getDatabaseSchemaAdministrationService() {
+  getBackupControlDatabase();
+  if (!databaseSchemaAdministrationService) throw new Error('Database Manager schema administration is not initialized.');
+  return databaseSchemaAdministrationService;
+}
+
+function getDatabasePrincipalAdministrationService() {
+  getBackupControlDatabase();
+  if (!databasePrincipalAdministrationService) throw new Error('Database Manager user administration is not initialized.');
+  return databasePrincipalAdministrationService;
+}
+
+function getDatabaseRowCrudService() {
+  getBackupControlDatabase();
+  if (!databaseRowCrudService) throw new Error('Database Manager row editing is not initialized.');
+  return databaseRowCrudService;
+}
+
+function getBackupLocalConnectionService() {
+  getBackupControlDatabase();
+  if (!backupLocalConnectionService) throw new Error('Local computer connections are not initialized.');
+  return backupLocalConnectionService;
+}
+
+function getBackupSshConnectionService() {
+  getBackupControlDatabase();
+  if (!backupSshConnectionService) throw new Error('SSH source connections are not initialized.');
+  return backupSshConnectionService;
+}
+
+function getBackupMysqlConnectionService() {
+  getBackupControlDatabase();
+  if (!backupMysqlConnectionService) throw new Error('MySQL source connections are not initialized.');
+  return backupMysqlConnectionService;
+}
+
+function getBackupMariadbConnectionService() {
+  getBackupControlDatabase();
+  if (!backupMariadbConnectionService) throw new Error('MariaDB source connections are not initialized.');
+  return backupMariadbConnectionService;
+}
+
+function getBackupPostgresqlConnectionService() {
+  getBackupControlDatabase();
+  if (!backupPostgresqlConnectionService) throw new Error('PostgreSQL source connections are not initialized.');
+  return backupPostgresqlConnectionService;
+}
+
+function getBackupSqlServerConnectionService() {
+  getBackupControlDatabase();
+  if (!backupSqlServerConnectionService) throw new Error('SQL Server source connections are not initialized.');
+  return backupSqlServerConnectionService;
+}
+
+function getBackupOracleConnectionService() {
+  getBackupControlDatabase();
+  if (!backupOracleConnectionService) throw new Error('Oracle source connections are not initialized.');
+  return backupOracleConnectionService;
+}
+
+function getBackupMongoDbConnectionService() {
+  getBackupControlDatabase();
+  if (!backupMongoDbConnectionService) throw new Error('MongoDB source connections are not initialized.');
+  return backupMongoDbConnectionService;
+}
+
+function getBackupNeo4jConnectionService() {
+  getBackupControlDatabase();
+  if (!backupNeo4jConnectionService) throw new Error('Neo4j source connections are not initialized.');
+  return backupNeo4jConnectionService;
+}
+
+function getBackupClickHouseConnectionService() {
+  getBackupControlDatabase();
+  if (!backupClickHouseConnectionService) throw new Error('ClickHouse source connections are not initialized.');
+  return backupClickHouseConnectionService;
+}
+
+function getBackupCockroachDbConnectionService() {
+  getBackupControlDatabase();
+  if (!backupCockroachDbConnectionService) throw new Error('CockroachDB source connections are not initialized.');
+  return backupCockroachDbConnectionService;
+}
+
+function getBackupCockroachDbScheduleService() {
+  getBackupControlDatabase();
+  if (!backupCockroachDbScheduleService) throw new Error('CockroachDB native scheduling is not initialized.');
+  return backupCockroachDbScheduleService;
+}
+
+function getBackupCockroachDbRetentionService() {
+  getBackupControlDatabase();
+  if (!backupCockroachDbRetentionService) throw new Error('CockroachDB retention is not initialized.');
+  return backupCockroachDbRetentionService;
+}
+
+function getBackupCockroachDbRestoreService() {
+  getBackupControlDatabase();
+  if (!backupCockroachDbRestoreService) throw new Error('CockroachDB recovery is not initialized.');
+  return backupCockroachDbRestoreService;
+}
+
+function getBackupCockroachDbRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupCockroachDbRecoveryTestService) throw new Error('CockroachDB recovery tests are not initialized.');
+  return backupCockroachDbRecoveryTestService;
+}
+
+function getBackupInfluxDbConnectionService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDbConnectionService) throw new Error('InfluxDB source connections are not initialized.');
+  return backupInfluxDbConnectionService;
+}
+
+function getBackupInfluxDb3CoreConnectionService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3CoreConnectionService) throw new Error('InfluxDB 3 Core source connections are not initialized.');
+  return backupInfluxDb3CoreConnectionService;
+}
+
+function getBackupInfluxDb3EnterpriseConnectionService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseConnectionService) throw new Error('InfluxDB 3 Enterprise source connections are not initialized.');
+  return backupInfluxDb3EnterpriseConnectionService;
+}
+
+function getBackupInfluxDb3EnterpriseRestoreService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseRestoreService) throw new Error('InfluxDB 3 Enterprise live-cluster recovery is not initialized.');
+  return backupInfluxDb3EnterpriseRestoreService;
+}
+
+function getBackupInfluxDb3EnterpriseRetentionService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseRetentionService) throw new Error('InfluxDB 3 Enterprise native retention is not initialized.');
+  return backupInfluxDb3EnterpriseRetentionService;
+}
+
+function getBackupInfluxDb3EnterpriseLegacyRetentionService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseLegacyRetentionService) throw new Error('InfluxDB 3 Enterprise legacy retention is not initialized.');
+  return backupInfluxDb3EnterpriseLegacyRetentionService;
+}
+
+function getBackupInfluxDb3EnterpriseLegacyStopBindingService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseLegacyStopBindingService) throw new Error('InfluxDB 3 Enterprise legacy stop bindings are not initialized.');
+  return backupInfluxDb3EnterpriseLegacyStopBindingService;
+}
+
+function getBackupInfluxDb3EnterpriseLegacyStopProofService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseLegacyStopProofService) throw new Error('InfluxDB 3 Enterprise legacy stop proof is not initialized.');
+  return backupInfluxDb3EnterpriseLegacyStopProofService;
+}
+
+function getBackupInfluxDb3EnterpriseLegacyRestoreService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseLegacyRestoreService) throw new Error('InfluxDB 3 Enterprise legacy recovery is not initialized.');
+  return backupInfluxDb3EnterpriseLegacyRestoreService;
+}
+
+function getBackupInfluxDb3EnterpriseLegacyRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseLegacyRecoveryTestService) throw new Error('InfluxDB 3 Enterprise legacy recovery tests are not initialized.');
+  return backupInfluxDb3EnterpriseLegacyRecoveryTestService;
+}
+
+function getBackupInfluxDb3EnterpriseRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3EnterpriseRecoveryTestService) throw new Error('InfluxDB 3 Enterprise recovery tests are not initialized.');
+  return backupInfluxDb3EnterpriseRecoveryTestService;
+}
+
+async function assertBackupInfluxDb3EnterpriseLegacyTargetIsolated({ workspaceId, targetConnectionId, target, targetDigest, owner, signal } = {}) {
+  const normalizedOwner = String(owner || '').trim();
+  const normalizedTargetConnectionId = String(targetConnectionId || '').trim();
+  const normalizedTargetDigest = String(targetDigest || '').trim().toLowerCase();
+  if (!normalizedOwner || !normalizedTargetConnectionId || !/^sha256:[0-9a-f]{64}$/.test(normalizedTargetDigest)) throw new TypeError('InfluxDB 3 Enterprise legacy drill isolation request is invalid.');
+  const evidence = await getBackupInfluxDb3EnterpriseLegacyRestoreService().assertTargetStopped(workspaceId, { targetConnectionId: normalizedTargetConnectionId, target, signal });
+  const bindingFingerprint = `sha256:${crypto.createHash('sha256').update(JSON.stringify({
+    targetConnectionId: normalizedTargetConnectionId,
+    targetDigest: normalizedTargetDigest,
+    nodeSetDigest: evidence.nodeSetDigest
+  })).digest('hex')}`;
+  return Object.freeze({
+    owner: normalizedOwner,
+    targetId: normalizedTargetConnectionId,
+    controllerId: 'deployerx-influxdb3-enterprise-legacy-stop-proof-v1',
+    bindingFingerprint,
+    targetDigest: normalizedTargetDigest,
+    isolated: true,
+    serviceExposed: false
+  });
+}
+
+function getBackupInfluxDb3CoreRestoreService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3CoreRestoreService) throw new Error('InfluxDB 3 Core recovery is not initialized.');
+  return backupInfluxDb3CoreRestoreService;
+}
+
+function getBackupInfluxDb3CoreRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDb3CoreRecoveryTestService) throw new Error('InfluxDB 3 Core recovery tests are not initialized.');
+  return backupInfluxDb3CoreRecoveryTestService;
+}
+
+function getBackupInfluxDbRestoreService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDbRestoreService) throw new Error('InfluxDB recovery is not initialized.');
+  return backupInfluxDbRestoreService;
+}
+
+function getBackupInfluxDbRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupInfluxDbRecoveryTestService) throw new Error('InfluxDB recovery tests are not initialized.');
+  return backupInfluxDbRecoveryTestService;
+}
+
+function getBackupClickHouseRestoreService() {
+  getBackupControlDatabase();
+  if (!backupClickHouseRestoreService) throw new Error('ClickHouse recovery is not initialized.');
+  return backupClickHouseRestoreService;
+}
+
+function getBackupClickHouseRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupClickHouseRecoveryTestService) throw new Error('ClickHouse recovery tests are not initialized.');
+  return backupClickHouseRecoveryTestService;
+}
+
+function getBackupNeo4jRestoreService() {
+  getBackupControlDatabase();
+  if (!backupNeo4jRestoreService) throw new Error('Neo4j recovery is not initialized.');
+  return backupNeo4jRestoreService;
+}
+
+function getBackupNeo4jAggregationService() {
+  getBackupControlDatabase();
+  if (!backupNeo4jAggregationService) throw new Error('Neo4j aggregation is not initialized.');
+  return backupNeo4jAggregationService;
+}
+
+function getBackupNeo4jRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupNeo4jRecoveryTestService) throw new Error('Neo4j recovery tests are not initialized.');
+  return backupNeo4jRecoveryTestService;
+}
+
+function getBackupRedisConnectionService() {
+  getBackupControlDatabase();
+  if (!backupRedisConnectionService) throw new Error('Redis source connections are not initialized.');
+  return backupRedisConnectionService;
+}
+
+function getBackupSearchSnapshotConnectionService() {
+  getBackupControlDatabase();
+  if (!backupSearchSnapshotConnectionService) throw new Error('Search snapshot connections are not initialized.');
+  return backupSearchSnapshotConnectionService;
+}
+
+function getBackupCassandraScyllaConnectionService() {
+  getBackupControlDatabase();
+  if (!backupCassandraScyllaConnectionService) throw new Error('Cassandra/Scylla connections are not initialized.');
+  return backupCassandraScyllaConnectionService;
+}
+
+function getBackupCassandraScyllaRestoreService() {
+  getBackupControlDatabase();
+  if (!backupCassandraScyllaRestoreService) throw new Error('Cassandra/Scylla recovery is not initialized.');
+  return backupCassandraScyllaRestoreService;
+}
+
+function getBackupScyllaManagerConnectionService() {
+  getBackupControlDatabase();
+  if (!backupScyllaManagerConnectionService) throw new Error('ScyllaDB Manager connections are not initialized.');
+  return backupScyllaManagerConnectionService;
+}
+
+function getBackupScyllaManagerRestoreService() {
+  getBackupControlDatabase();
+  if (!backupScyllaManagerRestoreService) throw new Error('ScyllaDB Manager recovery is not initialized.');
+  return backupScyllaManagerRestoreService;
+}
+
+function getBackupScyllaManagerRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupScyllaManagerRecoveryTestService) throw new Error('ScyllaDB Manager recovery tests are not initialized.');
+  return backupScyllaManagerRecoveryTestService;
+}
+
+function getBackupSqliteConnectionService() {
+  getBackupControlDatabase();
+  if (!backupSqliteConnectionService) throw new Error('SQLite source connections are not initialized.');
+  return backupSqliteConnectionService;
+}
+
+function getBackupFileSourceService() {
+  getBackupControlDatabase();
+  if (!backupFileSourceService) throw new Error('Backup file sources are not initialized.');
+  return backupFileSourceService;
+}
+
+function getBackupDatabaseSourceService() {
+  getBackupControlDatabase();
+  if (!backupDatabaseSourceService) throw new Error('Backup database sources are not initialized.');
+  return backupDatabaseSourceService;
+}
+
+function createCoreDatabaseConnection(adapterId, operation) {
+  if (!isCoreDatabaseAdapterId(adapterId)) {
+    const error = new Error('New connections for this database engine are outside the active Backup Manager scope. Existing connections remain available for recovery and diagnostics.');
+    error.code = 'BACKUP_DATABASE_ADAPTER_OUT_OF_SCOPE';
+    throw error;
+  }
+  return operation();
+}
+
+function getBackupLocalRepositoryService() {
+  getBackupControlDatabase();
+  if (!backupLocalRepositoryService) throw new Error('Backup local repositories are not initialized.');
+  return backupLocalRepositoryService;
+}
+
+function getBackupSftpRepositoryService() {
+  getBackupControlDatabase();
+  if (!backupSftpRepositoryService) throw new Error('Backup SFTP repositories are not initialized.');
+  return backupSftpRepositoryService;
+}
+
+function getBackupS3RepositoryService() {
+  getBackupControlDatabase();
+  if (!backupS3RepositoryService) throw new Error('Backup S3 repositories are not initialized.');
+  return backupS3RepositoryService;
+}
+
+function getBackupJobService() {
+  getBackupControlDatabase();
+  if (!backupJobService) throw new Error('Backup jobs are not initialized.');
+  return backupJobService;
+}
+
+function getBackupManualBackupService() {
+  getBackupControlDatabase();
+  if (!backupManualBackupService) throw new Error('Manual backup execution is not initialized.');
+  return backupManualBackupService;
+}
+
+function getBackupScheduledWorkerService() {
+  getBackupControlDatabase();
+  if (!backupScheduledWorkerService) throw new Error('Scheduled backup worker is not initialized.');
+  return backupScheduledWorkerService;
+}
+
+function getBackupSnapshotBrowserService() {
+  getBackupControlDatabase();
+  if (!backupSnapshotBrowserService) throw new Error('Backup snapshot browsing is not initialized.');
+  return backupSnapshotBrowserService;
+}
+
+function getBackupFileRestoreService() {
+  getBackupControlDatabase();
+  if (!backupFileRestoreService) throw new Error('Backup file restore is not initialized.');
+  return backupFileRestoreService;
+}
+
+function getBackupMysqlRestoreService() {
+  getBackupControlDatabase();
+  if (!backupMysqlRestoreService) throw new Error('MySQL restore is not initialized.');
+  return backupMysqlRestoreService;
+}
+
+function getBackupMysqlPhysicalRestoreService() {
+  getBackupControlDatabase();
+  if (!backupMysqlPhysicalRestoreService) throw new Error('MySQL physical restore is not initialized.');
+  return backupMysqlPhysicalRestoreService;
+}
+
+function getBackupMariadbRestoreService() {
+  getBackupControlDatabase();
+  if (!backupMariadbRestoreService) throw new Error('MariaDB restore is not initialized.');
+  return backupMariadbRestoreService;
+}
+
+function getBackupMysqlPitrService() {
+  getBackupControlDatabase();
+  if (!backupMysqlPitrService) throw new Error('MySQL point-in-time recovery is not initialized.');
+  return backupMysqlPitrService;
+}
+
+function getBackupMariadbPitrService() {
+  getBackupControlDatabase();
+  if (!backupMariadbPitrService) throw new Error('MariaDB point-in-time recovery is not initialized.');
+  return backupMariadbPitrService;
+}
+
+function getBackupPostgresqlRestoreService() {
+  getBackupControlDatabase();
+  if (!backupPostgresqlRestoreService) throw new Error('PostgreSQL restore is not initialized.');
+  return backupPostgresqlRestoreService;
+}
+
+function getBackupPostgresqlPitrRestoreService() {
+  getBackupControlDatabase();
+  if (!backupPostgresqlPitrRestoreService) throw new Error('PostgreSQL point-in-time recovery is not initialized.');
+  return backupPostgresqlPitrRestoreService;
+}
+
+function getBackupSqlServerRestoreService() {
+  getBackupControlDatabase();
+  if (!backupSqlServerRestoreService) throw new Error('SQL Server native recovery is not initialized.');
+  return backupSqlServerRestoreService;
+}
+
+function getBackupOracleRestoreService() {
+  getBackupControlDatabase();
+  if (!backupOracleRestoreService) throw new Error('Oracle RMAN recovery is not initialized.');
+  return backupOracleRestoreService;
+}
+
+function getBackupMongoDbRestoreService() {
+  getBackupControlDatabase();
+  if (!backupMongoDbRestoreService) throw new Error('MongoDB recovery is not initialized.');
+  return backupMongoDbRestoreService;
+}
+
+function getBackupSqliteRestoreService() {
+  getBackupControlDatabase();
+  if (!backupSqliteRestoreService) throw new Error('SQLite recovery is not initialized.');
+  return backupSqliteRestoreService;
+}
+
+function getBackupRedisRestoreService() {
+  getBackupControlDatabase();
+  if (!backupRedisRestoreService) throw new Error('Redis recovery is not initialized.');
+  return backupRedisRestoreService;
+}
+
+function getBackupSearchSnapshotRestoreService() {
+  getBackupControlDatabase();
+  if (!backupSearchSnapshotRestoreService) throw new Error('Search snapshot recovery is not initialized.');
+  return backupSearchSnapshotRestoreService;
+}
+
+function getBackupSearchSnapshotMaintenanceService() {
+  getBackupControlDatabase();
+  if (!backupSearchSnapshotMaintenanceService) throw new Error('Search snapshot maintenance is not initialized.');
+  return backupSearchSnapshotMaintenanceService;
+}
+
+function getBackupSearchSnapshotRecoveryTestService() {
+  getBackupControlDatabase();
+  if (!backupSearchSnapshotRecoveryTestService) throw new Error('Search snapshot recovery tests are not initialized.');
+  return backupSearchSnapshotRecoveryTestService;
+}
+
+function getBackupRepositoryVerificationService() {
+  getBackupControlDatabase();
+  if (!backupRepositoryVerificationService) throw new Error('Backup repository verification is not initialized.');
+  return backupRepositoryVerificationService;
+}
+
+function getBackupRepositoryPruningService() {
+  getBackupControlDatabase();
+  if (!backupRepositoryPruningService) throw new Error('Backup repository pruning is not initialized.');
+  return backupRepositoryPruningService;
+}
+
+function getBackupNotificationService() {
+  getBackupControlDatabase();
+  if (!backupNotificationService) throw new Error('Backup notifications are not initialized.');
+  return backupNotificationService;
+}
+
+function getBackupObjectiveStatusService() {
+  getBackupControlDatabase();
+  if (!backupObjectiveStatusService) throw new Error('Backup objective reporting is not initialized.');
+  return backupObjectiveStatusService;
+}
+
+async function initializeScheduledBackupWorker() {
+  if (!isWorkerMode()) return null;
+  const context = await backupSecretContext();
+  return getBackupScheduledWorkerService().start(context.workspaceId, 'backup-worker');
+}
+
+async function getBackupScheduledWorkerStatus() {
+  const context = await backupSecretContext();
+  const registrations = await getBackupControlDatabase().repository('workerRegistration').list(context.workspaceId, { limit: 1000 });
+  const workerId = backupDeviceId ? `device:${backupDeviceId}` : null;
+  const registration = registrations.find((record) => record.workerId === workerId) || null;
+  const heartbeatTime = Date.parse(registration?.heartbeatAt || '');
+  const online = registration?.state === 'online' && Number.isFinite(heartbeatTime) && Date.now() - heartbeatTime <= 30000;
+  const jobs = await getBackupControlDatabase().repository('backupJob').list(context.workspaceId, { limit: 1000 });
+  const nextRunAt = jobs.filter((job) => job.state === 'enabled' && Number.isFinite(Date.parse(job.nextRunAt || '')))
+    .map(effectiveJobDispatchTime).filter(Boolean).sort()[0] || null;
+  return {
+    workerId,
+    state: online ? 'online' : registration?.state === 'draining' ? 'draining' : 'offline',
+    online,
+    heartbeatAt: registration?.heartbeatAt || null,
+    workerGeneration: registration?.workerGeneration || null,
+    activeRunIds: Array.isArray(registration?.activeRunIds) ? registration.activeRunIds : [],
+    nextRunAt,
+    protocolVersion: registration?.protocolVersion || 1
+  };
+}
+
+async function backupSecretContext() {
+  const settings = await readSettings();
+  const workspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
+  if (!workspaceId) throw new Error('Select a workspace before managing Backup Manager secrets.');
+  return {
+    workspaceId,
+    actorId: String(settings.auth?.uid || 'local-user'),
+    actorType: settings.auth?.uid ? 'user' : 'local-user'
+  };
+}
+
+async function databaseManagerContext() {
+  const settings = await readSettings();
+  const workspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
+  if (!workspaceId) throw Object.assign(new Error('Select a workspace before managing databases.'), { code: 'DATABASE_MANAGER_WORKSPACE_REQUIRED' });
+  return {
+    workspaceId,
+    actorId: String(settings.auth?.uid || 'local-user')
+  };
+}
+
+function sendDatabaseManagerEvent(workspaceId, type, payload) {
+  recordDatabaseOperationalEvidence(workspaceId, type, payload);
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents?.isDestroyed()) return null;
+  try {
+    if (databaseManagerEventSequence >= Number.MAX_SAFE_INTEGER) databaseManagerEventSequence = 0;
+    const event = createDatabaseManagerEvent(type, workspaceId, payload, { sequence: databaseManagerEventSequence + 1 });
+    databaseManagerEventSequence = event.sequence;
+    mainWindow.webContents.send('database-manager:event', event);
+    return event;
+  } catch {
+    return null;
+  }
+}
+
+function recordDatabaseOperationalEvidence(workspaceId, type, payload = {}) {
+  if (!databaseOperationalEvidenceStore || !workspaceId || !payload?.profileId) return;
+  const category = type === 'connection-status' ? 'connection' : type === 'schema-change' ? 'schema' : null;
+  if (!category) return;
+  const state = String(payload.state || '').toLowerCase();
+  if (category === 'connection' && !['tested', 'ready', 'closed', 'failed'].includes(state)) return;
+  if (category === 'schema' && !['changed', 'failed', 'cancelled'].includes(state)) return;
+  databaseOperationalEvidenceStore.append(workspaceId, {
+    profileId: payload.profileId,
+    category,
+    operation: payload.operation,
+    state,
+    code: payload.code
+  }).catch(() => {});
+}
+
+async function databaseProfileForRenderer(workspaceId, profile) {
+  if (!profile || !['file', 'folder'].includes(profile.endpoint?.kind)) return profile;
+  const localResource = await getDatabaseLocalResourceStore().metadata({ workspaceId, profileId: profile.id, kind: profile.endpoint.kind });
+  return { ...profile, localResource };
+}
+
+function databaseInstalledDriverIds() {
+  return new Set(['postgresql', 'mysql', 'sqlite', ...(databasePluginRegistry?.listInstalled().map((item) => item.pluginId) || [])]);
+}
+
+async function executeDatabaseCloudSyncOperation(operation) {
+  await ensureActiveTeamUnlocked();
+  const target = ['teams', operation.workspaceId, 'databaseProfiles', operation.profileId];
+  const remote = await getDoc(target);
+  const plan = planCloudSyncOperation(operation, remote);
+  if (plan.action === 'noop') return { profileId: operation.profileId, deleted: true };
+  try {
+    if (plan.action === 'delete') return deleteDoc(target, { precondition: plan.precondition });
+    return patchDoc(target, operation.document, { precondition: plan.precondition });
+  } catch (error) {
+    const firestoreStatus = String(error?.body?.error?.status || '').toUpperCase();
+    if ([409, 412].includes(Number(error?.status)) || ['ABORTED', 'ALREADY_EXISTS', 'FAILED_PRECONDITION'].includes(firestoreStatus)) {
+      throw Object.assign(new Error('Cloud database profile metadata changed on another device.'), {
+        code: 'DATABASE_MANAGER_CLOUD_SYNC_CONFLICT', category: 'database-cloud-sync', retryable: false
+      });
+    }
+    throw error;
+  }
+}
+
+async function reconcileDatabaseProfileMetadata(workspaceId) {
+  if (!databaseCloudSyncOutbox) return { attempted: 0, succeeded: 0, failed: [], pending: null, unavailable: true };
+  return databaseCloudSyncOutbox.flush(workspaceId, executeDatabaseCloudSyncOperation, { limit: 100 });
+}
+
+async function logDatabaseCloudSyncFailure(workspaceId, code) {
+  return getBackupLogStore().logger({ workspaceId, component: 'database-cloud-sync' }).warn(
+    'Database profile cloud synchronization remains pending.',
+    { code: code || 'DATABASE_MANAGER_CLOUD_SYNC_PENDING' }
+  ).catch(() => {});
+}
+
+async function listDatabaseProfilesForRenderer(context, options = {}) {
+  const imported = databaseConnectionImportService
+    ? await databaseConnectionImportService.reconcile(context.workspaceId, context.actorId).catch(async (error) => {
+      await getBackupLogStore().logger({ workspaceId: context.workspaceId, component: 'database-connection-import' }).warn(
+        'Compatible Backup Manager connections could not be reconciled.',
+        { code: error.code || 'DATABASE_MANAGER_CONNECTION_IMPORT_FAILED' }
+      ).catch(() => {});
+      return { created: [], failures: [] };
+    })
+    : { created: [], failures: [] };
+  if (imported.failures?.length) {
+    await getBackupLogStore().logger({ workspaceId: context.workspaceId, component: 'database-connection-import' }).warn(
+      'One or more compatible Backup Manager connections could not be imported.',
+      { count: imported.failures.length, code: imported.failures[0].code }
+    ).catch(() => {});
+  }
+  const localProfiles = await getDatabaseProfileService().list(context.workspaceId, options);
+  const renderedLocal = await Promise.all(localProfiles.map((profile) => databaseProfileForRenderer(context.workspaceId, profile)));
+  const settings = await readSettings();
+  if (settings.mode !== 'cloud') return renderedLocal;
+  if (databaseCloudSyncOutbox && imported.created?.length) {
+    await Promise.all(imported.created.map(({ profile }) => databaseCloudSyncOutbox.enqueueUpsert(context.workspaceId, profile, { expectedRevision: 0 }))).catch(async (error) => {
+      await logDatabaseCloudSyncFailure(context.workspaceId, error.code);
+    });
+  }
+  const reconciliation = await reconcileDatabaseProfileMetadata(context.workspaceId).catch(async (error) => {
+    await logDatabaseCloudSyncFailure(context.workspaceId, error.code);
+    return { pending: null, unavailable: true };
+  });
+  let cloudProfiles;
+  try {
+    cloudProfiles = await listCollection(['teams', context.workspaceId, 'databaseProfiles']);
+  } catch (error) {
+    await logDatabaseCloudSyncFailure(context.workspaceId, error.code);
+    return renderedLocal.map((profile) => ({ ...profile, cloudSyncState: 'offline' }));
+  }
+  const pending = databaseCloudSyncOutbox ? await databaseCloudSyncOutbox.listPending(context.workspaceId) : [];
+  const pendingById = new Map(pending.map((operation) => [operation.profileId, operation]));
+  return mergeCloudProfiles(renderedLocal, cloudProfiles, { installedDrivers: databaseInstalledDriverIds() })
+    .map((profile) => {
+      const pendingOperation = pendingById.get(profile.id);
+      if (profile.cloudOnly && !pendingOperation) return profile;
+      return { ...profile, cloudSyncState: pendingOperation?.lastErrorCode === 'DATABASE_MANAGER_CLOUD_SYNC_CONFLICT' ? 'conflict' : pendingOperation ? 'pending' : reconciliation.unavailable ? 'unavailable' : 'synced' };
+    });
+}
+
+async function syncDatabaseProfileMetadata(context, profile, expectedCloudRevision = 0) {
+  const settings = await readSettings();
+  if (settings.mode !== 'cloud') return profile;
+  if (!databaseCloudSyncOutbox) return { ...profile, cloudSyncState: 'unavailable' };
+  try {
+    await databaseCloudSyncOutbox.enqueueUpsert(context.workspaceId, profile, { expectedRevision: expectedCloudRevision });
+    const result = await reconcileDatabaseProfileMetadata(context.workspaceId);
+    const pending = await databaseCloudSyncOutbox.listPending(context.workspaceId);
+    const pendingOperation = pending.find((operation) => operation.profileId === profile.id);
+    const state = pendingOperation?.lastErrorCode === 'DATABASE_MANAGER_CLOUD_SYNC_CONFLICT' ? 'conflict' : pendingOperation ? 'pending' : 'synced';
+    if (result.failed?.length) await logDatabaseCloudSyncFailure(context.workspaceId, result.failed[0].code);
+    return { ...profile, cloudSyncState: state };
+  } catch (error) {
+    await logDatabaseCloudSyncFailure(context.workspaceId, error.code);
+    return { ...profile, cloudSyncState: 'unavailable' };
+  }
+}
+
+async function removeDatabaseProfileMetadata(context, profileId, expectedCloudRevision = null) {
+  const settings = await readSettings();
+  if (settings.mode !== 'cloud') return { cloudSyncState: 'local' };
+  if (!databaseCloudSyncOutbox) return { cloudSyncState: 'unavailable' };
+  try {
+    await databaseCloudSyncOutbox.enqueueDelete(context.workspaceId, profileId, { expectedRevision: expectedCloudRevision });
+    const result = await reconcileDatabaseProfileMetadata(context.workspaceId);
+    const pending = await databaseCloudSyncOutbox.listPending(context.workspaceId);
+    if (result.failed?.length) await logDatabaseCloudSyncFailure(context.workspaceId, result.failed[0].code);
+    const pendingOperation = pending.find((operation) => operation.profileId === profileId);
+    return { cloudSyncState: pendingOperation?.lastErrorCode === 'DATABASE_MANAGER_CLOUD_SYNC_CONFLICT' ? 'conflict' : pendingOperation ? 'pending' : 'synced' };
+  } catch (error) {
+    await logDatabaseCloudSyncFailure(context.workspaceId, error.code);
+    return { cloudSyncState: 'unavailable' };
+  }
+}
+
+async function resolveDatabaseProfileCloudConflict(context, profileIdValue, strategyValue) {
+  if (!databaseCloudSyncOutbox) throw Object.assign(new Error('Cloud profile synchronization is unavailable.'), { code: 'DATABASE_MANAGER_CLOUD_SYNC_UNAVAILABLE' });
+  const profileId = String(profileIdValue || '').trim();
+  const strategy = String(strategyValue || '').trim().toLowerCase();
+  if (!profileId || profileId.length > 200 || !['keep-local', 'use-cloud'].includes(strategy)) throw new TypeError('Database cloud conflict resolution is invalid.');
+  const pending = await databaseCloudSyncOutbox.getOperation(context.workspaceId, profileId);
+  if (!pending || pending.lastErrorCode !== 'DATABASE_MANAGER_CLOUD_SYNC_CONFLICT') {
+    throw Object.assign(new Error('This database profile no longer has a cloud synchronization conflict.'), { code: 'DATABASE_MANAGER_CLOUD_SYNC_CONFLICT_NOT_FOUND' });
+  }
+  await ensureActiveTeamUnlocked();
+  const target = ['teams', context.workspaceId, 'databaseProfiles', profileId];
+  const remoteRaw = await getDoc(target);
+  const remote = remoteRaw ? normalizeCloudProfileDocument(remoteRaw) : null;
+  if (strategy === 'keep-local') {
+    await databaseCloudSyncOutbox.rebase(context.workspaceId, profileId, remote?.revision || 0);
+    const reconciliation = await reconcileDatabaseProfileMetadata(context.workspaceId);
+    const remaining = await databaseCloudSyncOutbox.getOperation(context.workspaceId, profileId);
+    return { profileId, strategy, cloudSyncState: remaining?.lastErrorCode === 'DATABASE_MANAGER_CLOUD_SYNC_CONFLICT' ? 'conflict' : remaining ? 'pending' : 'synced', reconciliation };
+  }
+  const local = await getDatabaseProfileService().get(context.workspaceId, profileId);
+  if (local && remote && local.driverId !== remote.metadata.driverId) {
+    throw Object.assign(new Error('The cloud profile uses a different driver. Remove the local profile before setting it up again.'), { code: 'DATABASE_MANAGER_CLOUD_DRIVER_CONFLICT' });
+  }
+  if (local && remote && !remote.deletedAt) {
+    const cloudInput = { ...remote.metadata };
+    delete cloudInput.settings;
+    delete cloudInput.startupScript;
+    delete cloudInput.queryTimeoutMs;
+    await getDatabaseProfileService().update(context.workspaceId, context.actorId, profileId, cloudInput, local.revision);
+  } else if (local) {
+    await getDatabaseProfileService().delete(context.workspaceId, context.actorId, profileId, local.revision);
+    await getDatabaseLocalResourceStore().remove({ workspaceId: context.workspaceId, profileId }).catch(() => {});
+  }
+  if (local) await getDatabaseConnectionService().closeProfile(context.workspaceId, profileId);
+  await databaseCloudSyncOutbox.discard(context.workspaceId, profileId);
+  return { profileId, strategy, cloudSyncState: 'synced' };
+}
+
+function getUptimeControlDatabaseV2() {
+  if (uptimeControlDatabaseError) throw uptimeControlDatabaseError;
+  if (!uptimeControlDatabase) throw new Error('Uptime Monitor control database is not initialized.');
+  return uptimeControlDatabase;
+}
+
+async function uptimeOperationalContext() {
+  const settings = await readSettings();
+  const workspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
+  if (!workspaceId) throw new Error('Select a workspace before managing Uptime Monitor.');
+  return {
+    workspaceId,
+    actorId: String(settings.auth?.uid || 'local-user')
+  };
+}
+
+async function createUptimeSecretReference({ workspaceId, actorId, monitorName, headerName, value }) {
+  const ref = await getBackupSecretStore().create({
+    workspaceId,
+    actorId,
+    name: `${String(monitorName || 'Uptime monitor').slice(0, 80)} ${String(headerName || 'header').slice(0, 30)} ${crypto.randomBytes(3).toString('hex')}`,
+    secretType: 'token',
+    value,
+    scope: 'device'
+  });
+  try {
+    await getBackupControlDatabase().repository('secretRef').create({
+      ...ref,
+      actorId,
+      workspaceId: ref.workspaceId,
+      name: ref.name,
+      provider: ref.provider,
+      scope: ref.scope,
+      providerKey: ref.providerKey,
+      secretType: ref.secretType,
+      version: ref.version
+    });
+    return ref.id;
+  } catch (error) {
+    await getBackupSecretStore().delete({ workspaceId, id: ref.id }).catch(() => {});
+    throw error;
+  }
+}
+
+async function deleteUptimeSecretReference(workspaceId, actorId, secretRefId) {
+  const id = String(secretRefId || '').trim();
+  if (!id) return false;
+  await getBackupSecretStore().delete({ workspaceId, id });
+  const metadata = await getBackupControlDatabase().repository('secretRef').get(workspaceId, id);
+  if (metadata) {
+    await getBackupControlDatabase().repository('secretRef').softDelete(workspaceId, id, {
+      expectedRevision: metadata.revision,
+      actorId
+    });
+  }
+  return true;
+}
+
+function splitUptimeMonitorSecrets(input = {}, current = null) {
+  const payload = structuredClone(input && typeof input === 'object' ? input : {});
+  const currentConfig = current?.config && typeof current.config === 'object' ? current.config : {};
+  const suppliedConfig = payload.config && typeof payload.config === 'object' ? payload.config : {};
+  const secretHeaders = suppliedConfig.secretHeaders && typeof suppliedConfig.secretHeaders === 'object' && !Array.isArray(suppliedConfig.secretHeaders)
+    ? suppliedConfig.secretHeaders
+    : {};
+  const hasSecretHeaders = Object.prototype.hasOwnProperty.call(suppliedConfig, 'secretHeaders');
+  const config = { ...currentConfig, ...suppliedConfig };
+  delete config.secretHeaders;
+  config.secretHeaderRefs = {
+    ...(currentConfig.secretHeaderRefs || {}),
+    ...(suppliedConfig.secretHeaderRefs || {})
+  };
+  payload.config = config;
+  return { payload, secretHeaders, hasSecretHeaders };
+}
+
+async function prepareUptimeMonitorForSave(context, input, current = null) {
+  const { payload, secretHeaders, hasSecretHeaders } = splitUptimeMonitorSecrets(input, current);
+  const createdSecretRefIds = [];
+  try {
+    if (hasSecretHeaders) {
+      for (const [rawHeaderName, rawValue] of Object.entries(secretHeaders)) {
+        const headerName = String(rawHeaderName || '').trim().toLowerCase();
+        if (!['authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-api-key'].includes(headerName)) {
+          throw Object.assign(new Error(`The ${headerName || 'unnamed'} header cannot be stored as a sensitive header.`), { code: 'UPTIME_HTTP_SECRET_HEADER_INVALID' });
+        }
+        if (rawValue == null || String(rawValue) === '') {
+          delete payload.config.secretHeaderRefs[headerName];
+          continue;
+        }
+        const secretRefId = await createUptimeSecretReference({
+          workspaceId: context.workspaceId,
+          actorId: context.actorId,
+          monitorName: payload.name || current?.name,
+          headerName,
+          value: String(rawValue)
+        });
+        payload.config.secretHeaderRefs[headerName] = secretRefId;
+        createdSecretRefIds.push(secretRefId);
+      }
+    }
+    return { payload, createdSecretRefIds };
+  } catch (error) {
+    await cleanupUptimeSecretReferences(context, createdSecretRefIds);
+    throw error;
+  }
+}
+
+async function cleanupUptimeSecretReferences(context, secretRefIds) {
+  const uniqueIds = [...new Set((secretRefIds || []).map(String).filter(Boolean))];
+  await Promise.allSettled(uniqueIds.map((id) => deleteUptimeSecretReference(context.workspaceId, context.actorId, id)));
+}
+
+function prepareUptimeMonitorForTest(context, input, current = null) {
+  const { payload, secretHeaders, hasSecretHeaders } = splitUptimeMonitorSecrets(input, current);
+  const transientSecrets = new Map();
+  if (hasSecretHeaders) {
+    for (const [rawHeaderName, rawValue] of Object.entries(secretHeaders)) {
+      const headerName = String(rawHeaderName || '').trim().toLowerCase();
+      if (rawValue == null || String(rawValue) === '') {
+        delete payload.config.secretHeaderRefs[headerName];
+        continue;
+      }
+      const reference = `uptime-test-${crypto.randomUUID()}`;
+      payload.config.secretHeaderRefs[headerName] = reference;
+      transientSecrets.set(reference, String(rawValue));
+    }
+  }
+  return {
+    monitor: normalizeMonitorInput({ ...current, ...payload }),
+    secretResolver: async (secretRefId) => transientSecrets.has(secretRefId)
+      ? transientSecrets.get(secretRefId)
+      : getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId })
+  };
+}
+
+async function migrateLegacyUptimeForWorkspace(context) {
+  const store = await readCurrentStore();
+  return migrateLegacyUptime({
+    workspaceId: context.workspaceId,
+    actorId: context.actorId,
+    projects: store.projects,
+    legacyRootPath: getUptimeRootPath(),
+    controlDatabase: getUptimeControlDatabaseV2(),
+    importSecret: ({ monitor, headerName, value }) => createUptimeSecretReference({
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      monitorName: monitor.name,
+      headerName,
+      value
+    })
+  });
+}
+
+async function initializeUptimeControlPlane({ startWorker = false } = {}) {
+  const controlDatabase = new UptimeControlDatabase({ rootPath: getUptimeControlRootPath() });
+  try {
+    await controlDatabase.initialize();
+    uptimeControlDatabase = controlDatabase;
+    uptimeControlDatabaseError = null;
+    const context = await uptimeOperationalContext();
+    await migrateLegacyUptimeForWorkspace(context).catch((error) => {
+      uptimeWorkerState.syncWarning = `Legacy uptime migration is pending: ${error.message}`;
+    });
+    uptimeIncidentPolicyService = new UptimeIncidentPolicyService({
+      controlDatabase,
+      notifier: async (event) => {
+        if (!backupNotificationService) return [];
+        return backupNotificationService.dispatchEventToRoutes(context.workspaceId, event.routeIds, event);
+      }
+    });
+    const settings = await readSettings();
+    const monitoringSettings = settings.uptimeMonitoring || {};
+    uptimeScheduledWorkerService = new ScheduledUptimeWorkerService({
+      controlDatabase,
+      incidentPolicy: uptimeIncidentPolicyService,
+      secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
+      probeId: `local-windows:${backupDeviceId || process.pid}`,
+      maximumConcurrency: Math.max(1, Math.min(32, Number(monitoringSettings.maximumConcurrency) || 8))
+    });
+    if (startWorker) {
+      if (monitoringSettings.autostartEnabled !== false) await ensureWorkerAutostartEnabled().catch(() => {});
+      await uptimeScheduledWorkerService.start(context.workspaceId, 'uptime-worker');
+    }
+    return controlDatabase;
+  } catch (error) {
+    uptimeControlDatabaseError = error;
+    uptimeControlDatabase = null;
+    uptimeIncidentPolicyService = null;
+    uptimeScheduledWorkerService = null;
+    await controlDatabase.close().catch(() => {});
+    throw error;
+  }
+}
+
+async function getUptimeServiceStatusV2() {
+  const context = await uptimeOperationalContext();
+  const heartbeats = await getUptimeControlDatabaseV2().listWorkerHeartbeats(context.workspaceId);
+  const health = evaluateWorkerHeartbeat(heartbeats);
+  const heartbeat = health.heartbeat;
+  if (health.stale && backupNotificationService) {
+    await backupNotificationService.dispatchEvent(context.workspaceId, workerHealthEvent(heartbeat, nowIso())).catch(() => {});
+  }
+  return {
+    active: health.active,
+    state: health.active ? 'active' : heartbeat?.state || 'offline',
+    heartbeatAt: heartbeat?.heartbeatAt || null,
+    probeId: heartbeat?.probeId || null,
+    processId: heartbeat?.processId || null,
+    startedAt: heartbeat?.startedAt || null,
+    activeChecks: Number(heartbeat?.activeChecks || 0),
+    maximumConcurrency: Number(heartbeat?.maximumConcurrency || 8),
+    autostartEnabled: await resolveWorkerAutostartEnabled().catch(() => false),
+    syncWarning: uptimeWorkerState.syncWarning || '',
+    lastError: heartbeat?.lastError || null
+  };
+}
+
+async function setWorkerAutostartEnabled(enabled) {
+  if (enabled) return ensureWorkerAutostartEnabled();
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    app.setLoginItemSettings(buildLoginItemSettings({ enabled: false, execPath: process.execPath, args: buildWorkerArgs() }));
+  } else {
+    const autostartPath = path.join(os.homedir(), '.config', 'autostart', 'deployerx-uptime-worker.desktop');
+    await fs.rm(autostartPath, { force: true });
+  }
+  uptimeWorkerState.autostartEnabled = false;
+  return false;
+}
+
+async function getUptimeMonitoringSettings() {
+  const settings = await readSettings();
+  return {
+    autostartEnabled: await resolveWorkerAutostartEnabled().catch(() => settings.uptimeMonitoring?.autostartEnabled !== false),
+    maximumConcurrency: Math.max(1, Math.min(32, Number(settings.uptimeMonitoring?.maximumConcurrency) || 8)),
+    rawCheckRetentionDays: 90,
+    rollupRetentionMonths: 13,
+    minimumIntervalSec: 30
+  };
+}
+
+async function updateUptimeMonitoringSettings(input = {}) {
+  const settings = await readSettings();
+  const maximumConcurrency = Number(input.maximumConcurrency ?? settings.uptimeMonitoring?.maximumConcurrency ?? 8);
+  if (!Number.isInteger(maximumConcurrency) || maximumConcurrency < 1 || maximumConcurrency > 32) {
+    throw Object.assign(new Error('Worker concurrency must be between 1 and 32.'), { code: 'UPTIME_CONCURRENCY_INVALID' });
+  }
+  const autostartEnabled = input.autostartEnabled === undefined
+    ? settings.uptimeMonitoring?.autostartEnabled !== false
+    : Boolean(input.autostartEnabled);
+  await setWorkerAutostartEnabled(autostartEnabled);
+  await writeSettings({ ...settings, uptimeMonitoring: { autostartEnabled, maximumConcurrency } });
+  return getUptimeMonitoringSettings();
+}
+
+function parseUptimeNavigationArgument(argv = process.argv) {
+  const raw = argv.find((argument) => String(argument).startsWith('--open-uptime='));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(decodeURIComponent(String(raw).slice('--open-uptime='.length)));
+    return {
+      monitorId: String(parsed.monitorId || '').trim(),
+      incidentId: String(parsed.incidentId || '').trim()
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function buildWorkspaceUptimeReport(options = {}) {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const toDate = options.to ? new Date(options.to) : new Date();
+  const fromDate = options.from ? new Date(options.from) : new Date(toDate.getTime() - 86400000);
+  if (!Number.isFinite(fromDate.getTime()) || !Number.isFinite(toDate.getTime()) || toDate <= fromDate) {
+    throw Object.assign(new Error('Choose a valid Uptime report range.'), { code: 'UPTIME_REPORT_RANGE_INVALID' });
+  }
+  const to = toDate.toISOString();
+  const from = fromDate.toISOString();
+  const monitors = await database.listMonitors(context.workspaceId, { includeDeleted: true, limit: 10000 });
+  const selected = monitors.filter((monitor) => {
+    if (options.monitorId && monitor.id !== options.monitorId) return false;
+    if (options.projectId && monitor.projectId !== options.projectId) return false;
+    if (options.group && monitor.group !== options.group) return false;
+    return true;
+  });
+  const [checks, incidents, maintenance] = await Promise.all([
+    Promise.all(selected.map(async (monitor) => [monitor.id, await database.listChecks(context.workspaceId, monitor.id, { from, to, limit: 100000 })])),
+    database.listIncidents(context.workspaceId, { to, limit: 10000 }),
+    database.listMaintenanceWindows(context.workspaceId, { includeDeleted: true, limit: 10000 })
+  ]);
+  return buildUptimeReport({
+    monitors,
+    checksByMonitor: Object.fromEntries(checks),
+    incidents,
+    maintenance,
+    from,
+    to,
+    filters: { monitorId: options.monitorId || '', projectId: options.projectId || '', group: options.group || '', slaTargetPct: options.slaTargetPct || 99.9 }
+  });
+}
+
+function openNotificationTarget(event = {}) {
+  const target = {
+    monitorId: String(event.monitorId || '').trim(),
+    incidentId: String(event.incidentId || '').trim()
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    showMainWindow();
+    if (target.monitorId || target.incidentId || String(event.type || '').startsWith('uptime.')) mainWindow.webContents.send('uptime:navigate', target);
+    return;
+  }
+  const uptimeArgument = target.monitorId || target.incidentId || String(event.type || '').startsWith('uptime.')
+    ? [`--open-uptime=${encodeURIComponent(JSON.stringify(target))}`]
+    : [];
+  const args = process.defaultApp || !app.isPackaged ? [app.getAppPath(), ...uptimeArgument] : uptimeArgument;
+  const child = execFile(process.execPath, args, { detached: true, windowsHide: true, stdio: 'ignore' });
+  child.unref();
+}
+
+function normalizedBackupAuditCode(value, fallback = 'BACKUP_OPERATION_FAILED') {
+  const candidate = String(value || '').trim().toUpperCase();
+  if (/^[A-Z][A-Z0-9_]{0,127}$/.test(candidate)) return candidate;
+  const normalizedFallback = String(fallback || '').trim().toUpperCase();
+  return /^[A-Z][A-Z0-9_]{0,127}$/.test(normalizedFallback) ? normalizedFallback : 'BACKUP_OPERATION_FAILED';
+}
+
+function normalizedBackupAuditCategory(value) {
+  const candidate = String(value || '').trim().toLowerCase();
+  return /^[a-z][a-z0-9-]{0,63}$/.test(candidate) ? candidate : 'unknown';
+}
+
+function backupAuditFailureDetails(error, fallbackCode) {
+  const errorCode = normalizedBackupAuditCode(error?.code, fallbackCode);
+  return {
+    errorCode,
+    failureCode: normalizedBackupAuditCode(fallbackCode, errorCode),
+    category: normalizedBackupAuditCategory(error?.category ?? error?.details?.category),
+    operationAccepted: error?.operationAccepted === true || error?.details?.operationAccepted === true
+  };
+}
+
+async function runAuditedBackupMutation(context, options, operation) {
+  const correlationId = `corr_${crypto.randomUUID()}`;
+  const auditStore = getBackupAuditStore();
+  const logger = getBackupLogStore().logger({
+    workspaceId: context.workspaceId,
+    component: options.component || 'backup-manager',
+    correlationId
+  });
+  const baseEvent = {
+    workspaceId: context.workspaceId,
+    actor: { type: context.actorType, id: context.actorId },
+    action: options.action,
+    resource: { type: options.resourceType, id: options.resourceId || null },
+    correlationId
+  };
+  await auditStore.append({ ...baseEvent, outcome: 'attempt', details: options.details || {} });
+  try {
+    const result = await operation();
+    const resultAudit = typeof options.resultAudit === 'function' ? options.resultAudit(result) : {};
+    await auditStore.append({
+      ...baseEvent,
+      resource: { type: options.resourceType, id: resultAudit?.resourceId || result?.id || options.resourceId || null },
+      outcome: 'success',
+      details: { ...(options.details || {}), ...(resultAudit?.details || {}), revision: result?.revision ?? null, version: result?.version ?? null }
+    });
+    await logger.info(`${options.action} succeeded`, {
+      resourceType: options.resourceType,
+      resourceId: resultAudit?.resourceId || result?.id || options.resourceId || null
+    }).catch(() => {});
+    return result;
+  } catch (error) {
+    const failureDetails = backupAuditFailureDetails(error, options.failureAuditCode);
+    await auditStore.append({
+      ...baseEvent,
+      outcome: 'failure',
+      severity: 'warning',
+      details: { ...(options.details || {}), ...failureDetails }
+    }).catch(() => {});
+    await logger.warn(`${options.action} failed`, {
+      resourceType: options.resourceType,
+      resourceId: options.resourceId || null,
+      ...failureDetails
+    }).catch(() => {});
+    throw error;
+  }
+}
+
+function influxDb3EnterpriseRetentionAuditDetails(input = {}) {
+  const candidatePlanId = String(input.planId || '').trim();
+  return {
+    planId: /^influxdb3_enterprise_retention_[a-f0-9]{64}$/.test(candidatePlanId) ? candidatePlanId : null,
+    mediaDomain: 'influxdb3-enterprise-native',
+    deletionConfirmedByOperator: input.confirmed === true,
+    exactConfirmationMatched: input.confirmationText === INFLUXDB3_ENTERPRISE_DELETE_CONFIRMATION
+  };
+}
+
+function influxDb3EnterpriseRetentionPreviewResultAudit(result = {}) {
+  const details = influxDb3EnterpriseRetentionAuditDetails({ planId: result.planId });
+  return { resourceId: details.planId, details };
+}
+
+function cockroachDbRetentionAuditDetails(input = {}) {
+  const requestedCount = Array.isArray(input.recoveryPointIds) ? input.recoveryPointIds.length : 0;
+  const mediaDomain = ['deployerx-repository', 'cockroachdb-native'].includes(input.mediaDomain) ? input.mediaDomain : null;
+  const candidatePlanId = String(input.planId || '').trim();
+  return {
+    planId: /^cockroach_retention_[a-f0-9]{64}$/.test(candidatePlanId) ? candidatePlanId : null,
+    mediaDomain,
+    recoveryPointCount: Math.min(requestedCount, 1000),
+    externalNativeMediaPreserved: true,
+    nativeMediaDeletionAttempted: false
+  };
+}
+
 function getUptimeRuntimePath() {
   return path.join(getUptimeRootPath(), UPTIME_RUNTIME_FILE);
 }
@@ -1231,8 +3537,14 @@ function defaultSettings() {
     setupComplete: false,
     mode: '',
     activeTeamId: '',
+    activeTeamName: '',
+    activeTeamUid: '',
     auth: null,
-    projectLocalSettings: {}
+    cloudWorkspaceCache: null,
+    cloudWorkspaceCaches: {},
+    mcpIntegration: null,
+    projectLocalSettings: {},
+    uptimeMonitoring: { autostartEnabled: true, maximumConcurrency: 8 }
   };
 }
 
@@ -1301,7 +3613,6 @@ async function deleteProjectLocalSettings(projectId) {
 }
 
 async function readSettings() {
-  if (settingsCache) return structuredClone(settingsCache);
   const settingsPath = getSettingsPath();
   try {
     const raw = await fs.readFile(settingsPath, 'utf8');
@@ -1488,8 +3799,13 @@ function firebaseErrorMessage(errorBody) {
   if (normalized.includes('email not found')) return 'No account was found for this email.';
   if (normalized.includes('invalid email')) return 'Enter a valid email address.';
   if (normalized.includes('weak password')) return 'Use a stronger password with at least 6 characters.';
-  if (normalized.includes('too many attempts') || normalized.includes('quota exceeded')) {
-    return 'Too many attempts. Please wait a little and try again.';
+  if (
+    normalized.includes('too many attempts') ||
+    normalized.includes('quota exceeded') ||
+    normalized.includes('resource exhausted') ||
+    normalized.includes('too many requests')
+  ) {
+    return 'The cloud service is temporarily busy. Please wait a moment and try again.';
   }
   if (normalized.includes('user disabled')) return 'This account has been disabled.';
   if (normalized.includes('operation not allowed')) {
@@ -1540,27 +3856,21 @@ function isRecoverableCloudDataError(error) {
 
   return (
     error?.status === 403 ||
+    error?.status === 429 ||
     details.includes('missing or insufficient permissions') ||
     details.includes('permission denied') ||
     details.includes('cloud firestore api has not been used') ||
-    details.includes('firestore.googleapis.com')
+    details.includes('firestore.googleapis.com') ||
+    details.includes('resource exhausted') ||
+    details.includes('quota exceeded') ||
+    details.includes('too many requests')
   );
 }
 
-function shouldClearStoredAuth(error) {
-  const details = errorDetails(error);
-
-  return (
-    error?.status === 401 ||
-    details.includes('login is required') ||
-    details.includes('session expired') ||
-    details.includes('token expired') ||
-    details.includes('invalid id token') ||
-    details.includes('invalid refresh token') ||
-    details.includes('invalid grant') ||
-    details.includes('user disabled') ||
-    details.includes('user not found')
-  );
+function normalizeWorkspaceRole(role, { allowOwner = false } = {}) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (allowOwner && normalized === 'owner') return 'owner';
+  return normalized === 'admin' ? 'admin' : 'member';
 }
 
 async function readJsonResponse(response) {
@@ -1655,6 +3965,122 @@ function base64Url(buffer) {
     .replace(/=+$/g, '');
 }
 
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+
+  // Browsers retain the foreground after an external OAuth flow on Windows.
+  // Briefly raising the window makes the completed sign-in visible immediately.
+  if (process.platform === 'win32') mainWindow.setAlwaysOnTop(true);
+  mainWindow.show();
+  mainWindow.focus();
+
+  if (process.platform === 'win32') {
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.setAlwaysOnTop(false);
+      mainWindow.focus();
+    }, 250);
+  }
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (process.platform === 'darwin') app.dock?.show();
+  focusMainWindow();
+}
+
+function createTray() {
+  if (tray && !tray.isDestroyed()) return;
+
+  tray = new Tray(APP_ICON);
+  tray.setToolTip('DeployerX - running in the background');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open DeployerX', click: showMainWindow },
+    { type: 'separator' },
+    {
+      label: 'Quit DeployerX',
+      click: () => {
+        isAppQuitting = true;
+        app.quit();
+      }
+    }
+  ]));
+  tray.on('click', showMainWindow);
+  tray.on('double-click', showMainWindow);
+}
+
+function googleLoginCompleteHtml() {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Returning to DeployerX</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        color: #202124;
+        background: #f7f8fa;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main { width: min(420px, 100%); text-align: center; }
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 52px;
+        height: 52px;
+        margin: 0 auto 22px;
+        border-radius: 8px;
+        color: #fff;
+        background: #202124;
+        font-size: 24px;
+        font-weight: 750;
+      }
+      h1 { margin: 0 0 10px; font-size: 24px; font-weight: 700; letter-spacing: 0; }
+      p { margin: 0; color: #68707d; font-size: 15px; line-height: 1.6; }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: 24px;
+        color: #4f5866;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .spinner {
+        width: 15px;
+        height: 15px;
+        border: 2px solid #d8dce2;
+        border-top-color: #202124;
+        border-radius: 50%;
+        animation: spin .7s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">D</div>
+      <h1>Finishing sign in</h1>
+      <p>DeployerX will open automatically when your account is ready.</p>
+      <div class="status"><span class="spinner"></span>Connecting to DeployerX</div>
+    </main>
+    <script>
+      window.setTimeout(() => window.close(), 150);
+    </script>
+  </body>
+</html>`;
+}
+
 function listen(server, host = '127.0.0.1') {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -1724,8 +4150,11 @@ async function requestGoogleTokens(config) {
         finish(new Error('Google login did not return an authorization code.'));
         return;
       }
-      response.writeHead(200, { 'Content-Type': 'text/html' });
-      response.end('<h1>Google login complete</h1><p>You can close this browser tab and return to DeployerX.</p>');
+      response.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store'
+      });
+      response.end(googleLoginCompleteHtml());
       finish(null, authCode);
     });
 
@@ -1804,39 +4233,66 @@ async function refreshAuthSession(settings, options = {}) {
   if (settings.auth.idToken && settings.auth.expiresAt > Date.now()) {
     if (!forceLookup) return settings.auth;
     const checkedAuth = await lookupAuthUser(settings.auth);
-    if (authSessionChanged(settings.auth, checkedAuth)) {
-      await writeSettings({ ...settings, auth: checkedAuth });
+    const latestSettings = await readSettings();
+    if (
+      latestSettings.auth?.refreshToken === settings.auth.refreshToken &&
+      authSessionChanged(latestSettings.auth, checkedAuth)
+    ) {
+      await writeSettings({ ...latestSettings, auth: checkedAuth });
     }
     return checkedAuth;
   }
 
-  const config = await loadFirebaseConfig();
-  requireFirebaseConfig(config);
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: settings.auth.refreshToken
-  });
-  const refreshed = await fetchJson(`${FIREBASE_TOKEN_URL}?key=${encodeURIComponent(config.apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString()
-  });
-  const auth = normalizeAuthSession(
-    {
-      ...refreshed,
-      localId: refreshed.user_id,
-      idToken: refreshed.id_token,
-      refreshToken: refreshed.refresh_token,
-      expiresIn: refreshed.expires_in,
-      email: settings.auth.email,
-      emailVerified: settings.auth.emailVerified,
-      provider: settings.auth.provider
-    },
-    settings.auth.displayName || ''
-  );
+  if (!authRefreshPromise) {
+    const refreshSource = structuredClone(settings.auth);
+    authRefreshPromise = (async () => {
+      const config = await loadFirebaseConfig();
+      requireFirebaseConfig(config);
+      const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshSource.refreshToken
+      });
+      const refreshed = await fetchJson(`${FIREBASE_TOKEN_URL}?key=${encodeURIComponent(config.apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      });
+      const refreshedAuth = normalizeAuthSession(
+        {
+          ...refreshed,
+          localId: refreshed.user_id,
+          idToken: refreshed.id_token,
+          refreshToken: refreshed.refresh_token,
+          expiresIn: refreshed.expires_in,
+          email: refreshSource.email,
+          emailVerified: refreshSource.emailVerified,
+          provider: refreshSource.provider
+        },
+        refreshSource.displayName || ''
+      );
+      const latestSettings = await readSettings();
+      if (latestSettings.auth?.refreshToken !== refreshSource.refreshToken) {
+        if (!latestSettings.auth) throw new Error('Login is required.');
+        return latestSettings.auth;
+      }
+      await writeSettings({ ...latestSettings, auth: refreshedAuth });
+      return refreshedAuth;
+    })();
+  }
+
+  let auth;
+  try {
+    auth = await authRefreshPromise;
+  } finally {
+    authRefreshPromise = null;
+  }
+
   const nextAuth = forceLookup ? await lookupAuthUser(auth) : auth;
-  if (authSessionChanged(settings.auth, nextAuth)) {
-    await writeSettings({ ...settings, auth: nextAuth });
+  if (forceLookup && authSessionChanged(auth, nextAuth)) {
+    const latestSettings = await readSettings();
+    if (latestSettings.auth?.refreshToken === auth.refreshToken) {
+      await writeSettings({ ...latestSettings, auth: nextAuth });
+    }
   }
   return nextAuth;
 }
@@ -1924,21 +4380,26 @@ function fromFirestoreDocument(document) {
   return {
     ...data,
     id: data.id || id,
-    __path: document?.name || ''
+    __path: document?.name || '',
+    __createTime: document?.createTime || '',
+    __updateTime: document?.updateTime || ''
   };
 }
 
 async function firestoreFetch(segments, options = {}) {
   const auth = await requireAuthSession();
   const baseUrl = await firestoreBaseUrl();
-  const url = `${baseUrl}/${encodePath(segments)}`;
+  const query = options.query && typeof options.query === 'object' ? new URLSearchParams(Object.entries(options.query).filter(([, value]) => value !== null && value !== undefined).map(([key, value]) => [key, String(value)])).toString() : '';
+  const url = `${baseUrl}/${encodePath(segments)}${query ? `?${query}` : ''}`;
+  const requestOptions = { ...options };
+  delete requestOptions.query;
   try {
     return await fetchJson(url, {
-      ...options,
+      ...requestOptions,
       headers: {
         Authorization: `Bearer ${auth.idToken}`,
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(options.headers || {})
+        ...(requestOptions.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(requestOptions.headers || {})
       }
     });
   } catch (error) {
@@ -1960,18 +4421,25 @@ async function getDoc(segments) {
   }
 }
 
-async function patchDoc(segments, data) {
+function firestorePreconditionQuery(precondition = {}) {
+  if (typeof precondition.exists === 'boolean') return { 'currentDocument.exists': precondition.exists };
+  if (precondition.updateTime) return { 'currentDocument.updateTime': String(precondition.updateTime) };
+  return {};
+}
+
+async function patchDoc(segments, data, { precondition = null } = {}) {
   return fromFirestoreDocument(
     await firestoreFetch(segments, {
       method: 'PATCH',
-      body: JSON.stringify(toFirestoreDocument(data))
+      body: JSON.stringify(toFirestoreDocument(data)),
+      query: firestorePreconditionQuery(precondition || {})
     })
   );
 }
 
-async function deleteDoc(segments) {
+async function deleteDoc(segments, { precondition = null } = {}) {
   try {
-    await firestoreFetch(segments, { method: 'DELETE' });
+    await firestoreFetch(segments, { method: 'DELETE', query: firestorePreconditionQuery(precondition || {}) });
   } catch (error) {
     if (error.status !== 404) throw error;
   }
@@ -2011,7 +4479,7 @@ function normalizeInviteInboxDocument(invite = {}) {
     teamName: String(invite.teamName || 'Team'),
     email,
     emailLower: email,
-    role: 'member',
+    role: normalizeWorkspaceRole(invite.role),
     status: invite.status || 'pending',
     createdAt: invite.createdAt || nowIso(),
     updatedAt: invite.updatedAt || nowIso()
@@ -2290,6 +4758,175 @@ async function writeCurrentStore(data) {
   return writeStore(data);
 }
 
+function normalizeMcpIntegration(config = {}) {
+  return {
+    enabled: config.enabled === true,
+    port: Math.min(65535, Math.max(1024, Math.round(Number(config.port) || 43821))),
+    tokenEncrypted: String(config.tokenEncrypted || ''),
+    lastError: String(config.lastError || ''),
+    updatedAt: String(config.updatedAt || '')
+  };
+}
+
+function encryptMcpToken(token) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this device.');
+  return safeStorage.encryptString(String(token)).toString('base64');
+}
+
+function decryptMcpToken(tokenEncrypted) {
+  if (!tokenEncrypted) return '';
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this device.');
+  return safeStorage.decryptString(Buffer.from(tokenEncrypted, 'base64'));
+}
+
+function createMcpToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function ensureMcpServer() {
+  if (!mcpServer) {
+    mcpServer = new DeployerXMcpServer({
+      getProjects: async () => {
+        const data = await readCurrentStore();
+        return data.projects || [];
+      }
+    });
+  }
+  return mcpServer;
+}
+
+async function publicMcpIntegration(config = null) {
+  const normalized = normalizeMcpIntegration(config || {});
+  const runtime = ensureMcpServer().status();
+  let token = '';
+  let serverCount = 0;
+  try {
+    token = decryptMcpToken(normalized.tokenEncrypted);
+  } catch (error) {
+    normalized.lastError = error.message || String(error);
+  }
+  try {
+    const data = await readCurrentStore();
+    serverCount = (data.projects || []).filter((project) => project?.serverType !== 'rdp' && project?.ssh?.host).length;
+  } catch {
+    serverCount = 0;
+  }
+  return {
+    configured: Boolean(normalized.tokenEncrypted),
+    enabled: normalized.enabled,
+    running: runtime.running,
+    port: normalized.port,
+    url: `http://127.0.0.1:${normalized.port}/mcp`,
+    token,
+    serverCount,
+    lastError: runtime.lastError || normalized.lastError,
+    updatedAt: normalized.updatedAt
+  };
+}
+
+async function startMcpIntegration(payload = {}) {
+  const settings = await readSettings();
+  const current = normalizeMcpIntegration(settings.mcpIntegration || {});
+  const port = Math.min(65535, Math.max(1024, Math.round(Number(payload.port) || current.port || 43821)));
+  const token = decryptMcpToken(current.tokenEncrypted) || createMcpToken();
+  const next = normalizeMcpIntegration({
+    ...current,
+    enabled: true,
+    port,
+    tokenEncrypted: current.tokenEncrypted || encryptMcpToken(token),
+    lastError: '',
+    updatedAt: nowIso()
+  });
+  await writeSettings({ ...settings, mcpIntegration: next });
+  try {
+    await ensureMcpServer().start({ port, token });
+  } catch (error) {
+    const failed = { ...next, lastError: String(error?.message || error), updatedAt: nowIso() };
+    await writeSettings({ ...settings, mcpIntegration: failed });
+    throw new Error(`Could not start the DeployerX MCP server: ${error?.message || error}`);
+  }
+  return publicMcpIntegration(next);
+}
+
+async function stopMcpIntegration() {
+  const settings = await readSettings();
+  const next = normalizeMcpIntegration({ ...settings.mcpIntegration, enabled: false, lastError: '', updatedAt: nowIso() });
+  await ensureMcpServer().stop();
+  await writeSettings({ ...settings, mcpIntegration: next });
+  return publicMcpIntegration(next);
+}
+
+async function rotateMcpToken() {
+  const settings = await readSettings();
+  const current = normalizeMcpIntegration(settings.mcpIntegration || {});
+  const token = createMcpToken();
+  const next = normalizeMcpIntegration({
+    ...current,
+    tokenEncrypted: encryptMcpToken(token),
+    lastError: '',
+    updatedAt: nowIso()
+  });
+  await writeSettings({ ...settings, mcpIntegration: next });
+  if (current.enabled) {
+    try {
+      await ensureMcpServer().start({ port: next.port, token });
+    } catch (error) {
+      const failed = { ...next, lastError: String(error?.message || error), updatedAt: nowIso() };
+      await writeSettings({ ...settings, mcpIntegration: failed });
+      throw new Error(`The token was rotated, but the MCP server could not restart: ${error?.message || error}`);
+    }
+  }
+  return publicMcpIntegration(next);
+}
+
+async function testMcpIntegration() {
+  const settings = await readSettings();
+  const config = normalizeMcpIntegration(settings.mcpIntegration || {});
+  const token = decryptMcpToken(config.tokenEncrypted);
+  if (!token || !ensureMcpServer().status().running) throw new Error('Start the DeployerX MCP server first.');
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 'deployerx-test', method: 'ping' });
+  const result = await new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: config.port,
+        path: '/mcp',
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json, text/event-stream',
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body)
+        },
+        timeout: 5000
+      },
+      (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => resolve({ statusCode: response.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+      }
+    );
+    request.on('timeout', () => request.destroy(new Error('MCP connection test timed out.')));
+    request.on('error', reject);
+    request.end(body);
+  });
+  const parsed = JSON.parse(result.body || '{}');
+  if (result.statusCode !== 200 || parsed?.result === undefined) throw new Error('The MCP endpoint did not return a valid ping response.');
+  return { ok: true, checkedAt: nowIso(), ...(await publicMcpIntegration(config)) };
+}
+
+async function restoreMcpIntegration() {
+  const settings = await readSettings();
+  const config = normalizeMcpIntegration(settings.mcpIntegration || {});
+  if (!config.enabled || !config.tokenEncrypted) return;
+  try {
+    await ensureMcpServer().start({ port: config.port, token: decryptMcpToken(config.tokenEncrypted) });
+  } catch (error) {
+    config.lastError = String(error?.message || error);
+    await writeSettings({ ...settings, mcpIntegration: config });
+  }
+}
+
 function sanitizeUptimeProjects(projects = []) {
   return (Array.isArray(projects) ? projects : [])
     .map(normalizeStoredProject)
@@ -2354,12 +4991,7 @@ async function releaseUptimeWorkerLock() {
 }
 
 function buildWorkerArgs() {
-  if (process.defaultApp || !app.isPackaged) return [app.getAppPath(), '--uptime-worker'];
-  return ['--uptime-worker'];
-}
-
-function quoteAutostartArg(value) {
-  return `"${String(value || '').replace(/"/g, '\\"')}"`;
+  return buildWorkerLaunchArgs({ defaultApp: process.defaultApp, isPackaged: app.isPackaged, appPath: app.getAppPath() });
 }
 
 async function isLinuxAutostartEnabled() {
@@ -2375,29 +5007,14 @@ async function isLinuxAutostartEnabled() {
 async function ensureWorkerAutostartEnabled() {
   const args = buildWorkerArgs();
   if (process.platform === 'win32' || process.platform === 'darwin') {
-    app.setLoginItemSettings({
-      openAtLogin: true,
-      openAsHidden: true,
-      path: process.execPath,
-      args
-    });
+    app.setLoginItemSettings(buildLoginItemSettings({ enabled: true, execPath: process.execPath, args }));
     uptimeWorkerState.autostartEnabled = Boolean(app.getLoginItemSettings().openAtLogin);
     return uptimeWorkerState.autostartEnabled;
   }
 
   const autostartDir = path.join(os.homedir(), '.config', 'autostart');
   const autostartPath = path.join(autostartDir, 'deployerx-uptime-worker.desktop');
-  const execParts = [quoteAutostartArg(process.execPath), ...args.map(quoteAutostartArg)];
-  const desktopEntry = [
-    '[Desktop Entry]',
-    'Type=Application',
-    'Version=1.0',
-    'Name=DeployerX Uptime Worker',
-    'Comment=Run DeployerX uptime monitoring in the background',
-    `Exec=${execParts.join(' ')}`,
-    'Terminal=false',
-    'X-GNOME-Autostart-enabled=true'
-  ].join('\n');
+  const desktopEntry = buildLinuxAutostartEntry({ execPath: process.execPath, args });
   await fs.mkdir(autostartDir, { recursive: true });
   await fs.writeFile(autostartPath, `${desktopEntry}\n`, 'utf8');
   uptimeWorkerState.autostartEnabled = true;
@@ -2955,8 +5572,8 @@ async function startUptimeWindowPolling() {
 
 async function maybeStartDetachedUptimeWorker() {
   if (isWorkerMode()) return;
-  const serviceStatus = await getUptimeServiceStatus().catch(() => ({ active: false }));
-  if (serviceStatus.active && serviceStatus.pid && Number(serviceStatus.pid) !== process.pid) return;
+  const serviceStatus = await getUptimeServiceStatusV2().catch(() => ({ active: false }));
+  if (serviceStatus.active && serviceStatus.processId && Number(serviceStatus.processId) !== process.pid) return;
   const child = execFile(process.execPath, buildWorkerArgs(), {
     detached: true,
     windowsHide: true,
@@ -3112,49 +5729,132 @@ async function queryPendingInvites(email) {
     });
 }
 
+async function queryUserMemberships(auth) {
+  try {
+    const memberships = await runFirestoreQuery({
+      from: [{ collectionId: 'members', allDescendants: true }],
+      where: {
+        fieldFilter: {
+          field: { fieldPath: 'uid' },
+          op: 'EQUAL',
+          value: { stringValue: auth.uid }
+        }
+      }
+    });
+
+    return memberships
+      .map((membership) => {
+        const pathParts = String(membership.__path || '').split('/');
+        const teamIndex = pathParts.lastIndexOf('teams');
+        const memberUid = pathParts[pathParts.length - 1] || '';
+        if (teamIndex < 0 || !pathParts[teamIndex + 1] || memberUid !== auth.uid) return null;
+        return {
+          teamId: pathParts[teamIndex + 1],
+          role: normalizeWorkspaceRole(membership.role, { allowOwner: true })
+        };
+      })
+      .filter(Boolean);
+  } catch (error) {
+    // Older deployed rules may not allow this collection-group lookup yet.
+    if (isRecoverableCloudDataError(error)) return null;
+    throw error;
+  }
+}
+
 async function teamSnapshot(options = {}) {
   const auth = options.auth || (await requireAuthSession());
   const settings = options.settings || (await readSettings());
+  const lightweight = Boolean(options.lightweight);
   const profile = options.profile || (await readUserProfile(auth.uid)) || (await writeUserProfile(auth));
-  const teamRefs = Array.isArray(profile.teams) ? profile.teams : [];
+  const profileTeamRefs = Array.isArray(profile.teams) ? profile.teams : [];
+  const discoveredMemberships = await queryUserMemberships(auth);
+  const membershipByTeamId = new Map(
+    (discoveredMemberships || []).map((membership) => [String(membership.teamId), membership])
+  );
+  const teamRefsById = new Map(
+    profileTeamRefs
+      .filter((teamRef) => teamRef?.teamId)
+      .map((teamRef) => [String(teamRef.teamId), teamRef])
+  );
+  for (const membership of discoveredMemberships || []) {
+    const existing = teamRefsById.get(String(membership.teamId)) || {};
+    teamRefsById.set(String(membership.teamId), { ...existing, ...membership });
+  }
+  if (discoveredMemberships === null && settings.activeTeamId && !teamRefsById.has(String(settings.activeTeamId))) {
+    const savedForCurrentAccount = String(settings.activeTeamUid || '') === String(auth.uid);
+    teamRefsById.set(String(settings.activeTeamId), {
+      teamId: settings.activeTeamId,
+      name: savedForCurrentAccount ? settings.activeTeamName || '' : ''
+    });
+  }
+  const teamRefs = [...teamRefsById.values()];
+  const teamDocumentsById = new Map();
   const teams = (
     await Promise.all(
       teamRefs.map(async (teamRef) => {
-        const [team, member] = await Promise.all([
-          getDoc(['teams', teamRef.teamId]),
-          getDoc(['teams', teamRef.teamId, 'members', auth.uid])
-        ]);
-        if (!team || !member) return null;
-        return {
-          id: team.id,
-          name: team.name || teamRef.name || 'Team',
-          role: member.role === 'owner' ? 'owner' : 'member',
-          createdAt: team.createdAt || ''
-        };
+        try {
+          const discoveredMembership = membershipByTeamId.get(String(teamRef.teamId));
+          const [team, member] = await Promise.all([
+            getDoc(['teams', teamRef.teamId]),
+            discoveredMembership
+              ? Promise.resolve(discoveredMembership)
+              : getDoc(['teams', teamRef.teamId, 'members', auth.uid])
+          ]);
+          if (!team || !member) return null;
+          teamDocumentsById.set(String(team.id), team);
+          return {
+            id: team.id,
+            name: team.name || teamRef.name || 'Team',
+            role: normalizeWorkspaceRole(member.role, { allowOwner: true }),
+            createdAt: team.createdAt || ''
+          };
+        } catch (error) {
+          if (error?.status === 403) return null;
+          throw error;
+        }
       })
     )
   ).filter(Boolean);
+
+  if (discoveredMemberships) {
+    const repairedTeamRefs = teams.map((team) => ({
+      teamId: team.id,
+      name: team.name,
+      role: team.role
+    }));
+    const normalizeRefs = (refs) => (refs || [])
+      .map((team) => ({ teamId: String(team.teamId || ''), name: String(team.name || ''), role: String(team.role || '') }))
+      .sort((left, right) => left.teamId.localeCompare(right.teamId));
+    if (JSON.stringify(normalizeRefs(profileTeamRefs)) !== JSON.stringify(normalizeRefs(repairedTeamRefs))) {
+      await writeUserProfile(auth, { teams: repairedTeamRefs });
+    }
+  }
 
   let activeTeamId = settings.activeTeamId;
   if (activeTeamId && !teams.some((team) => team.id === activeTeamId)) activeTeamId = '';
   if (!activeTeamId && teams.length) activeTeamId = teams[0].id;
   if (activeTeamId !== settings.activeTeamId) {
-    await writeSettings({ ...settings, activeTeamId });
+    await writeSettings({
+      ...settings,
+      activeTeamId,
+      activeTeamName: teams.find((team) => team.id === activeTeamId)?.name || '',
+      activeTeamUid: activeTeamId ? auth.uid : ''
+    });
   }
 
   const activeTeam = teams.find((team) => team.id === activeTeamId) || null;
   const canManageTeam = activeTeam?.role === 'owner';
   const [activeTeamDoc, members, teamInvites] = await Promise.all([
-    activeTeamId ? getDoc(['teams', activeTeamId]) : Promise.resolve(null),
-    activeTeamId
+    activeTeamId ? Promise.resolve(teamDocumentsById.get(String(activeTeamId)) || null) : Promise.resolve(null),
+    !lightweight && activeTeamId
       ? listCollection(['teams', activeTeamId, 'members']).then((items) =>
           items.map((member) => ({
             ...member,
-            role: member.role === 'owner' ? 'owner' : 'member'
+            role: normalizeWorkspaceRole(member.role, { allowOwner: true })
           }))
         )
       : Promise.resolve([]),
-    activeTeamId && canManageTeam ? listCollection(['teams', activeTeamId, 'invites']) : Promise.resolve([])
+    !lightweight && activeTeamId && canManageTeam ? listCollection(['teams', activeTeamId, 'invites']) : Promise.resolve([])
   ]);
   if (activeTeamId && activeTeamDoc) {
     cloudUnlock = { teamId: activeTeamId, key: deriveWorkspaceKey(activeTeamDoc) };
@@ -3169,7 +5869,9 @@ async function teamSnapshot(options = {}) {
     await Promise.allSettled(pendingTeamInvites.map(syncInviteInboxDocument));
   }
   const joinedTeamIds = new Set(teams.map((team) => String(team.id || '')));
-  const invites = (await queryPendingInvites(auth.email)).filter((invite) => !joinedTeamIds.has(String(invite.teamId || '')));
+  const invites = lightweight
+    ? []
+    : (await queryPendingInvites(auth.email)).filter((invite) => !joinedTeamIds.has(String(invite.teamId || '')));
 
   return {
     teams,
@@ -3195,12 +5897,75 @@ function emptyTeamSnapshot(cloudError = '') {
   };
 }
 
+function cachedTeamSnapshot(settings, auth, cloudError = '') {
+  const authUid = String(auth?.uid || '');
+  const accountCaches = settings?.cloudWorkspaceCaches && typeof settings.cloudWorkspaceCaches === 'object'
+    ? settings.cloudWorkspaceCaches
+    : {};
+  const legacyCache = settings?.cloudWorkspaceCache;
+  const cache = accountCaches[authUid] || (
+    legacyCache && String(legacyCache.uid || '') === authUid ? legacyCache : null
+  );
+  let teams = cache && String(cache.uid || '') === authUid && Array.isArray(cache.teams)
+    ? cache.teams
+    : [];
+  if (
+    !teams.length &&
+    settings?.activeTeamId &&
+    settings?.activeTeamName &&
+    String(settings.activeTeamUid || '') === authUid
+  ) {
+    teams = [{ id: settings.activeTeamId, name: settings.activeTeamName, role: 'member' }];
+  }
+  if (!teams.length) return emptyTeamSnapshot(cloudError);
+  const cachedActiveTeamId = cache?.activeTeamId || '';
+  const activeTeamId = teams.some((team) => team.id === cachedActiveTeamId)
+    ? cachedActiveTeamId
+    : teams.some((team) => team.id === settings.activeTeamId)
+      ? settings.activeTeamId
+    : teams[0]?.id || '';
+  return {
+    ...emptyTeamSnapshot(cloudError),
+    teams,
+    activeTeamId,
+    activeTeam: teams.find((team) => team.id === activeTeamId) || null,
+    unlocked: Boolean(activeTeamId)
+  };
+}
+
+async function cacheTeamSnapshot(auth, snapshot) {
+  const latestSettings = await readSettings();
+  const activeTeamName = snapshot.teams.find((team) => team.id === snapshot.activeTeamId)?.name || '';
+  const cloudWorkspaceCache = {
+    uid: auth.uid,
+    teams: snapshot.teams,
+    activeTeamId: snapshot.activeTeamId,
+    updatedAt: nowIso()
+  };
+  await writeSettings({
+    ...latestSettings,
+    activeTeamId: snapshot.activeTeamId,
+    activeTeamName,
+    activeTeamUid: snapshot.activeTeamId ? auth.uid : '',
+    cloudWorkspaceCache,
+    cloudWorkspaceCaches: {
+      ...(latestSettings.cloudWorkspaceCaches || {}),
+      [auth.uid]: cloudWorkspaceCache
+    }
+  });
+}
+
 async function safeTeamSnapshot(options = {}) {
   try {
-    return await teamSnapshot(options);
+    const auth = options.auth || (await requireAuthSession());
+    const snapshot = await teamSnapshot({ ...options, auth });
+    await cacheTeamSnapshot(auth, snapshot);
+    return snapshot;
   } catch (error) {
     if (!isRecoverableCloudDataError(error)) throw error;
-    return emptyTeamSnapshot(error.message || 'Cloud data is blocked by Firebase setup.');
+    const settings = options.settings || (await readSettings());
+    const auth = options.auth || settings.auth;
+    return cachedTeamSnapshot(settings, auth, error.message || 'Cloud data is temporarily unavailable.');
   }
 }
 
@@ -3211,15 +5976,113 @@ async function finishCloudAuth(auth, profilePatch = {}) {
     return { session: publicSession(auth), requiresEmailVerification: true };
   }
   try {
-    const profile = await writeUserProfile(auth, profilePatch);
-    return { session: publicSession(auth), teams: await teamSnapshot({ auth, settings, profile }) };
+    let profile = await readUserProfile(auth.uid);
+    if (!profile || Object.keys(profilePatch).length) {
+      profile = await writeUserProfile(auth, profilePatch);
+    }
+    const teams = await teamSnapshot({ auth, settings, profile, lightweight: true });
+    await cacheTeamSnapshot(auth, teams);
+    return { session: publicSession(auth), teams };
   } catch (error) {
     if (!isRecoverableCloudDataError(error)) throw error;
-    return { session: publicSession(auth), teams: emptyTeamSnapshot(error.message), cloudError: error.message };
+    const latestSettings = await readSettings();
+    const fallbackTeams = cachedTeamSnapshot(latestSettings, auth, error.message);
+    return { session: publicSession(auth), teams: fallbackTeams, cloudError: error.message };
   }
 }
 
-function createWindow() {
+function isDatabaseManagerPackagedSmokeMode(argv = process.argv) {
+  return argv.includes(DATABASE_MANAGER_PACKAGED_SMOKE_ARGUMENT);
+}
+
+function databaseManagerPackagedSmokeFailure(code) {
+  return {
+    schemaVersion: DATABASE_MANAGER_PACKAGED_SMOKE_SCHEMA_VERSION,
+    passed: false,
+    checks: [],
+    error: { code }
+  };
+}
+
+function databaseManagerPackagedSmokeReleasePath(argv = process.argv) {
+  const argument = argv.find((value) => String(value).startsWith(DATABASE_MANAGER_PACKAGED_SMOKE_RELEASE_ARGUMENT));
+  const candidate = path.resolve(String(argument || '').slice(DATABASE_MANAGER_PACKAGED_SMOKE_RELEASE_ARGUMENT.length));
+  const userDataPath = path.resolve(app.getPath('userData'));
+  const relative = path.relative(userDataPath.toLowerCase(), candidate.toLowerCase());
+  if (!argument || !relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+  return candidate;
+}
+
+function publishDatabaseManagerPackagedSmoke(report) {
+  if (databaseManagerPackagedSmokePublished) return;
+  databaseManagerPackagedSmokePublished = true;
+  process.stdout.write(`DEPLOYERX_DATABASE_MANAGER_SMOKE_PROCESS_ID=${process.pid}\n`);
+  process.stdout.write(`${JSON.stringify(report)}\n`);
+  if (!report.passed) process.exitCode = 1;
+  let released = false;
+  let releasePoll = null;
+  const release = () => {
+    if (released) return;
+    released = true;
+    clearTimeout(releaseTimeout);
+    if (releasePoll) clearInterval(releasePoll);
+    setImmediate(() => app.quit());
+  };
+  const releaseTimeout = setTimeout(release, 40000);
+  const releasePath = databaseManagerPackagedSmokeReleasePath();
+  releasePoll = setInterval(async () => {
+    if (!releasePath || released) return;
+    try {
+      const entry = await fs.lstat(releasePath);
+      if (entry.isFile()) release();
+    } catch (error) {
+      if (error?.code !== 'ENOENT') release();
+    }
+  }, 100);
+  releasePoll.unref();
+}
+
+async function runDatabaseManagerPackagedSmoke(window) {
+  const preferences = window.webContents.getLastWebPreferences();
+  const evidence = await window.webContents.executeJavaScript(`(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const navigation = document.getElementById('topDatabasesButton');
+    const view = document.getElementById('databaseManagerView');
+    const tabs = [...document.querySelectorAll('.database-manager-tabs [role="tab"]')].map((tab) => String(tab.textContent || '').trim());
+    const bridge = window.deployerx;
+    return {
+      rendererLoaded: document.readyState === 'complete' && document.title === 'DeployerX',
+      preloadBridge: Boolean(bridge && ['launchTabularis', 'listDatabaseProfiles', 'testDatabaseProfile', 'executeDatabaseQuery', 'listDatabasePlugins'].every((name) => typeof bridge[name] === 'function')),
+      routeLaunch: Boolean(navigation && navigation.getAttribute('title') === 'Open Tabularis' && typeof bridge?.launchTabularis === 'function'),
+      tabs,
+      addControl: String(document.getElementById('databaseProfileAddButton')?.textContent || '').trim(),
+      nodeRequireUnavailable: typeof require === 'undefined'
+        || (typeof require.resolve !== 'function' && typeof require.cache === 'undefined' && typeof require.main === 'undefined'),
+      nodeBufferUnavailable: typeof Buffer === 'undefined',
+      privilegedProcessUnavailable: typeof process === 'undefined' || (typeof process.cwd !== 'function' && typeof process.binding !== 'function'),
+      rawIpcUnavailable: !Object.hasOwn(bridge || {}, 'ipcRenderer')
+    };
+  })()`);
+  const checks = [
+    { name: 'renderer-loaded', passed: evidence?.rendererLoaded === true },
+    { name: 'window-policy', passed: preferences.contextIsolation === true && preferences.nodeIntegration === false && preferences.sandbox === true },
+    { name: 'preload-bridge', passed: evidence?.preloadBridge === true },
+    { name: 'database-route', passed: evidence?.routeLaunch === true },
+    { name: 'database-tabs', passed: JSON.stringify(evidence?.tabs) === JSON.stringify(['Connections', 'Query', 'Notebooks', 'Tasks', 'Logs', 'Drivers']) },
+    { name: 'database-add-control', passed: evidence?.addControl === 'Add database' },
+    { name: 'renderer-node-require', passed: evidence?.nodeRequireUnavailable === true },
+    { name: 'renderer-node-buffer', passed: evidence?.nodeBufferUnavailable === true },
+    { name: 'renderer-process-isolation', passed: evidence?.privilegedProcessUnavailable === true },
+    { name: 'renderer-ipc-isolation', passed: evidence?.rawIpcUnavailable === true }
+  ].map((check) => Object.freeze({ name: check.name, status: check.passed ? 'passed' : 'failed' }));
+  return Object.freeze({
+    schemaVersion: DATABASE_MANAGER_PACKAGED_SMOKE_SCHEMA_VERSION,
+    passed: checks.every((check) => check.status === 'passed'),
+    checks: Object.freeze(checks)
+  });
+}
+
+function createWindow(options = {}) {
   Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
@@ -3229,20 +6092,72 @@ function createWindow() {
     minHeight: 640,
     title: 'DeployerX',
     icon: APP_ICON,
+    show: options.show !== false,
     autoHideMenuBar: true,
     backgroundColor: '#f6f7fb',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false
+    }
+  });
+
+  rdpSessionManager = new RdpSessionManager({
+    onEvent: (event) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send('rdp:event', event);
     }
   });
 
   mainWindow.setMenu(null);
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  mainWindow.on('close', (event) => {
+    const disposition = uptimeWindowCloseDisposition({
+      isAppQuitting,
+      platform: process.platform,
+      hasTray: Boolean(tray && !tray.isDestroyed()),
+      hasShownTrayNotice
+    });
+    if (!disposition.preventClose) return;
+    event.preventDefault();
+    if (disposition.hideWindow) mainWindow.hide();
+    if (disposition.hideDock) app.dock?.hide();
+    if (disposition.showTrayNotice) {
+      hasShownTrayNotice = true;
+      tray.displayBalloon({
+        title: 'DeployerX is still running',
+        content: 'Monitoring and background services remain active. Use the tray icon to reopen or quit.',
+        noSound: true
+      });
+    }
+  });
+  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('rdp:fullscreen-changed', true));
+  mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('rdp:fullscreen-changed', false));
+  mainWindow.on('closed', () => {
+    rdpSessionManager?.closeAll().catch(() => {});
+    rdpSessionManager = null;
+    rdpRestoreBounds = null;
+    mainWindow = null;
+  });
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level < 2) return;
+    console.error(`[renderer] ${message} (${sourceId}:${line})`);
+  });
   mainWindow.webContents.once('did-finish-load', () => {
     sendUpdateStateToRenderer();
+    const uptimeTarget = parseUptimeNavigationArgument();
+    if (uptimeTarget) mainWindow.webContents.send('uptime:navigate', uptimeTarget);
+    if (typeof options.onReady === 'function') {
+      Promise.resolve(options.onReady(mainWindow)).catch(() => options.onFailure?.('DATABASE_MANAGER_PACKAGED_SMOKE_EXECUTION_FAILED'));
+    }
   });
+  if (typeof options.onFailure === 'function') {
+    mainWindow.webContents.once('did-fail-load', () => options.onFailure('DATABASE_MANAGER_PACKAGED_SMOKE_LOAD_FAILED'));
+  }
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
 function toConnectionConfig(project) {
@@ -3305,6 +6220,14 @@ function validateProject(project) {
 }
 
 function validateConnectionProject(project) {
+  if (project?.serverType === 'rdp') {
+    const rdp = project.rdp || {};
+    if (!project.name) return 'Server name is required.';
+    if (!rdp.host) return 'Windows computer or IP is required.';
+    if (!rdp.username) return 'Windows username is required.';
+    if (!rdp.password) return 'Windows password is required.';
+    return null;
+  }
   const ssh = project.ssh || {};
   if (!project.name) return 'Server name is required.';
   if (!ssh.host) return 'Server host is required.';
@@ -3333,6 +6256,7 @@ function normalizeProjectImport(project) {
           .filter(Boolean)
       : [];
   const ssh = project?.ssh || {};
+  const rdp = project?.rdp || {};
   const ftp = project?.ftp || {};
 
   return {
@@ -3340,6 +6264,7 @@ function normalizeProjectImport(project) {
     id: project?.id ? String(project.id) : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name: String(project?.name || 'Imported server').trim() || 'Imported server',
     group: String(project?.group || '').trim(),
+    pinned: Boolean(project?.pinned),
     serverType: project?.serverType || 'ubuntu',
     commands,
     uptimeMonitors: normalizeUptimeMonitors(project?.uptimeMonitors),
@@ -3353,6 +6278,13 @@ function normalizeProjectImport(project) {
       privateKey: ssh.privateKey || '',
       passphrase: ssh.passphrase || '',
       timeout: Number(ssh.timeout || 20000)
+    },
+    rdp: {
+      host: rdp.host || '',
+      port: Number(rdp.port || 3389),
+      username: rdp.username || '',
+      domain: rdp.domain || '',
+      password: rdp.password || ''
     },
     ftp: {
       host: ftp.host || '',
@@ -3632,7 +6564,8 @@ function startTerminal(project, sessionId, size = {}) {
         }
 
         terminalState.stream = stream;
-        stream.write(`stty sane cols ${cols} rows ${rows}\n`);
+        const promptDirectoryTracking = "if [ -n \"$BASH_VERSION\" ]; then PS1='\\[\\e]1337;DeployerXPwd=$PWD\\a\\]'\"$PS1\"; fi";
+        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}\n`);
         emitTerminal(sessionId, 'connected', 'Terminal connected.');
 
         stream.on('data', (data) => emitTerminal(sessionId, 'log', data.toString()));
@@ -3896,6 +6829,76 @@ function sftpRename(sftp, oldPath, newPath) {
   });
 }
 
+function openSftpChannel(connection) {
+  return new Promise((resolve, reject) => {
+    connection.sftp((error, sftp) => {
+      if (error) reject(error);
+      else resolve(sftp);
+    });
+  });
+}
+
+async function withTerminalSftp(sessionId, operation) {
+  const { connection } = terminalSessionOrThrow(sessionId);
+  const sftp = await openSftpChannel(connection);
+  try {
+    return await operation(sftp);
+  } finally {
+    try {
+      sftp.end();
+    } catch {}
+  }
+}
+
+function sftpReadTextFile(sftp, remotePath, maximumBytes = 5 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let totalBytes = 0;
+    let settled = false;
+    const stream = sftp.createReadStream(remotePath);
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve(value);
+    };
+    stream.on('data', (chunk) => {
+      totalBytes += chunk.length;
+      if (totalBytes > maximumBytes) {
+        stream.destroy();
+        finish(new Error('This file is larger than the 5 MB editor limit.'));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on('error', (error) => finish(error));
+    stream.on('end', () => {
+      const buffer = Buffer.concat(chunks);
+      if (buffer.includes(0)) {
+        finish(new Error('This file appears to be binary and cannot be opened in the text editor.'));
+        return;
+      }
+      finish(null, buffer.toString('utf8'));
+    });
+  });
+}
+
+function sftpWriteTextFile(sftp, remotePath, content) {
+  return new Promise((resolve, reject) => {
+    const stream = sftp.createWriteStream(remotePath, { flags: 'w', encoding: 'utf8' });
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve();
+    };
+    stream.on('error', finish);
+    stream.on('close', () => finish());
+    stream.end(content);
+  });
+}
+
 async function sftpEnsureMkdir(sftp, remotePath) {
   try {
     await sftpMkdir(sftp, remotePath);
@@ -4045,6 +7048,57 @@ async function readTerminalHomeDirectory(sessionId) {
 
   if (!currentPath) throw new Error('Could not determine the SSH home directory.');
   return { path: normalizeRemotePath(currentPath) };
+}
+
+async function listTerminalDirectory(sessionId, remotePath = '.') {
+  return withTerminalSftp(sessionId, async (sftp) => {
+    const normalizedPath = normalizeRemotePath(remotePath);
+    const items = await sftpReaddir(sftp, normalizedPath);
+    return {
+      path: normalizedPath,
+      parentPath: parentRemotePath(normalizedPath),
+      items: items
+        .map((item) => {
+          const attrs = item.attrs || {};
+          const isDirectory = Boolean(attrs.isDirectory?.());
+          return {
+            name: item.filename,
+            path: joinRemotePath(normalizedPath, item.filename),
+            type: isDirectory ? 'directory' : 'file',
+            size: Number(attrs.size || 0),
+            modifiedAt: attrs.mtime ? new Date(attrs.mtime * 1000).toISOString() : '',
+            mode: attrs.mode ? attrs.mode.toString(8) : ''
+          };
+        })
+        .sort((left, right) => {
+          if (left.type !== right.type) return left.type === 'directory' ? -1 : 1;
+          return left.name.localeCompare(right.name);
+        })
+    };
+  });
+}
+
+async function readTerminalFile(sessionId, remotePath) {
+  const normalizedPath = normalizeRemotePath(remotePath);
+  if (!normalizedPath || normalizedPath === '.' || normalizedPath === '/') throw new Error('Choose a file to edit.');
+  const content = await withTerminalSftp(sessionId, (sftp) => sftpReadTextFile(sftp, normalizedPath));
+  return { path: normalizedPath, content };
+}
+
+async function writeTerminalFile(sessionId, remotePath, content) {
+  const normalizedPath = normalizeRemotePath(remotePath);
+  if (!normalizedPath || normalizedPath === '.' || normalizedPath === '/') throw new Error('Choose a file to save.');
+  const text = String(content ?? '');
+  if (Buffer.byteLength(text, 'utf8') > 5 * 1024 * 1024) throw new Error('This file is larger than the 5 MB editor limit.');
+  await withTerminalSftp(sessionId, (sftp) => sftpWriteTextFile(sftp, normalizedPath, text));
+  return { path: normalizedPath, bytes: Buffer.byteLength(text, 'utf8') };
+}
+
+async function downloadTerminalFile(sessionId, remotePath, localPath) {
+  const normalizedPath = normalizeRemotePath(remotePath);
+  if (!normalizedPath || normalizedPath === '.' || normalizedPath === '/') throw new Error('Choose a file to download.');
+  await withTerminalSftp(sessionId, (sftp) => sftpFastGet(sftp, normalizedPath, localPath));
+  return { path: normalizedPath, localPath };
 }
 
 async function uploadTerminalFile(sessionId, localPath, remoteDirectory) {
@@ -4264,32 +7318,79 @@ app.whenReady().then(async () => {
   await ensureStore();
   await ensureUptimeRoot();
 
-  if (isWorkerMode()) {
-    await initializeUptimeWorker();
+  if (isDatabaseManagerPackagedSmokeMode()) {
+    try {
+      await initializeBackupControlDatabase();
+      createWindow({
+        show: false,
+        onReady: async (window) => publishDatabaseManagerPackagedSmoke(await runDatabaseManagerPackagedSmoke(window)),
+        onFailure: (code) => publishDatabaseManagerPackagedSmoke(databaseManagerPackagedSmokeFailure(code))
+      });
+    } catch {
+      publishDatabaseManagerPackagedSmoke(databaseManagerPackagedSmokeFailure('DATABASE_MANAGER_PACKAGED_SMOKE_START_FAILED'));
+    }
     return;
   }
 
+  if (isWorkerMode()) {
+    const hasWorkerLock = await acquireUptimeWorkerLock();
+    if (!hasWorkerLock) {
+      app.quit();
+      return;
+    }
+    await initializeBackupControlDatabase();
+    await initializeUptimeControlPlane({ startWorker: true });
+    await initializeScheduledBackupWorker().catch(async (error) => {
+      await getBackupLogStore().logger({ workspaceId: 'local', component: 'backup-scheduled-worker' }).error(
+        'Scheduled backup worker could not start.',
+        { code: error.code || 'BACKUP_SCHEDULED_WORKER_START_FAILED', error }
+      ).catch(() => {});
+    });
+    return;
+  }
+
+  await initializeBackupControlDatabase();
+  await initializeUptimeControlPlane().catch(() => {});
   createWindow();
+  createTray();
   initializeAutoUpdater();
+  await restoreMcpIntegration();
   await maybeStartDetachedUptimeWorker().catch(() => {});
   await startUptimeWindowPolling();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    showMainWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (isWorkerMode()) return;
-  if (process.platform !== 'darwin') app.quit();
+  // The tray owns the application lifetime. Quit is explicit from its menu.
 });
 
 app.on('before-quit', () => {
+  isAppQuitting = true;
+  rdpSessionManager?.closeAll().catch(() => {});
+  databaseQueryService?.closeAll();
+  databaseResultExportService?.closeAll();
+  databaseDefinitionExecutor?.closeAll();
+  databaseTransferService?.closeAll();
+  databaseSchemaService?.closeAll();
+  databaseConnectionService?.closeAll().catch(() => {});
+  databaseDriverRuntimeRegistry?.stopAll().catch(() => {});
+  if (tray && !tray.isDestroyed()) tray.destroy();
+  tray = null;
+  if (mcpServer) mcpServer.stop().catch(() => {});
+  if (backupScheduledWorkerService && isWorkerMode()) backupScheduledWorkerService.stop({ drain: false }).catch(() => {});
+  if (uptimeScheduledWorkerService && isWorkerMode()) uptimeScheduledWorkerService.stop({ drain: false }).catch(() => {});
+  if (uptimeControlDatabase) uptimeControlDatabase.close().catch(() => {});
+  if (backupControlDatabase) backupControlDatabase.close().catch(() => {});
+  fs.rm(SESSION_DATA_PATH, { recursive: true, force: true }).catch(() => {});
   if (autoUpdateTimer) clearInterval(autoUpdateTimer);
   if (uptimeWindowPollTimer) clearInterval(uptimeWindowPollTimer);
   if (uptimeWorkerInterval) clearInterval(uptimeWorkerInterval);
   if (uptimeConfigRefreshTimer) clearInterval(uptimeConfigRefreshTimer);
   if (uptimeCommandPollTimer) clearInterval(uptimeCommandPollTimer);
+  if (databaseCloudSyncTimer) clearInterval(databaseCloudSyncTimer);
   if (isWorkerMode()) {
     mutateUptimeRuntime((current) => {
       current.worker = {
@@ -4309,6 +7410,2738 @@ ipcMain.handle('app:metadata', async () => ({
   version: app.getVersion(),
   updates: publicUpdateState()
 }));
+
+ipcMain.handle('database-manager:profiles:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return listDatabaseProfilesForRenderer(context, { limit: Math.min(1000, Math.max(1, Number(payload.limit) || 500)) });
+}));
+
+ipcMain.handle('database-manager:plugins:list', wrapDatabaseManagerIpc(async () => listDatabasePluginsWithHealth()));
+ipcMain.handle('database-manager:plugins:refresh', wrapDatabaseManagerIpc(async () => refreshDatabasePluginCatalog()));
+ipcMain.handle('database-manager:plugins:requirements:refresh', wrapDatabaseManagerIpc(async () => recheckDatabasePluginRuntimeRequirements()));
+
+ipcMain.handle('database-manager:plugins:install', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const installed = await getDatabasePluginRegistry().install(payload.pluginId, payload.version);
+  if (!installed.enabled) return installed;
+  try { await registerDatabasePluginRuntime(installed.pluginId); }
+  catch (error) { await getDatabasePluginRegistry().setEnabled(installed.pluginId, false).catch(() => {}); throw error; }
+  sendDatabaseManagerEvent('device', 'plugin-state', { pluginId: installed.pluginId, state: 'installed' });
+  await checkDatabasePluginHealth(installed.pluginId);
+  return installed;
+}));
+ipcMain.handle('database-manager:plugins:enable', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const enabled = await getDatabasePluginRegistry().setEnabled(payload.pluginId, true);
+  try { await registerDatabasePluginRuntime(enabled.pluginId); }
+  catch (error) { await getDatabasePluginRegistry().setEnabled(enabled.pluginId, false).catch(() => {}); throw error; }
+  sendDatabaseManagerEvent('device', 'plugin-state', { pluginId: enabled.pluginId, state: 'enabled' });
+  await checkDatabasePluginHealth(enabled.pluginId);
+  return enabled;
+}));
+ipcMain.handle('database-manager:plugins:disable', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const closedSessions = await getDatabaseConnectionService().closeDriver(payload.pluginId);
+  for (const session of closedSessions) {
+    sendDatabaseManagerEvent(session.workspaceId, 'connection-status', { profileId: session.profileId, state: 'closed', operation: 'driver-disable' });
+  }
+  await databaseDriverRuntimeRegistry.unregister(payload.pluginId);
+  const disabled = await getDatabasePluginRegistry().setEnabled(payload.pluginId, false);
+  await getDatabasePluginHealthStore().setDisabled(payload.pluginId);
+  sendDatabaseManagerEvent('device', 'plugin-state', { pluginId: disabled.pluginId, state: 'disabled' });
+  return disabled;
+}));
+ipcMain.handle('database-manager:plugins:remove', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const closedSessions = await getDatabaseConnectionService().closeDriver(payload.pluginId);
+  for (const session of closedSessions) {
+    sendDatabaseManagerEvent(session.workspaceId, 'connection-status', { profileId: session.profileId, state: 'closed', operation: 'driver-remove' });
+  }
+  await databaseDriverRuntimeRegistry.unregister(payload.pluginId);
+  const removed = await getDatabasePluginRegistry().remove(payload.pluginId);
+  await getDatabasePluginHealthStore().remove(payload.pluginId);
+  sendDatabaseManagerEvent('device', 'plugin-state', { pluginId: payload.pluginId, state: 'removed' });
+  return removed;
+}));
+ipcMain.handle('database-manager:plugins:health', wrapDatabaseManagerIpc(async (_event, payload = {}) => checkDatabasePluginHealth(payload.pluginId)));
+
+ipcMain.handle('database-manager:profiles:get', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  const profile = await getDatabaseProfileService().get(context.workspaceId, payload.id);
+  return databaseProfileForRenderer(context.workspaceId, profile);
+}));
+
+ipcMain.handle('database-manager:tabularis:launch', wrapDatabaseManagerIpc(async () => getTabularisLauncher().launch()));
+
+ipcMain.handle('database-manager:profiles:create', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  const created = await getDatabaseProfileService().create(context.workspaceId, context.actorId, payload);
+  return syncDatabaseProfileMetadata(context, created, payload.cloudRevision ?? 0);
+}));
+
+ipcMain.handle('database-manager:profiles:update', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  const updated = await getDatabaseProfileService().update(context.workspaceId, context.actorId, payload.id, payload.profile || {}, payload.revision);
+  await getDatabaseConnectionService().closeProfile(context.workspaceId, payload.id);
+  return syncDatabaseProfileMetadata(context, updated, payload.cloudRevision ?? null);
+}));
+
+ipcMain.handle('database-manager:profiles:delete', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  const existing = await getDatabaseProfileService().get(context.workspaceId, payload.id);
+  if (!existing) {
+    const sync = await removeDatabaseProfileMetadata(context, payload.id, payload.cloudRevision ?? payload.revision ?? null);
+    return { id: payload.id, cloudOnly: true, deleted: true, ...sync };
+  }
+  const deleted = await getDatabaseProfileService().delete(context.workspaceId, context.actorId, payload.id, payload.revision);
+  await getDatabaseConnectionService().closeProfile(context.workspaceId, payload.id);
+  await getDatabaseLocalResourceStore().remove({ workspaceId: context.workspaceId, profileId: payload.id }).catch(() => {});
+  const sync = await removeDatabaseProfileMetadata(context, payload.id, payload.cloudRevision ?? null);
+  return { ...deleted, ...sync };
+}));
+
+ipcMain.handle('database-manager:profiles:resolve-cloud-conflict', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return resolveDatabaseProfileCloudConflict(context, payload.id, payload.strategy);
+}));
+
+ipcMain.handle('database-manager:connections:test', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'testing', operation: 'test' });
+  try {
+    const result = await getDatabaseConnectionService().test(context.workspaceId, context.actorId, payload.id);
+    sendDatabaseManagerEvent(context.workspaceId, 'connection-status', {
+      profileId: payload.id,
+      state: result.status === 'success' ? 'tested' : 'failed',
+      operation: 'test',
+      code: result.error?.code
+    });
+    return result;
+  } catch (error) {
+    sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'failed', operation: 'test', code: error?.code });
+    throw error;
+  }
+}));
+
+ipcMain.handle('database-manager:connections:open', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'opening', operation: 'open' });
+  try {
+    const result = await getDatabaseConnectionService().open(context.workspaceId, context.actorId, payload.id);
+    sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: result.state === 'ready' ? 'ready' : 'failed', operation: 'open', code: result.error?.code });
+    return result;
+  } catch (error) {
+    sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'failed', operation: 'open', code: error?.code });
+    throw error;
+  }
+}));
+
+ipcMain.handle('database-manager:connections:close', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'closing', operation: 'close' });
+  const result = await getDatabaseConnectionService().close(context.workspaceId, context.actorId, payload.id);
+  sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'closed', operation: 'close' });
+  return result;
+}));
+
+ipcMain.handle('database-manager:connections:status', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  const result = await getDatabaseConnectionService().status(context.workspaceId, context.actorId, payload.id);
+  sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: result.state, operation: 'status', code: result.code });
+  return result;
+}));
+
+ipcMain.handle('database-manager:connections:list-status', wrapDatabaseManagerIpc(async () => {
+  const context = await databaseManagerContext();
+  return getDatabaseConnectionService().listStatus(context.workspaceId, context.actorId);
+}));
+
+ipcMain.handle('database-manager:backup:prepare', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseBackupHandoffService().prepare(context.workspaceId, context.actorId, payload.id);
+}));
+
+ipcMain.handle('database-manager:queries:execute', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  sendDatabaseManagerEvent(context.workspaceId, 'query-progress', { requestId: payload.requestId, profileId: payload.profileId, state: 'running' });
+  try {
+    const execution = await getDatabaseQueryService().execute(context.workspaceId, context.actorId, payload);
+    const results = [execution.result, ...(execution.result.additionalResults || [])];
+    const rowCount = results.reduce((total, result) => total + result.rows.length, 0);
+    const completed = { requestId: execution.requestId, profileId: execution.profileId, state: 'succeeded', statementCount: execution.statementCount, rowCount };
+    sendDatabaseManagerEvent(context.workspaceId, 'query-progress', completed);
+    if (execution.statementCount > 1) sendDatabaseManagerEvent(context.workspaceId, 'batch-completion', completed);
+    if (execution.classification !== 'read') {
+      sendDatabaseManagerEvent(context.workspaceId, 'schema-change', {
+        requestId: execution.requestId,
+        profileId: execution.profileId,
+        state: 'changed',
+        operation: 'query'
+      });
+    }
+    return execution;
+  } catch (error) {
+    const state = error?.code === 'DATABASE_MANAGER_DRIVER_REQUEST_CANCELLED' ? 'cancelled' : 'failed';
+    const failed = { requestId: payload.requestId, profileId: payload.profileId, state, code: error?.code };
+    sendDatabaseManagerEvent(context.workspaceId, 'query-progress', failed);
+    if (error?.code === 'DATABASE_MANAGER_CONNECTION_SESSION_CLOSED') {
+      await getDatabaseConnectionService().close(context.workspaceId, context.actorId, payload.profileId);
+      sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.profileId, state: 'closed', operation: 'expire' });
+    }
+    if (payload.batch === true) sendDatabaseManagerEvent(context.workspaceId, 'batch-completion', failed);
+    throw error;
+  }
+}));
+
+ipcMain.handle('database-manager:queries:cancel', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryService().cancel(context.workspaceId, context.actorId, payload.requestId);
+}));
+
+ipcMain.handle('database-manager:explain:execute', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseExplainService().execute(context.workspaceId, context.actorId, payload);
+}));
+
+ipcMain.handle('database-manager:explain:cancel', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseExplainService().cancel(context.workspaceId, context.actorId, payload.requestId);
+}));
+
+ipcMain.handle('database-manager:transfer:execute', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseTransferService().execute(context.workspaceId, context.actorId, payload);
+}));
+
+ipcMain.handle('database-manager:rows:mutate', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseRowCrudService().execute(context.workspaceId, context.actorId, payload);
+}));
+
+ipcMain.handle('database-manager:schema:load', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  sendDatabaseManagerEvent(context.workspaceId, 'schema-change', { requestId: payload.requestId, profileId: payload.profileId, state: 'loading', operation: 'load' });
+  try {
+    const schema = await getDatabaseSchemaService().load(context.workspaceId, context.actorId, payload);
+    sendDatabaseManagerEvent(context.workspaceId, 'schema-change', { requestId: payload.requestId, profileId: payload.profileId, state: 'loaded', operation: 'load' });
+    return schema;
+  } catch (error) {
+    sendDatabaseManagerEvent(context.workspaceId, 'schema-change', {
+      requestId: payload.requestId,
+      profileId: payload.profileId,
+      state: error?.code === 'DATABASE_MANAGER_DRIVER_REQUEST_CANCELLED' ? 'cancelled' : 'failed',
+      operation: 'load',
+      code: error?.code
+    });
+    if (error?.code === 'DATABASE_MANAGER_CONNECTION_SESSION_CLOSED') {
+      await getDatabaseConnectionService().close(context.workspaceId, context.actorId, payload.profileId);
+      sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.profileId, state: 'closed', operation: 'expire' });
+    }
+    throw error;
+  }
+}));
+
+ipcMain.handle('database-manager:schema:cancel', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseSchemaService().cancel(context.workspaceId, context.actorId, payload.requestId);
+}));
+
+ipcMain.handle('database-manager:schema:capabilities', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseSchemaAdministrationService().capabilities(context.workspaceId, payload.profileId);
+}));
+
+ipcMain.handle('database-manager:schema:execute', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  try {
+    const result = await getDatabaseSchemaAdministrationService().execute(context.workspaceId, context.actorId, payload);
+    sendDatabaseManagerEvent(context.workspaceId, 'schema-change', {
+      requestId: payload.requestId,
+      profileId: payload.profileId,
+      taskId: result.task?.id,
+      state: 'changed',
+      operation: result.action?.action || payload.action
+    });
+    return result;
+  } catch (error) {
+    sendDatabaseManagerEvent(context.workspaceId, 'schema-change', {
+      requestId: payload.requestId,
+      profileId: payload.profileId,
+      state: error?.code === 'DATABASE_MANAGER_DRIVER_REQUEST_CANCELLED' ? 'cancelled' : 'failed',
+      operation: payload.action,
+      code: error?.code
+    });
+    throw error;
+  }
+}));
+
+ipcMain.handle('database-manager:principals:capabilities', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabasePrincipalAdministrationService().capabilities(context.workspaceId, payload.profileId);
+}));
+
+ipcMain.handle('database-manager:principals:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabasePrincipalAdministrationService().list(context.workspaceId, context.actorId, payload.profileId);
+}));
+
+ipcMain.handle('database-manager:principals:inspect', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabasePrincipalAdministrationService().inspect(context.workspaceId, context.actorId, payload);
+}));
+
+ipcMain.handle('database-manager:principals:execute', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  const safeOperation = /^[a-z0-9-]{1,60}$/.test(String(payload.action || '')) ? String(payload.action) : 'principal-action';
+  const safeRequestId = /^[A-Za-z0-9_.:-]{1,200}$/.test(String(payload.requestId || '')) ? String(payload.requestId) : null;
+  const safeProfileId = /^[A-Za-z0-9_.:-]{1,200}$/.test(String(payload.profileId || '')) ? String(payload.profileId) : 'unknown-profile';
+  try {
+    const result = await getDatabasePrincipalAdministrationService().execute(context.workspaceId, context.actorId, payload);
+    sendDatabaseManagerEvent(context.workspaceId, 'schema-change', {
+      requestId: safeRequestId,
+      profileId: safeProfileId,
+      taskId: result.task?.id,
+      state: 'changed',
+      operation: result.action?.action || payload.action
+    });
+    return result;
+  } catch (error) {
+    sendDatabaseManagerEvent(context.workspaceId, 'schema-change', {
+      requestId: safeRequestId,
+      profileId: safeProfileId,
+      state: error?.code === 'DATABASE_MANAGER_DRIVER_REQUEST_CANCELLED' ? 'cancelled' : 'failed',
+      operation: safeOperation,
+      code: error?.code
+    });
+    throw error;
+  }
+}));
+
+ipcMain.handle('database-manager:saved-queries:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().listSavedQueries(context.workspaceId, payload);
+}));
+
+ipcMain.handle('database-manager:saved-queries:create', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().createSavedQuery(context.workspaceId, context.actorId, payload);
+}));
+
+ipcMain.handle('database-manager:saved-queries:update', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().updateSavedQuery(context.workspaceId, context.actorId, payload.id, payload.savedQuery || {}, payload.revision);
+}));
+
+ipcMain.handle('database-manager:saved-queries:delete', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().deleteSavedQuery(context.workspaceId, context.actorId, payload.id, payload.revision);
+}));
+
+ipcMain.handle('database-manager:history:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().listHistory(context.workspaceId, payload);
+}));
+
+ipcMain.handle('database-manager:history:clear', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().clearHistory(context.workspaceId, payload);
+}));
+
+ipcMain.handle('database-manager:notebooks:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().listNotebooks(context.workspaceId, payload);
+}));
+
+ipcMain.handle('database-manager:notebooks:get', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().getNotebook(context.workspaceId, payload.id);
+}));
+
+ipcMain.handle('database-manager:notebooks:create', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().createNotebook(context.workspaceId, context.actorId, payload);
+}));
+
+ipcMain.handle('database-manager:notebooks:update', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().updateNotebook(context.workspaceId, context.actorId, payload.id, payload.notebook || {}, payload.revision);
+}));
+
+ipcMain.handle('database-manager:notebooks:delete', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseQueryWorkspaceStore().deleteNotebook(context.workspaceId, context.actorId, payload.id, payload.revision);
+}));
+
+ipcMain.handle('database-manager:tasks:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseTaskService().list(context.workspaceId, payload);
+}));
+
+ipcMain.handle('database-manager:tasks:get', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseTaskService().get(context.workspaceId, payload.id);
+}));
+
+ipcMain.handle('database-manager:tasks:cancel', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseTaskService().cancel(context.workspaceId, context.actorId, payload.id);
+}));
+
+ipcMain.handle('database-manager:logs:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseOperationalLogService().list(context.workspaceId, payload);
+}));
+
+ipcMain.handle('database-manager:results:serialize', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  return getDatabaseResultExportService().serialize(payload);
+}));
+
+ipcMain.handle('database-manager:results:export', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  return getDatabaseResultExportService().export(payload);
+}));
+
+ipcMain.handle('database-manager:results:export-query', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseResultExportService().exportQuery(context.workspaceId, context.actorId, payload);
+}));
+
+ipcMain.handle('database-manager:results:cancel-export', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  return getDatabaseResultExportService().cancel(context.workspaceId, context.actorId, payload.requestId);
+}));
+
+ipcMain.handle('database-manager:local-resources:bind', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  const context = await databaseManagerContext();
+  const profile = await getDatabaseProfileService().get(context.workspaceId, payload.id);
+  if (!profile) throw Object.assign(new Error('Database profile was not found.'), { code: 'DATABASE_MANAGER_PROFILE_NOT_FOUND' });
+  const kind = profile.endpoint?.kind;
+  if (!['file', 'folder'].includes(kind)) throw Object.assign(new Error('This database profile does not use a local resource.'), { code: 'DATABASE_MANAGER_LOCAL_RESOURCE_UNSUPPORTED' });
+  const selection = await dialog.showOpenDialog({
+    title: kind === 'file' ? 'Choose database file' : 'Choose database folder',
+    properties: [kind === 'file' ? 'openFile' : 'openDirectory'],
+    filters: profile.driverId === 'sqlite' ? [
+      { name: 'SQLite databases', extensions: ['sqlite', 'sqlite3', 'db', 'db3'] },
+      { name: 'All files', extensions: ['*'] }
+    ] : undefined
+  });
+  if (selection.canceled || !selection.filePaths[0]) return { profileId: profile.id, kind, displayName: null, bound: false, cancelled: true };
+  return getDatabaseLocalResourceStore().bind({ workspaceId: context.workspaceId, profileId: profile.id, kind, path: selection.filePaths[0] });
+}));
+
+ipcMain.handle('rdp:start', async (_event, payload = {}) => {
+  if (!rdpSessionManager) throw new Error('Remote Desktop is not ready.');
+  return rdpSessionManager.start(payload);
+});
+
+ipcMain.handle('rdp:wasm', async () => fs.readFile(RDP_WASM_FILE));
+
+ipcMain.handle('rdp:stop', async (_event, sessionId) => {
+  return rdpSessionManager?.stop(sessionId) || false;
+});
+
+ipcMain.handle('rdp:fullscreen', async (_event, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  const request = payload && typeof payload === 'object' ? payload : { enabled: payload };
+  const enabled = Boolean(request.enabled);
+  if (!enabled) {
+    mainWindow.setFullScreen(false);
+    if (rdpRestoreBounds) {
+      const restoreBounds = rdpRestoreBounds;
+      rdpRestoreBounds = null;
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFullScreen()) mainWindow.setBounds(restoreBounds);
+      }, 120);
+    }
+    return false;
+  }
+
+  if (!rdpRestoreBounds) rdpRestoreBounds = mainWindow.getBounds();
+  if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
+  return mainWindow.isFullScreen();
+});
+
+ipcMain.handle('backup:secrets:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupSecretStore().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:secrets:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'secret.create', resourceType: 'secret-ref', component: 'backup-secret-store', details: { name: payload.name, secretType: payload.secretType } },
+    () => getBackupSecretStore().create({
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      name: payload.name,
+      secretType: payload.secretType,
+      value: payload.value,
+      scope: payload.scope,
+      expiresAt: payload.expiresAt
+    })
+  );
+});
+
+ipcMain.handle('backup:secrets:rotate', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'secret.rotate', resourceType: 'secret-ref', resourceId: payload.id, component: 'backup-secret-store' },
+    () => getBackupSecretStore().rotate({
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      id: payload.id,
+      value: payload.value,
+      expiresAt: payload.expiresAt
+    })
+  );
+});
+
+ipcMain.handle('backup:secrets:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'secret.delete', resourceType: 'secret-ref', resourceId: payload.id, component: 'backup-secret-store' },
+    async () => {
+      await getBackupSecretStore().delete({ workspaceId: context.workspaceId, id: payload.id });
+      return { id: payload.id };
+    }
+  );
+});
+
+ipcMain.handle('backup:audit:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupAuditStore().list(context.workspaceId, { limit: payload.limit });
+});
+
+ipcMain.handle('backup:audit:verify', async () => {
+  const context = await backupSecretContext();
+  return getBackupAuditStore().verify(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:local:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupLocalConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:local:ensure', async () => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.ensure-local', resourceType: 'connection', component: 'backup-local-connection' },
+    () => getBackupLocalConnectionService().ensure(context.workspaceId, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:local:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-local', resourceType: 'connection', resourceId: payload.id, component: 'backup-local-connection' },
+    () => getBackupLocalConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:local:browse', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupLocalConnectionService().browse(context.workspaceId, payload.id, {
+    path: payload.path,
+    cursor: payload.cursor,
+    pageSize: payload.pageSize
+  });
+});
+
+ipcMain.handle('backup:connections:ssh:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupSshConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:ssh:scan-host-key', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.scan-ssh-host-key', resourceType: 'connection', component: 'backup-ssh-connection', details: { host: payload.host, port: payload.port } },
+    () => getBackupSshConnectionService().scanHostKey({ host: payload.host, port: payload.port, timeoutMs: payload.timeoutMs })
+  );
+});
+
+ipcMain.handle('backup:connections:ssh:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-ssh', resourceType: 'connection', component: 'backup-ssh-connection', details: { name: payload.name, host: payload.host, port: payload.port, authType: payload.authType } },
+    () => getBackupSshConnectionService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:connections:ssh:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-ssh', resourceType: 'connection', resourceId: payload.id, component: 'backup-ssh-connection' },
+    () => getBackupSshConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:ssh:browse', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSshConnectionService().browse(context.workspaceId, payload.id, {
+    path: payload.path,
+    cursor: payload.cursor,
+    pageSize: payload.pageSize
+  });
+});
+
+ipcMain.handle('backup:connections:mysql:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupMysqlConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:mysql:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-mysql', resourceType: 'connection', component: 'backup-mysql-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(MYSQL_ADAPTER_ID, () => getBackupMysqlConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:mysql:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-mysql', resourceType: 'connection', resourceId: payload.id, component: 'backup-mysql-connection' },
+    () => getBackupMysqlConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:mysql:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMysqlConnectionService().discover(context.workspaceId, payload.id, { includeSystem: payload.includeSystem, kind: payload.kind, database: payload.database, schema: payload.schema });
+});
+
+ipcMain.handle('backup:connections:mariadb:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupMariadbConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:mariadb:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-mariadb', resourceType: 'connection', component: 'backup-mariadb-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(MARIADB_ADAPTER_ID, () => getBackupMariadbConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:mariadb:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-mariadb', resourceType: 'connection', resourceId: payload.id, component: 'backup-mariadb-connection' },
+    () => getBackupMariadbConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:mariadb:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMariadbConnectionService().discover(context.workspaceId, payload.id, { includeSystem: payload.includeSystem, kind: payload.kind, database: payload.database, schema: payload.schema });
+});
+
+ipcMain.handle('backup:connections:postgresql:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupPostgresqlConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:postgresql:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-postgresql', resourceType: 'connection', component: 'backup-postgresql-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, maintenanceDatabase: payload.maintenanceDatabase, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(POSTGRESQL_ADAPTER_ID, () => getBackupPostgresqlConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:postgresql:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-postgresql', resourceType: 'connection', resourceId: payload.id, component: 'backup-postgresql-connection' },
+    () => getBackupPostgresqlConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:postgresql:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupPostgresqlConnectionService().discover(context.workspaceId, payload.id, { includeSystem: payload.includeSystem, kind: payload.kind, database: payload.database, schema: payload.schema });
+});
+
+ipcMain.handle('backup:connections:sqlserver:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupSqlServerConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:sqlserver:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-sqlserver', resourceType: 'connection', component: 'backup-sqlserver-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(SQLSERVER_ADAPTER_ID, () => getBackupSqlServerConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:sqlserver:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-sqlserver', resourceType: 'connection', resourceId: payload.id, component: 'backup-sqlserver-connection' },
+    () => getBackupSqlServerConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:sqlserver:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSqlServerConnectionService().discover(context.workspaceId, payload.id, { includeSystem: payload.includeSystem });
+});
+
+ipcMain.handle('backup:connections:oracle:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupOracleConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:oracle:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-oracle', resourceType: 'connection', component: 'backup-oracle-connection', details: { name: payload.name, host: payload.host, port: payload.port, serviceName: payload.serviceName, username: payload.username, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(ORACLE_ADAPTER_ID, () => getBackupOracleConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:oracle:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-oracle', resourceType: 'connection', resourceId: payload.id, component: 'backup-oracle-connection' },
+    () => getBackupOracleConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:oracle:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupOracleConnectionService().discover(context.workspaceId, payload.id);
+});
+
+ipcMain.handle('backup:connections:mongodb:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupMongoDbConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:mongodb:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-mongodb', resourceType: 'connection', component: 'backup-mongodb-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, authSource: payload.authSource, replicaSet: payload.replicaSet, expectedTopology: payload.expectedTopology, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(MONGODB_ADAPTER_ID, () => getBackupMongoDbConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:mongodb:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-mongodb', resourceType: 'connection', resourceId: payload.id, component: 'backup-mongodb-connection' },
+    () => getBackupMongoDbConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:mongodb:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMongoDbConnectionService().discover(context.workspaceId, payload.id, { includeSystem: payload.includeSystem });
+});
+
+ipcMain.handle('backup:connections:redis:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupRedisConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:redis:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-redis', resourceType: 'connection', component: 'backup-redis-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, expectedTopology: payload.expectedTopology, tlsMode: payload.tlsMode, filesystemConnectionId: payload.filesystemConnectionId } },
+    () => createCoreDatabaseConnection(REDIS_ADAPTER_ID, () => getBackupRedisConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:redis:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-redis', resourceType: 'connection', resourceId: payload.id, component: 'backup-redis-connection' },
+    () => getBackupRedisConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:redis:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupRedisConnectionService().discover(context.workspaceId, payload.id);
+});
+
+ipcMain.handle('backup:connections:neo4j:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:clickhouse:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupClickHouseConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:influxdb:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDbConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:influxdb:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-influxdb', resourceType: 'connection', component: 'backup-influxdb-connection', details: { name: payload.name, protocol: payload.protocol, allowInsecureHttp: payload.allowInsecureHttp === true, host: payload.host, port: payload.port } },
+    () => createCoreDatabaseConnection(INFLUXDB_ADAPTER_ID, () => getBackupInfluxDbConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:influxdb:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-influxdb', resourceType: 'connection', resourceId: payload.id, component: 'backup-influxdb-connection' },
+    () => getBackupInfluxDbConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:influxdb:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDbConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:connections:influxdb3-enterprise:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:influxdb3-enterprise:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-influxdb3-enterprise', resourceType: 'connection', component: 'backup-influxdb3-enterprise-connection', details: { name: payload.name, protocol: payload.protocol, allowInsecureHttp: payload.allowInsecureHttp === true, host: payload.host, port: payload.port } },
+    () => createCoreDatabaseConnection(INFLUXDB3_ENTERPRISE_ADAPTER_ID, () => getBackupInfluxDb3EnterpriseConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:influxdb3-enterprise:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-influxdb3-enterprise', resourceType: 'connection', resourceId: payload.id, component: 'backup-influxdb3-enterprise-connection' },
+    () => getBackupInfluxDb3EnterpriseConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:influxdb3-enterprise:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Roll back this InfluxDB 3 Enterprise live cluster?',
+    detail: 'This is a destructive, in-place, cluster-wide point-in-time rollback. The catalog is rewritten and WAL is truncated to the backup watermark. Row deletes may persist because row-delete state is not captured, and DeployerX cannot roll back the restore.',
+    confirmLabel: 'Roll Back Live Cluster'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-influxdb3-enterprise-in-place', resourceType: 'restore-run', component: 'backup-influxdb3-enterprise-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId || null, mode: 'in-place', destructive: true, confirmed } },
+    () => getBackupInfluxDb3EnterpriseRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'in-place', confirmed, confirmationText: confirmed ? INFLUXDB3_ENTERPRISE_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-influxdb3-enterprise', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-influxdb3-enterprise-restore' }, () => getBackupInfluxDb3EnterpriseRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-retention:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const details = influxDb3EnterpriseRetentionAuditDetails();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'retention.preview-influxdb3-enterprise-native', resourceType: 'retention-plan', component: 'backup-influxdb3-enterprise-retention', details, failureAuditCode: 'INFLUXDB3_ENTERPRISE_RETENTION_OPERATION_FAILED', resultAudit: influxDb3EnterpriseRetentionPreviewResultAudit },
+    () => getBackupInfluxDb3EnterpriseRetentionService().preview(context.workspaceId, { recoveryPointId: payload.recoveryPointId })
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-retention:execute', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const textMatched = payload.confirmed === true && payload.confirmationText === INFLUXDB3_ENTERPRISE_DELETE_CONFIRMATION;
+  const confirmed = textMatched && await requestInAppConfirmation({
+    message: 'Delete this InfluxDB 3 Enterprise native backup closure?',
+    detail: 'InfluxDB 3 Enterprise will delete the reviewed backup and every incremental descendant. Repository metadata is preserved, but the deleted native recovery points cannot be restored.',
+    confirmLabel: 'Delete Native Backups'
+  });
+  const request = { recoveryPointId: payload.recoveryPointId, planId: payload.planId, confirmed, confirmationText: confirmed ? INFLUXDB3_ENTERPRISE_DELETE_CONFIRMATION : '' };
+  const details = influxDb3EnterpriseRetentionAuditDetails(request);
+  return runAuditedBackupMutation(
+    context,
+    { action: 'retention.execute-influxdb3-enterprise-native', resourceType: 'retention-plan', resourceId: details.planId, component: 'backup-influxdb3-enterprise-retention', details, failureAuditCode: 'INFLUXDB3_ENTERPRISE_RETENTION_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseRetentionService().execute(context.workspaceId, context.actorId, request)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.list-influxdb3-enterprise', resourceType: 'verification-run', component: 'backup-influxdb3-enterprise-verification', details: { mode: INFLUXDB3_ENTERPRISE_METADATA_MODE }, failureAuditCode: 'INFLUXDB3_ENTERPRISE_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseRecoveryTestService().list(context.workspaceId, payload)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-influxdb3-enterprise', resourceType: 'verification-run', component: 'backup-influxdb3-enterprise-verification', details: { mode: INFLUXDB3_ENTERPRISE_METADATA_MODE }, failureAuditCode: 'INFLUXDB3_ENTERPRISE_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseRecoveryTestService().start(context.workspaceId, context.actorId, { recoveryPointId: payload.recoveryPointId, mode: INFLUXDB3_ENTERPRISE_METADATA_MODE })
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.wait-influxdb3-enterprise', resourceType: 'verification-run', component: 'backup-influxdb3-enterprise-verification', failureAuditCode: 'INFLUXDB3_ENTERPRISE_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseRecoveryTestService().wait(context.workspaceId, payload.verificationRunId)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.cancel-influxdb3-enterprise', resourceType: 'verification-run', component: 'backup-influxdb3-enterprise-verification', failureAuditCode: 'INFLUXDB3_ENTERPRISE_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-retention:plan', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseLegacyRetentionService().planDeletion(context.workspaceId, payload.recoveryPointId, payload.repositoryId);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-retention:execute', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'retention.delete-influxdb3-enterprise-legacy-copy', resourceType: 'recovery-point', resourceId: payload.recoveryPointId, component: 'backup-influxdb3-enterprise-legacy-retention', details: { planId: payload.planId, repositoryId: payload.repositoryId } },
+    () => getBackupInfluxDb3EnterpriseLegacyRetentionService().executeDeletion(context.workspaceId, context.actorId, payload.recoveryPointId, payload.repositoryId, payload.planId)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseLegacyRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseLegacyRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Restore this InfluxDB 3 Enterprise legacy cluster to alternate storage?',
+    detail: 'DeployerX authenticates the complete legacy filesystem media, requires an empty stopped alternate target, preserves partial target data for inspection, and never claims cleanup or rollback.',
+    confirmLabel: 'Restore alternate storage'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-influxdb3-enterprise-legacy', resourceType: 'restore-run', component: 'backup-influxdb3-enterprise-legacy-restore', details: { recoveryPointId: payload.recoveryPointId, mode: 'alternate', confirmed }, failureAuditCode: 'INFLUXDB3_ENTERPRISE_LEGACY_RESTORE_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseLegacyRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? INFLUXDB3_ENTERPRISE_LEGACY_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseLegacyRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.cancel-influxdb3-enterprise-legacy', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-influxdb3-enterprise-legacy-restore', failureAuditCode: 'INFLUXDB3_ENTERPRISE_LEGACY_RESTORE_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseLegacyRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseLegacyRecoveryTestService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const requestedMode = String(payload.mode || INFLUXDB3_ENTERPRISE_LEGACY_METADATA_MODE);
+  let confirmed = false;
+  if (requestedMode === INFLUXDB3_ENTERPRISE_LEGACY_DRILL_MODE) {
+    confirmed = await requestInAppConfirmation({
+      message: 'Run a full InfluxDB 3 Enterprise legacy recovery drill?',
+      detail: 'DeployerX authenticates the complete legacy media, proves the exact cluster is stopped, restores to isolated alternate storage, validates the installed filesystem, and preserves the target for inspection without cleanup or rollback.',
+      confirmLabel: 'Run recovery drill'
+    });
+  }
+  const auditMode = [INFLUXDB3_ENTERPRISE_LEGACY_METADATA_MODE, INFLUXDB3_ENTERPRISE_LEGACY_DRILL_MODE].includes(requestedMode) ? requestedMode : null;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-influxdb3-enterprise-legacy', resourceType: 'verification-run', component: 'backup-influxdb3-enterprise-legacy-verification', details: { recoveryPointId: payload.recoveryPointId, mode: auditMode, confirmed }, failureAuditCode: 'INFLUXDB3_ENTERPRISE_LEGACY_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseLegacyRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? INFLUXDB3_ENTERPRISE_LEGACY_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3EnterpriseLegacyRecoveryTestService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.cancel-influxdb3-enterprise-legacy', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-influxdb3-enterprise-legacy-verification', failureAuditCode: 'INFLUXDB3_ENTERPRISE_LEGACY_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseLegacyRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-stop-bindings:list', async () => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'stop-binding.list-influxdb3-enterprise-legacy', resourceType: 'stop-binding', component: 'backup-influxdb3-enterprise-legacy-stop-binding', failureAuditCode: 'INFLUXDB3_ENTERPRISE_LEGACY_STOP_BINDING_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseLegacyStopBindingService().list(context.workspaceId)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-stop-bindings:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'stop-binding.create-influxdb3-enterprise-legacy', resourceType: 'stop-binding', component: 'backup-influxdb3-enterprise-legacy-stop-binding', failureAuditCode: 'INFLUXDB3_ENTERPRISE_LEGACY_STOP_BINDING_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseLegacyStopBindingService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:influxdb3-enterprise-legacy-stop-bindings:remove', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'stop-binding.remove-influxdb3-enterprise-legacy', resourceType: 'stop-binding', resourceId: payload.bindingId, component: 'backup-influxdb3-enterprise-legacy-stop-binding', failureAuditCode: 'INFLUXDB3_ENTERPRISE_LEGACY_STOP_BINDING_OPERATION_FAILED' },
+    () => getBackupInfluxDb3EnterpriseLegacyStopBindingService().remove(context.workspaceId, payload.bindingId, context.actorId, { expectedRevision: payload.expectedRevision })
+  );
+});
+
+ipcMain.handle('backup:connections:influxdb3-core:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3CoreConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:influxdb3-core:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-influxdb3-core', resourceType: 'connection', component: 'backup-influxdb3-core-connection', details: { name: payload.name, protocol: payload.protocol, allowInsecureHttp: payload.allowInsecureHttp === true, host: payload.host, port: payload.port, nodeId: payload.nodeId, objectStore: ['file', 's3', 'azure', 'google'].includes(payload.objectStore) ? payload.objectStore : 'unknown', filesystemBindingConfirmed: payload.confirmationText === 'BIND INFLUXDB CORE FILESYSTEM', s3BindingConfirmed: payload.confirmationText === 'BIND INFLUXDB CORE S3', azureBindingConfirmed: payload.confirmationText === 'BIND INFLUXDB CORE AZURE', gcsBindingConfirmed: payload.confirmationText === 'BIND INFLUXDB CORE GCS' } },
+    () => createCoreDatabaseConnection(INFLUXDB3_CORE_ADAPTER_ID, () => getBackupInfluxDb3CoreConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:influxdb3-core:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-influxdb3-core', resourceType: 'connection', resourceId: payload.id, component: 'backup-influxdb3-core-connection' },
+    () => getBackupInfluxDb3CoreConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:influxdb3-core:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3CoreConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:influxdb3-core-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3CoreRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-core-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3CoreRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-core-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = payload.confirmed === true && String(payload.confirmationText || '').trim() === INFLUXDB3_CORE_RESTORE_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-influxdb3-core-alternate', resourceType: 'restore-run', component: 'backup-influxdb3-core-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, mode: 'alternate', confirmed } },
+    () => getBackupInfluxDb3CoreRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? INFLUXDB3_CORE_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:influxdb3-core-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3CoreRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:influxdb3-core-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-influxdb3-core', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-influxdb3-core-restore' }, () => getBackupInfluxDb3CoreRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:influxdb3-core-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3CoreRecoveryTestService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb3-core-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = String(payload.mode || '') === INFLUXDB3_CORE_DRILL_MODE
+    && payload.confirmed === true
+    && String(payload.confirmationText || '').trim() === INFLUXDB3_CORE_DRILL_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-influxdb3-core', resourceType: 'verification-run', component: 'backup-influxdb3-core-verification', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, mode: payload.mode, confirmed } },
+    () => getBackupInfluxDb3CoreRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? INFLUXDB3_CORE_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:influxdb3-core-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDb3CoreRecoveryTestService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:influxdb3-core-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'verification.cancel-influxdb3-core', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-influxdb3-core-verification' }, () => getBackupInfluxDb3CoreRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId));
+});
+
+ipcMain.handle('backup:influxdb-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDbRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDbRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Restore this InfluxDB backup to the alternate instance?',
+    detail: 'DeployerX authenticates every encrypted native member, requires a distinct exact-version target, and validates restored organization, bucket, and retention identities. Once native restore begins, cancellation cannot claim rollback.',
+    confirmLabel: 'Recover InfluxDB'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-influxdb-alternate', resourceType: 'restore-run', component: 'backup-influxdb-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, mode: 'alternate', confirmed } },
+    () => getBackupInfluxDbRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? INFLUXDB_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:influxdb-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDbRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:influxdb-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-influxdb', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-influxdb-restore' }, () => getBackupInfluxDbRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:influxdb-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDbRecoveryTestService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:influxdb-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  let confirmed = false;
+  if (String(payload.mode || '') === INFLUXDB_DRILL_MODE) {
+    confirmed = await requestInAppConfirmation({
+      message: 'Run a full InfluxDB recovery drill?',
+      detail: 'The complete encrypted backup will be authenticated, restored to the tested alternate instance, and validated. The alternate instance remains preserved; no cleanup or rollback is claimed.',
+      confirmLabel: 'Run Recovery Drill'
+    });
+  }
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-influxdb', resourceType: 'verification-run', component: 'backup-influxdb-verification', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, mode: payload.mode, confirmed } },
+    () => getBackupInfluxDbRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? INFLUXDB_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:influxdb-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupInfluxDbRecoveryTestService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:influxdb-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'verification.cancel-influxdb', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-influxdb-verification' }, () => getBackupInfluxDbRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId));
+});
+
+ipcMain.handle('backup:connections:cockroachdb:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupCockroachDbConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:cockroachdb:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-cockroachdb', resourceType: 'connection', component: 'backup-cockroachdb-connection', details: { name: payload.name, executionMode: payload.executionMode, sshConnectionId: payload.sshConnectionId, authMode: payload.authMode, allowInsecure: payload.allowInsecure === true, host: payload.host, port: payload.port, username: payload.username, database: payload.database } },
+    () => createCoreDatabaseConnection(COCKROACHDB_ADAPTER_ID, () => getBackupCockroachDbConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:cockroachdb:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-cockroachdb', resourceType: 'connection', resourceId: payload.id, component: 'backup-cockroachdb-connection' },
+    () => getBackupCockroachDbConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:cockroachdb:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCockroachDbConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:connections:cockroachdb:approve-destination', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const destination = payload.destination && typeof payload.destination === 'object' ? payload.destination : {};
+  return runAuditedBackupMutation(
+    context,
+    {
+      action: 'connection.approve-cockroachdb-backup-destination',
+      resourceType: 'connection',
+      resourceId: payload.id,
+      component: 'backup-cockroachdb-connection',
+      details: {
+        destinationType: destination.type || payload.type || null,
+        localityBindingCount: Array.isArray(destination.localities || payload.localities) ? (destination.localities || payload.localities).length : 1,
+        confirmed: String(payload.confirmationText || '').trim() === COCKROACHDB_BACKUP_DESTINATION_CONFIRMATION
+      }
+    },
+    () => getBackupCockroachDbConnectionService().approveDestination(context.workspaceId, payload.id, payload, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-schedules:plan', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'schedule.plan-cockroachdb-native', resourceType: 'backup-job', resourceId: payload.jobId, component: 'backup-cockroachdb-schedule', failureAuditCode: 'COCKROACH_NATIVE_SCHEDULE_OPERATION_FAILED' },
+    () => getBackupCockroachDbScheduleService().preview(context.workspaceId, payload)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-schedules:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'schedule.create-cockroachdb-native', resourceType: 'backup-job', resourceId: payload.jobId, component: 'backup-cockroachdb-schedule', failureAuditCode: 'COCKROACH_NATIVE_SCHEDULE_OPERATION_FAILED' },
+    () => getBackupCockroachDbScheduleService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-schedules:list', async () => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'schedule.list-cockroachdb-native', resourceType: 'backup-job', component: 'backup-cockroachdb-schedule', failureAuditCode: 'COCKROACH_NATIVE_SCHEDULE_OPERATION_FAILED' },
+    () => getBackupCockroachDbScheduleService().list(context.workspaceId)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-schedules:reconcile', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'schedule.reconcile-cockroachdb-native', resourceType: 'backup-job', resourceId: payload.jobId, component: 'backup-cockroachdb-schedule', failureAuditCode: 'COCKROACH_NATIVE_SCHEDULE_OPERATION_FAILED' },
+    () => getBackupCockroachDbScheduleService().reconcile(context.workspaceId, context.actorId, payload.jobId)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-schedules:pause', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'schedule.pause-cockroachdb-native', resourceType: 'backup-job', resourceId: payload.jobId, component: 'backup-cockroachdb-schedule', failureAuditCode: 'COCKROACH_NATIVE_SCHEDULE_OPERATION_FAILED' },
+    () => getBackupCockroachDbScheduleService().pause(context.workspaceId, context.actorId, payload.jobId)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-schedules:resume', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'schedule.resume-cockroachdb-native', resourceType: 'backup-job', resourceId: payload.jobId, component: 'backup-cockroachdb-schedule', failureAuditCode: 'COCKROACH_NATIVE_SCHEDULE_OPERATION_FAILED' },
+    () => getBackupCockroachDbScheduleService().resume(context.workspaceId, context.actorId, payload.jobId)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-retention:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const details = cockroachDbRetentionAuditDetails(payload);
+  return runAuditedBackupMutation(
+    context,
+    { action: 'retention.preview-cockroachdb', resourceType: 'retention-plan', resourceId: details.planId, component: 'backup-cockroachdb-retention', details, failureAuditCode: 'COCKROACH_RETENTION_OPERATION_FAILED' },
+    () => getBackupCockroachDbRetentionService().preview(context.workspaceId, payload)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-retention:execute', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const details = cockroachDbRetentionAuditDetails(payload);
+  return runAuditedBackupMutation(
+    context,
+    { action: 'retention.execute-cockroachdb', resourceType: 'retention-plan', resourceId: details.planId, component: 'backup-cockroachdb-retention', details, failureAuditCode: 'COCKROACH_RETENTION_OPERATION_FAILED' },
+    () => getBackupCockroachDbRetentionService().execute(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCockroachDbRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:cockroachdb-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCockroachDbRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:cockroachdb-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Restore this CockroachDB backup to the empty alternate target?',
+    detail: 'DeployerX authenticates the complete native chain, validates revision-history bounds and region compatibility, submits one exact detached restore, and preserves the alternate target for inspection. Once native submission begins, cancellation cannot claim rollback.',
+    confirmLabel: 'Recover CockroachDB'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-cockroachdb-alternate', resourceType: 'restore-run', component: 'backup-cockroachdb-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, restoreTimestamp: payload.restoreTimestamp || null, mode: 'alternate', confirmed } },
+    () => getBackupCockroachDbRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? COCKROACHDB_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCockroachDbRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:cockroachdb-restores:pause', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.pause-cockroachdb', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-cockroachdb-restore' }, () => getBackupCockroachDbRestoreService().pause(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:cockroachdb-restores:resume', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.resume-cockroachdb', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-cockroachdb-restore' }, () => getBackupCockroachDbRestoreService().resume(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:cockroachdb-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-cockroachdb', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-cockroachdb-restore' }, () => getBackupCockroachDbRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:cockroachdb-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.list-cockroachdb', resourceType: 'verification-run', component: 'backup-cockroachdb-verification', failureAuditCode: 'COCKROACH_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupCockroachDbRecoveryTestService().list(context.workspaceId, payload)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const requestedMode = String(payload.mode || COCKROACHDB_METADATA_MODE);
+  let confirmed = false;
+  if (requestedMode === COCKROACHDB_DRILL_MODE) {
+    confirmed = await requestInAppConfirmation({
+      message: 'Run a full CockroachDB recovery drill?',
+      detail: 'DeployerX authenticates the complete native chain, revalidates the protected cluster, restores the selected point to one empty alternate database, and runs native integrity validation. The alternate target remains preserved for inspection; cleanup and rollback are not claimed.',
+      confirmLabel: 'Run recovery drill'
+    });
+  }
+  const auditMode = [COCKROACHDB_METADATA_MODE, COCKROACHDB_DRILL_MODE].includes(requestedMode) ? requestedMode : null;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-cockroachdb', resourceType: 'verification-run', component: 'backup-cockroachdb-verification', details: { recoveryPointId: payload.recoveryPointId, mode: auditMode, confirmed }, failureAuditCode: 'COCKROACH_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupCockroachDbRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? COCKROACHDB_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.wait-cockroachdb', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-cockroachdb-verification', failureAuditCode: 'COCKROACH_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupCockroachDbRecoveryTestService().wait(context.workspaceId, payload.verificationRunId)
+  );
+});
+
+ipcMain.handle('backup:cockroachdb-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.cancel-cockroachdb', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-cockroachdb-verification', failureAuditCode: 'COCKROACH_VERIFICATION_OPERATION_FAILED' },
+    () => getBackupCockroachDbRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId)
+  );
+});
+
+ipcMain.handle('backup:connections:clickhouse:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-clickhouse', resourceType: 'connection', component: 'backup-clickhouse-connection', details: { name: payload.name, executionMode: payload.executionMode, sshConnectionId: payload.sshConnectionId, host: payload.host, port: payload.port, tlsMode: payload.tlsMode, username: payload.username } },
+    () => createCoreDatabaseConnection(CLICKHOUSE_ADAPTER_ID, () => getBackupClickHouseConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:clickhouse:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-clickhouse', resourceType: 'connection', resourceId: payload.id, component: 'backup-clickhouse-connection' },
+    () => getBackupClickHouseConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:clickhouse:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupClickHouseConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:connections:clickhouse:approve-destination', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = String(payload.confirmationText || '').trim() === CLICKHOUSE_DESTINATION_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.approve-clickhouse-destination', resourceType: 'connection', resourceId: payload.id, component: 'backup-clickhouse-connection', details: { diskName: payload.diskName, confirmed } },
+    () => getBackupClickHouseConnectionService().approveDestination(context.workspaceId, payload.id, { diskName: payload.diskName, confirmationText: payload.confirmationText }, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:clickhouse-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupClickHouseRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:clickhouse-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupClickHouseRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:clickhouse-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Restore the ClickHouse backup into the empty alternate database?',
+    detail: 'DeployerX authenticates the complete native chain, revalidates the tested target and backup disk, monitors one exact native restore, and validates restored object and row/part evidence. Once native submission begins, cancellation cannot claim rollback.',
+    confirmLabel: 'Recover ClickHouse'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-clickhouse-alternate', resourceType: 'restore-run', component: 'backup-clickhouse-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, mode: 'alternate', confirmed } },
+    () => getBackupClickHouseRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? CLICKHOUSE_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:clickhouse-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupClickHouseRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:clickhouse-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-clickhouse', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-clickhouse-restore' }, () => getBackupClickHouseRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:clickhouse-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupClickHouseRecoveryTestService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:clickhouse-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  let confirmed = false;
+  if (String(payload.mode || '') === CLICKHOUSE_DRILL_MODE) {
+    confirmed = await requestInAppConfirmation({
+      message: 'Run a full ClickHouse recovery drill?',
+      detail: 'DeployerX authenticates the complete backup chain, revalidates the protected source, restores one empty alternate database scope, and validates native object and row/part evidence. The target remains preserved for inspection; cleanup and rollback are not claimed.',
+      confirmLabel: 'Run recovery drill'
+    });
+  }
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-clickhouse', resourceType: 'verification-run', component: 'backup-clickhouse-verification', details: { recoveryPointId: payload.recoveryPointId, mode: payload.mode, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, confirmed } },
+    () => getBackupClickHouseRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? CLICKHOUSE_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:clickhouse-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupClickHouseRecoveryTestService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:clickhouse-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'verification.cancel-clickhouse', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-clickhouse-verification' }, () => getBackupClickHouseRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId));
+});
+
+ipcMain.handle('backup:connections:neo4j:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-neo4j', resourceType: 'connection', component: 'backup-neo4j-connection', details: { name: payload.name, expectedEdition: payload.expectedEdition, executionMode: payload.executionMode, sshConnectionId: payload.sshConnectionId, address: payload.address, username: payload.username } },
+    () => createCoreDatabaseConnection(NEO4J_ADAPTER_ID, () => getBackupNeo4jConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:neo4j:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-neo4j', resourceType: 'connection', resourceId: payload.id, component: 'backup-neo4j-connection' },
+    () => getBackupNeo4jConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:neo4j:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:connections:cassandra-scylla:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupCassandraScyllaConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:cassandra-scylla:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-cassandra-scylla', resourceType: 'connection', component: 'backup-cassandra-scylla-connection', details: { name: payload.name, expectedProduct: payload.expectedProduct, executionMode: payload.executionMode, sshConnectionId: payload.sshConnectionId, contactHost: payload.contactHost, nativePort: payload.nativePort, cqlUsername: payload.cqlUsername } },
+    () => createCoreDatabaseConnection(CASSANDRA_SCYLLA_ADAPTER_ID, () => getBackupCassandraScyllaConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:cassandra-scylla:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-cassandra-scylla', resourceType: 'connection', resourceId: payload.id, component: 'backup-cassandra-scylla-connection' },
+    () => getBackupCassandraScyllaConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:cassandra-scylla:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCassandraScyllaConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:cassandra-scylla-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCassandraScyllaRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:cassandra-scylla-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCassandraScyllaRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:cassandra-scylla-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-cassandra-scylla', resourceType: 'restore-run', component: 'backup-cassandra-scylla-restore', details: { recoveryPointId: payload.recoveryPointId, mode: payload.mode, targetSeedConnectionId: payload.targetSeedConnectionId, conflictPolicy: payload.conflictPolicy } },
+    () => getBackupCassandraScyllaRestoreService().start(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:cassandra-scylla-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupCassandraScyllaRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:cassandra-scylla-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.cancel-cassandra-scylla', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-cassandra-scylla-restore' },
+    () => getBackupCassandraScyllaRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId)
+  );
+});
+
+ipcMain.handle('backup:connections:scylla-manager:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:scylla-manager:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-scylla-manager', resourceType: 'connection', component: 'backup-scylla-manager-connection', details: { name: payload.name, host: payload.host, port: payload.port, basePath: payload.basePath, authMode: payload.authMode, username: payload.username, managedClusterId: payload.managedClusterId, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(SCYLLA_MANAGER_ADAPTER_ID, () => getBackupScyllaManagerConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:scylla-manager:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-scylla-manager', resourceType: 'connection', resourceId: payload.id, component: 'backup-scylla-manager-connection' },
+    () => getBackupScyllaManagerConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:scylla-manager:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:connections:scylla-manager:verify-target', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.verify-scylla-manager-target', resourceType: 'connection', resourceId: payload.id, component: 'backup-scylla-manager-connection', details: { taskName: payload.taskUpdate?.name, managedClusterId: payload.managedClusterId } },
+    () => getBackupScyllaManagerConnectionService().verifyTarget(context.workspaceId, payload.id, { taskUpdate: payload.taskUpdate }, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:scylla-manager:tasks:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerConnectionService().listTasks(context.workspaceId, payload.connectionId, { type: payload.type });
+});
+
+ipcMain.handle('backup:scylla-manager:tasks:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'task.start-scylla-manager', resourceType: 'manager-task', resourceId: payload.taskId, component: 'backup-scylla-manager-task', details: { connectionId: payload.connectionId, type: payload.type, continue: payload.continue === true } }, () => getBackupScyllaManagerConnectionService().startTask(context.workspaceId, payload.connectionId, payload));
+});
+
+ipcMain.handle('backup:scylla-manager:tasks:stop', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'task.stop-scylla-manager', resourceType: 'manager-task', resourceId: payload.taskId, component: 'backup-scylla-manager-task', details: { connectionId: payload.connectionId, type: payload.type, disable: payload.disable === true } }, () => getBackupScyllaManagerConnectionService().stopTask(context.workspaceId, payload.connectionId, payload));
+});
+
+ipcMain.handle('backup:scylla-manager:tasks:history', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerConnectionService().history(context.workspaceId, payload.connectionId, payload);
+});
+
+ipcMain.handle('backup:scylla-manager:tasks:progress', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerConnectionService().progress(context.workspaceId, payload.connectionId, payload);
+});
+
+ipcMain.handle('backup:scylla-manager:backups:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerConnectionService().listBackups(context.workspaceId, payload.connectionId, payload);
+});
+
+ipcMain.handle('backup:scylla-manager-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:scylla-manager-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:scylla-manager-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = String(payload.confirmationText || '').trim() === SCYLLA_MANAGER_RESTORE_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-scylla-manager-alternate', resourceType: 'restore-run', component: 'backup-scylla-manager-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, confirmed } },
+    () => getBackupScyllaManagerRestoreService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? SCYLLA_MANAGER_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:scylla-manager-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:scylla-manager-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-scylla-manager', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-scylla-manager-restore' }, () => getBackupScyllaManagerRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:scylla-manager-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerRecoveryTestService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:scylla-manager-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = String(payload.confirmationText || '').trim() === SCYLLA_MANAGER_DRILL_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-scylla-manager', resourceType: 'verification-run', component: 'backup-scylla-manager-verification', details: { recoveryPointId: payload.recoveryPointId, mode: payload.mode, targetConnectionId: payload.targetConnectionId, confirmed } },
+    () => getBackupScyllaManagerRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? SCYLLA_MANAGER_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:scylla-manager-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupScyllaManagerRecoveryTestService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:scylla-manager-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'verification.cancel-scylla-manager', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-scylla-manager-verification' }, () => getBackupScyllaManagerRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId));
+});
+
+ipcMain.handle('backup:connections:search-snapshot:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:search-snapshot:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-search-snapshot', resourceType: 'connection', component: 'backup-search-snapshot-connection', details: { name: payload.name, host: payload.host, port: payload.port, basePath: payload.basePath, authMode: payload.authMode, username: payload.username, expectedProduct: payload.expectedProduct, tlsMode: payload.tlsMode } },
+    () => createCoreDatabaseConnection(SEARCH_SNAPSHOT_ADAPTER_ID, () => getBackupSearchSnapshotConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:search-snapshot:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-search-snapshot', resourceType: 'connection', resourceId: payload.id, component: 'backup-search-snapshot-connection' },
+    () => getBackupSearchSnapshotConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:search-snapshot:verify-repository', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.verify-search-repository', resourceType: 'connection', resourceId: payload.id, component: 'backup-search-snapshot-connection', details: { repositoryName: payload.repositoryName } },
+    () => getBackupSearchSnapshotConnectionService().verifyRepository(context.workspaceId, payload.id, payload.repositoryName, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:search-snapshot:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:search-snapshot-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:search-snapshot-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:search-snapshot-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = String(payload.confirmationText || '').trim() === SEARCH_RESTORE_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-search-alternate', resourceType: 'restore-run', component: 'backup-search-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, renamePrefix: payload.renamePrefix, confirmed } },
+    () => getBackupSearchSnapshotRestoreService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? SEARCH_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:search-snapshot-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:search-snapshot-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-search', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-search-restore' }, () => getBackupSearchSnapshotRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:search-snapshot-retention:plan', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotMaintenanceService().planRetention(context.workspaceId, payload.recoveryPointId);
+});
+
+ipcMain.handle('backup:search-snapshot-retention:execute', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'retention.delete-search-snapshot', resourceType: 'recovery-point', resourceId: payload.recoveryPointId, component: 'backup-search-retention', details: { planId: payload.planId } },
+    () => getBackupSearchSnapshotMaintenanceService().executeRetention(context.workspaceId, context.actorId, payload.recoveryPointId, payload.planId)
+  );
+});
+
+ipcMain.handle('backup:search-snapshot-repositories:cleanup', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = String(payload.confirmationText || '').trim() === SEARCH_CLEANUP_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.cleanup-search-native', resourceType: 'connection', resourceId: payload.connectionId, component: 'backup-search-maintenance', details: { repositoryName: payload.repositoryName, confirmed } },
+    () => getBackupSearchSnapshotMaintenanceService().cleanupRepository(context.workspaceId, context.actorId, { ...payload, confirmationText: confirmed ? SEARCH_CLEANUP_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:search-snapshot-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotRecoveryTestService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:search-snapshot-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = String(payload.confirmationText || '').trim() === SEARCH_DRILL_CONFIRMATION;
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-search-snapshot', resourceType: 'verification-run', component: 'backup-search-verification', details: { recoveryPointId: payload.recoveryPointId, mode: payload.mode, targetConnectionId: payload.targetConnectionId, confirmed } },
+    () => getBackupSearchSnapshotRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? SEARCH_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:search-snapshot-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSearchSnapshotRecoveryTestService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:search-snapshot-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'verification.cancel-search-snapshot', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-search-verification' }, () => getBackupSearchSnapshotRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId));
+});
+
+ipcMain.handle('backup:connections:sqlite:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupSqliteConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:connections:sqlite:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.create-sqlite', resourceType: 'connection', component: 'backup-sqlite-connection', details: { name: payload.name } },
+    () => createCoreDatabaseConnection(SQLITE_ADAPTER_ID, () => getBackupSqliteConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:sqlite:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.test-sqlite', resourceType: 'connection', resourceId: payload.id, component: 'backup-sqlite-connection' },
+    () => getBackupSqliteConnectionService().test(context.workspaceId, payload.id, context.actorId)
+  );
+});
+
+ipcMain.handle('backup:connections:sqlite:discover', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSqliteConnectionService().discover(context.workspaceId, payload.id, { kind: payload.kind });
+});
+
+ipcMain.handle('backup:file-sources:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupFileSourceService().list(context.workspaceId, { connectionId: payload.connectionId });
+});
+
+ipcMain.handle('backup:file-sources:save', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: payload.id ? 'source.update-files' : 'source.create-files', resourceType: 'source', resourceId: payload.id, component: 'backup-file-source', details: { name: payload.name, connectionId: payload.connectionId } },
+    () => getBackupFileSourceService().save(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:file-sources:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'source.delete-files', resourceType: 'source', resourceId: payload.id, component: 'backup-file-source' },
+    () => getBackupFileSourceService().remove(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:database-adapters:list', async () => {
+  await backupSecretContext();
+  return getBackupDatabaseSourceService().listAdapters();
+});
+
+ipcMain.handle('backup:database-sources:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupDatabaseSourceService().list(context.workspaceId, { connectionId: payload.connectionId });
+});
+
+ipcMain.handle('backup:database-sources:save', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: payload.id ? 'source.update-database' : 'source.create-database', resourceType: 'source', resourceId: payload.id, component: 'backup-database-source', details: { name: payload.name, connectionId: payload.connectionId, adapterId: payload.adapterId } },
+    () => getBackupDatabaseSourceService().save(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:database-sources:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'source.delete-database', resourceType: 'source', resourceId: payload.id, component: 'backup-database-source' },
+    () => getBackupDatabaseSourceService().remove(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:jobs:readiness', async () => {
+  const context = await backupSecretContext();
+  return getBackupJobService().readiness(context.workspaceId);
+});
+
+ipcMain.handle('backup:jobs:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupJobService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:objectives:status', async () => {
+  const context = await backupSecretContext();
+  return getBackupObjectiveStatusService().report(context.workspaceId);
+});
+
+ipcMain.handle('backup:jobs:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'job.create', resourceType: 'backup-job', component: 'backup-job', details: { name: payload.name, sourceId: payload.sourceId, repositoryCount: Array.isArray(payload.repositoryIds) ? payload.repositoryIds.length : 0, backupMode: payload.backupMode, scheduleType: String(payload.schedule?.type || 'manual').slice(0, 32) } },
+    () => getBackupJobService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:jobs:pause', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'job.pause', resourceType: 'backup-job', resourceId: payload.id, component: 'backup-job' },
+    () => getBackupJobService().pause(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:jobs:resume', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'job.resume', resourceType: 'backup-job', resourceId: payload.id, component: 'backup-job' },
+    () => getBackupJobService().resume(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:jobs:clone', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'job.clone', resourceType: 'backup-job', resourceId: payload.id, component: 'backup-job', details: { requestedName: String(payload.name || '').slice(0, 200) || null } },
+    () => getBackupJobService().clone(context.workspaceId, context.actorId, payload.id, payload.revision, { name: payload.name })
+  );
+});
+
+ipcMain.handle('backup:jobs:disable', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'job.disable', resourceType: 'backup-job', resourceId: payload.id, component: 'backup-job' },
+    () => getBackupJobService().disable(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:jobs:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'job.delete', resourceType: 'backup-job', resourceId: payload.id, component: 'backup-job' },
+    () => getBackupJobService().delete(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:jobs:runs:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupManualBackupService().list(context.workspaceId, { jobId: payload.jobId, limit: payload.limit });
+});
+
+ipcMain.handle('backup:worker:status', async () => getBackupScheduledWorkerStatus());
+
+ipcMain.handle('backup:recovery-points:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSnapshotBrowserService().listRecoveryPoints(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:snapshots:browse', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSnapshotBrowserService().browse(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:snapshots:search', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSnapshotBrowserService().search(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:snapshots:file-versions', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSnapshotBrowserService().fileVersions(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupFileRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-selected-files', resourceType: 'restore-run', component: 'backup-file-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, mode: payload.mode, conflictPolicy: payload.conflictPolicy, itemCount: Array.isArray(payload.paths) ? payload.paths.length : 0 } },
+    () => getBackupFileRestoreService().start(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupFileRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+function databaseRestorePrompt(engineLabel, targetKind, payload = {}) {
+  const mode = String(payload.mode || 'original');
+  if (!['original', 'alternate', 'new-database'].includes(mode)) throw new TypeError('Database restore target mode is invalid.');
+  if (mode === 'new-database') return {
+    mode,
+    message: `Create and restore the new ${engineLabel} database?`,
+    detail: `The database is created only if the requested name is absent. The authenticated dump and native validation run against the new database.`,
+    confirmLabel: 'Create and restore'
+  };
+  if (mode === 'alternate') return {
+    mode,
+    message: `Restore this backup to the alternate ${engineLabel} ${targetKind}?`,
+    detail: payload.conflictPolicy === 'overwrite'
+      ? `Protected database objects and data on the selected alternate ${targetKind} can be replaced. The verified alternate identity and native validation evidence are recorded.`
+      : `The restore stops before streaming if a protected database already exists on the selected alternate ${targetKind}.`,
+    confirmLabel: `Restore ${engineLabel}`
+  };
+  return {
+    mode,
+    message: `Restore this ${engineLabel} backup to its original ${targetKind}?`,
+    detail: `Protected database objects and data on the original ${targetKind} can be replaced. Server identity and native integrity are validated.`,
+    confirmLabel: `Restore ${engineLabel}`
+  };
+}
+
+ipcMain.handle('backup:mysql-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMysqlRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:mysql-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const prompt = databaseRestorePrompt('MySQL', 'server', payload);
+  const confirmed = await requestInAppConfirmation(prompt);
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-mysql-${prompt.mode}`, resourceType: 'restore-run', component: 'backup-mysql-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, conflictPolicy: payload.conflictPolicy, mode: prompt.mode, confirmed } },
+    () => getBackupMysqlRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: prompt.mode, confirmed, confirmationText: confirmed ? MYSQL_RESTORE_CONFIRMATIONS[prompt.mode] : '' })
+  );
+});
+
+ipcMain.handle('backup:mysql-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMysqlRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:mysql-physical-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMysqlPhysicalRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:mysql-physical-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const mode = String(payload.mode || 'original');
+  if (!MYSQL_PHYSICAL_RESTORE_CONFIRMATIONS[mode]) throw new TypeError('MySQL physical restore target mode is invalid.');
+  const confirmed = await requestInAppConfirmation({
+    message: mode === 'alternate' ? 'Restore this physical backup to the alternate MySQL server?' : 'Restore this physical backup to the original MySQL server?',
+    detail: 'MySQL will be stopped. The configured datadir must already be empty; DeployerX will not delete or overwrite existing datadir files. The authenticated XtraBackup chain is prepared and copied back before MySQL is restarted and validated.',
+    confirmLabel: 'Restore physical backup'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-mysql-physical-${mode}`, resourceType: 'restore-run', component: 'backup-mysql-physical-restore', details: { recoveryPointId: payload.recoveryPointId, targetSourceId: payload.targetSourceId, mode, confirmed } },
+    () => getBackupMysqlPhysicalRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode, confirmed, confirmationText: confirmed ? MYSQL_PHYSICAL_RESTORE_CONFIRMATIONS[mode] : '' })
+  );
+});
+
+ipcMain.handle('backup:mysql-physical-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMysqlPhysicalRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:mysql-physical-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.cancel-mysql-physical', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-mysql-physical-restore' },
+    () => getBackupMysqlPhysicalRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId)
+  );
+});
+
+ipcMain.handle('backup:mariadb-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMariadbRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:mariadb-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const prompt = databaseRestorePrompt('MariaDB', 'server', payload);
+  const confirmed = await requestInAppConfirmation(prompt);
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-mariadb-${prompt.mode}`, resourceType: 'restore-run', component: 'backup-mariadb-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, conflictPolicy: payload.conflictPolicy, mode: prompt.mode, confirmed } },
+    () => getBackupMariadbRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: prompt.mode, confirmed, confirmationText: confirmed ? MARIADB_RESTORE_CONFIRMATIONS[prompt.mode] : '' })
+  );
+});
+
+ipcMain.handle('backup:mariadb-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMariadbRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+function pointInTimeRestorePrompt(engineLabel, payload = {}) {
+  const target = payload.stop?.timestamp ? `timestamp ${String(payload.stop.timestamp).slice(0, 40)}` : `binary-log coordinate ${String(payload.stop?.coordinate?.file || '').slice(0, 255)}:${Number(payload.stop?.coordinate?.position) || 0}`;
+  return {
+    message: `Recover ${engineLabel} to the selected point in time?`,
+    detail: `The logical full anchor is restored first, then authenticated binary logs are replayed through ${target}. Existing target data can be replaced.`,
+    confirmLabel: `Recover ${engineLabel}`
+  };
+}
+
+ipcMain.handle('backup:mysql-pitr:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMysqlPitrService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:mysql-pitr:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation(pointInTimeRestorePrompt('MySQL', payload));
+  return runAuditedBackupMutation(context, { action: 'restore.start-mysql-point-in-time', resourceType: 'restore-run', component: 'backup-mysql-pitr', details: { terminalRecoveryPointId: payload.terminalRecoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, mode: payload.mode, stopType: payload.stop?.timestamp ? 'timestamp' : 'coordinate', stopFile: payload.stop?.coordinate?.file, stopPosition: payload.stop?.coordinate?.position, confirmed } }, () => getBackupMysqlPitrService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? MYSQL_FAMILY_PITR_PROFILES.mysql.confirmation : '' }));
+});
+
+ipcMain.handle('backup:mysql-pitr:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMysqlPitrService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:mariadb-pitr:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMariadbPitrService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:mariadb-pitr:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation(pointInTimeRestorePrompt('MariaDB', payload));
+  return runAuditedBackupMutation(context, { action: 'restore.start-mariadb-point-in-time', resourceType: 'restore-run', component: 'backup-mariadb-pitr', details: { terminalRecoveryPointId: payload.terminalRecoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, mode: payload.mode, stopType: payload.stop?.timestamp ? 'timestamp' : 'coordinate', stopFile: payload.stop?.coordinate?.file, stopPosition: payload.stop?.coordinate?.position, confirmed } }, () => getBackupMariadbPitrService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? MYSQL_FAMILY_PITR_PROFILES.mariadb.confirmation : '' }));
+});
+
+ipcMain.handle('backup:mariadb-pitr:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMariadbPitrService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:postgresql-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupPostgresqlRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:postgresql-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const prompt = databaseRestorePrompt('PostgreSQL', 'cluster', payload);
+  const confirmed = await requestInAppConfirmation(prompt);
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-postgresql-${prompt.mode}`, resourceType: 'restore-run', component: 'backup-postgresql-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, conflictPolicy: payload.conflictPolicy, mode: prompt.mode, confirmed } },
+    () => getBackupPostgresqlRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: prompt.mode, confirmed, confirmationText: confirmed ? POSTGRESQL_RESTORE_CONFIRMATIONS[prompt.mode] : '' })
+  );
+});
+
+ipcMain.handle('backup:postgresql-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupPostgresqlRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:postgresql-pitr:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupPostgresqlPitrRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:postgresql-pitr:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const mode = String(payload.mode || 'original');
+  if (!POSTGRESQL_PITR_RESTORE_CONFIRMATIONS[mode]) throw new TypeError('PostgreSQL physical restore target mode is invalid.');
+  const confirmed = await requestInAppConfirmation({
+    message: mode === 'alternate' ? 'Recover PostgreSQL to the alternate host?' : 'Recover PostgreSQL to the original host?',
+    detail: 'PostgreSQL will be stopped. The configured data directory must already be empty. DeployerX verifies the base backup and archived WAL before copy-back, then PostgreSQL replays to the selected target and promotes.',
+    confirmLabel: 'Recover PostgreSQL'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-postgresql-pitr-${mode}`, resourceType: 'restore-run', component: 'backup-postgresql-pitr', details: { recoveryPointId: payload.recoveryPointId, targetSourceId: payload.targetSourceId, mode, recoveryTarget: payload.recoveryTarget, confirmed } },
+    () => getBackupPostgresqlPitrRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode, confirmed, confirmationText: confirmed ? POSTGRESQL_PITR_RESTORE_CONFIRMATIONS[mode] : '' })
+  );
+});
+
+ipcMain.handle('backup:postgresql-pitr:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupPostgresqlPitrRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:postgresql-pitr:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-postgresql-pitr', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-postgresql-pitr' }, () => getBackupPostgresqlPitrRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:sqlserver-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSqlServerRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:sqlserver-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const mode = String(payload.mode || 'original');
+  if (!SQLSERVER_RESTORE_CONFIRMATIONS[mode]) throw new TypeError('SQL Server restore target mode is invalid.');
+  const confirmed = await requestInAppConfirmation({
+    message: mode === 'alternate' ? 'Restore SQL Server to the alternate instance?' : 'Restore SQL Server to the original instance?',
+    detail: 'DeployerX authenticates and re-verifies every native backup before restoring the database. Existing database files are never selected as relocation targets.',
+    confirmLabel: 'Restore SQL Server'
+  });
+  let tailConfirmed = false;
+  let damagedTailConfirmed = false;
+  if (confirmed && mode === 'original' && payload.tailMode && payload.tailMode !== 'none') {
+    tailConfirmed = await requestInAppConfirmation({ message: 'Capture and publish the SQL Server tail log?', detail: payload.tailMode === 'online' ? 'The database will enter the restoring state after the tail is captured. The restore will stop if repository publication fails.' : 'This high-risk tail operation is intended for an offline or damaged database and may produce incomplete metadata.', confirmLabel: 'Capture tail log' });
+    if (tailConfirmed && payload.tailMode === 'damaged') damagedTailConfirmed = await requestInAppConfirmation({ message: 'Allow damaged tail-log media?', detail: 'SQL Server will use NO_TRUNCATE and CONTINUE_AFTER_ERROR. The resulting RecoveryPoint is marked as degraded evidence.', confirmLabel: 'Allow damaged media' });
+  }
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-sqlserver-${mode}`, resourceType: 'restore-run', component: 'backup-sqlserver-restore', details: { recoveryPointId: payload.recoveryPointId, targetSourceId: payload.targetSourceId, targetDatabase: payload.targetDatabase, mode, recoveryTarget: payload.recoveryTarget, tailMode: payload.tailMode, confirmed, tailConfirmed, damagedTailConfirmed } },
+    () => getBackupSqlServerRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode, confirmed, confirmationText: confirmed ? SQLSERVER_RESTORE_CONFIRMATIONS[mode] : '', tailConfirmed, tailConfirmationText: tailConfirmed ? SQLSERVER_TAIL_CONFIRMATION : '', damagedTailConfirmed, damagedTailConfirmationText: damagedTailConfirmed ? SQLSERVER_DAMAGED_TAIL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:sqlserver-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSqlServerRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:sqlserver-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-sqlserver', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-sqlserver-restore' }, () => getBackupSqlServerRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:oracle-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupOracleRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:oracle-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const mode = String(payload.mode || 'original');
+  if (!ORACLE_RESTORE_CONFIRMATIONS[mode]) throw new TypeError('Oracle RMAN recovery target mode is invalid.');
+  const confirmed = await requestInAppConfirmation({
+    message: mode === 'alternate' ? 'Recover Oracle to the alternate instance?' : 'Recover Oracle to the original instance?',
+    detail: mode === 'alternate'
+      ? 'DeployerX will refuse existing SID markers and destination paths, then use the authenticated RMAN chain to create an independent database with a new DBID under the configured Oracle-managed destinations.'
+      : 'DeployerX will authenticate and stage the required RMAN chain, replace the selected Oracle database, and recover it to the requested SCN, archived-log sequence, or time.',
+    confirmLabel: 'Recover Oracle'
+  });
+  const resetlogsConfirmed = confirmed && await requestInAppConfirmation({
+    message: 'Open the recovered Oracle database with RESETLOGS?',
+    detail: 'OPEN RESETLOGS creates a new database incarnation. Existing backups remain evidence for the prior incarnation and cannot be appended to the new recovery chain.',
+    confirmLabel: 'Open with RESETLOGS'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-oracle-${mode}`, resourceType: 'restore-run', component: 'backup-oracle-restore', details: { recoveryPointId: payload.recoveryPointId, targetSourceId: payload.targetSourceId, targetSshConnectionId: payload.targetProfile?.sshConnectionId || null, targetOracleSid: payload.targetProfile?.oracleSid || null, targetDatabaseUniqueName: payload.targetProfile?.databaseUniqueName || null, mode, recoveryTarget: payload.recoveryTarget, deepValidation: Boolean(payload.deepValidation), confirmed, resetlogsConfirmed } },
+    () => getBackupOracleRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode, confirmed, confirmationText: confirmed ? ORACLE_RESTORE_CONFIRMATIONS[mode] : '', resetlogsConfirmed, resetlogsConfirmationText: resetlogsConfirmed ? ORACLE_RESETLOGS_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:oracle-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupOracleRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:oracle-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-oracle', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-oracle-restore' }, () => getBackupOracleRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:mongodb-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMongoDbRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:mongodb-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const mode = String(payload.mode || 'original');
+  if (!MONGODB_RESTORE_CONFIRMATIONS[mode]) throw new TypeError('MongoDB recovery target mode is invalid.');
+  const timestamp = payload.stop?.coordinate?.timestamp?.$timestamp;
+  const confirmed = await requestInAppConfirmation({
+    message: mode === 'alternate' ? 'Recover MongoDB to the alternate deployment?' : 'Recover MongoDB to the original deployment?',
+    detail: mode === 'alternate' && payload.conflictPolicy !== 'overwrite'
+      ? 'Recovery stops before archive streaming if a protected database already exists on the verified alternate deployment.'
+      : 'The authenticated logical anchor is restored with drop enabled, then continuous BSON oplog intervals are replayed through the selected boundary.',
+    confirmLabel: 'Recover MongoDB'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: `restore.start-mongodb-${mode}`, resourceType: 'restore-run', component: 'backup-mongodb-restore', details: { recoveryPointId: payload.recoveryPointId || payload.terminalRecoveryPointId, targetConnectionId: payload.targetConnectionId, mode, conflictPolicy: payload.conflictPolicy, stopType: payload.stop?.type || 'latest', stopSeconds: Number(timestamp?.t) || null, stopIncrement: Number(timestamp?.i) || null, confirmed } },
+    () => getBackupMongoDbRestoreService().start(context.workspaceId, context.actorId, { ...payload, recoveryPointId: payload.recoveryPointId || payload.terminalRecoveryPointId, mode, confirmed, confirmationText: confirmed ? MONGODB_RESTORE_CONFIRMATIONS[mode] : '' })
+  );
+});
+
+ipcMain.handle('backup:mongodb-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupMongoDbRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:mongodb-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-mongodb', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-mongodb-restore' }, () => getBackupMongoDbRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:sqlite-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSqliteRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:neo4j-restores:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jRestoreService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:neo4j-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:neo4j-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Load the Neo4j backup into the empty alternate database?',
+    detail: 'DeployerX revalidates the separate target, authenticates the complete dump, runs native offline load and consistency checks, and leaves the database stopped. Once load begins, cancellation cannot claim rollback.',
+    confirmLabel: 'Recover Neo4j'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-neo4j-alternate', resourceType: 'restore-run', component: 'backup-neo4j-restore', details: { recoveryPointId: payload.recoveryPointId, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, mode: 'alternate', confirmed } },
+    () => getBackupNeo4jRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? NEO4J_RESTORE_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:neo4j-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:neo4j-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-neo4j', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-neo4j-restore' }, () => getBackupNeo4jRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:neo4j-verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jRecoveryTestService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:neo4j-verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  let confirmed = false;
+  if (String(payload.mode || '') === NEO4J_DRILL_MODE) {
+    confirmed = await requestInAppConfirmation({
+      message: 'Run a full Neo4j recovery drill?',
+      detail: 'DeployerX authenticates the complete backup chain, revalidates the protected source, loads an empty alternate database, runs native consistency checks, and leaves the target stopped for inspection. Cleanup and rollback are not claimed.',
+      confirmLabel: 'Run recovery drill'
+    });
+  }
+  return runAuditedBackupMutation(
+    context,
+    { action: 'verification.start-neo4j', resourceType: 'verification-run', component: 'backup-neo4j-verification', details: { recoveryPointId: payload.recoveryPointId, mode: payload.mode, targetConnectionId: payload.targetConnectionId, targetDatabase: payload.targetDatabase, confirmed } },
+    () => getBackupNeo4jRecoveryTestService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? NEO4J_DRILL_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:neo4j-verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jRecoveryTestService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:neo4j-verifications:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'verification.cancel-neo4j', resourceType: 'verification-run', resourceId: payload.verificationRunId, component: 'backup-neo4j-verification' }, () => getBackupNeo4jRecoveryTestService().cancel(context.workspaceId, context.actorId, payload.verificationRunId));
+});
+
+ipcMain.handle('backup:neo4j-aggregations:preview', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jAggregationService().preview(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:neo4j-aggregations:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jAggregationService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:neo4j-aggregations:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Aggregate this Neo4j backup chain?',
+    detail: 'DeployerX authenticates every chain member, preserves the original backup media, and publishes one independently restorable full baseline. Additional temporary and repository capacity is required.',
+    confirmLabel: 'Aggregate chain'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'backup.aggregate-neo4j', resourceType: 'backup-run', component: 'backup-neo4j-aggregation', details: { recoveryPointId: payload.recoveryPointId, repositoryId: payload.repositoryId, expectedPlanId: payload.expectedPlanId, confirmed } },
+    () => getBackupNeo4jAggregationService().start(context.workspaceId, context.actorId, { ...payload, confirmed, confirmationText: confirmed ? NEO4J_AGGREGATION_CONFIRMATION : '' })
+  );
+});
+
+ipcMain.handle('backup:neo4j-aggregations:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNeo4jAggregationService().wait(context.workspaceId, payload.runId);
+});
+
+ipcMain.handle('backup:neo4j-aggregations:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'backup.cancel-neo4j-aggregation', resourceType: 'backup-run', resourceId: payload.runId, component: 'backup-neo4j-aggregation' }, () => getBackupNeo4jAggregationService().cancel(context.workspaceId, context.actorId, payload.runId));
+});
+
+ipcMain.handle('backup:redis-restores:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupRedisRestoreService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:redis-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const recoveryPointId = String(payload.recoveryPointId || '');
+  const point = recoveryPointId ? await controlDatabase.repository('recoveryPoint').get(context.workspaceId, recoveryPointId) : null;
+  const source = point ? await controlDatabase.repository('source').get(context.workspaceId, point.sourceId) : null;
+  const cluster = source?.physicalExecution?.topology === 'cluster';
+  const confirmed = await requestInAppConfirmation({
+    message: cluster ? 'Recover the Redis Cluster to an offline alternate bundle?' : 'Recover Redis to the isolated alternate directory?',
+    detail: cluster
+      ? 'The target must be absent. DeployerX authenticates the complete cluster set, natively validates every master in isolation, shuts every process down, and publishes a non-running recovery bundle.'
+      : 'The target must be absent. DeployerX authenticates every artifact, starts a loopback-only disposable Redis validation copy, shuts it down, and then publishes the untouched target directory.',
+    confirmLabel: 'Recover Redis'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-redis-alternate', resourceType: 'restore-run', component: 'backup-redis-restore', details: { recoveryPointId: payload.recoveryPointId, targetName: path.basename(String(payload.targetDirectory || '')), mode: 'alternate', topology: cluster ? 'cluster' : 'standalone', confirmed } },
+    () => getBackupRedisRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? cluster ? REDIS_RESTORE_CONFIRMATIONS.clusterAlternate : REDIS_RESTORE_CONFIRMATIONS.alternate : '' })
+  );
+});
+
+ipcMain.handle('backup:redis-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupRedisRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:redis-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-redis', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-redis-restore' }, () => getBackupRedisRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:sqlite-restores:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const confirmed = await requestInAppConfirmation({
+    message: 'Recover SQLite to the alternate path?',
+    detail: 'The target must be absent. DeployerX authenticates and validates the database in same-directory staging before atomic publication.',
+    confirmLabel: 'Recover SQLite'
+  });
+  return runAuditedBackupMutation(
+    context,
+    { action: 'restore.start-sqlite-alternate', resourceType: 'restore-run', component: 'backup-sqlite-restore', details: { recoveryPointId: payload.recoveryPointId, targetName: path.basename(String(payload.targetPath || '')), mode: 'alternate', confirmed } },
+    () => getBackupSqliteRestoreService().start(context.workspaceId, context.actorId, { ...payload, mode: 'alternate', confirmed, confirmationText: confirmed ? SQLITE_RESTORE_CONFIRMATIONS.alternate : '' })
+  );
+});
+
+ipcMain.handle('backup:sqlite-restores:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupSqliteRestoreService().wait(context.workspaceId, payload.restoreRunId);
+});
+
+ipcMain.handle('backup:sqlite-restores:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(context, { action: 'restore.cancel-sqlite', resourceType: 'restore-run', resourceId: payload.restoreRunId, component: 'backup-sqlite-restore' }, () => getBackupSqliteRestoreService().cancel(context.workspaceId, context.actorId, payload.restoreRunId));
+});
+
+ipcMain.handle('backup:verifications:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupRepositoryVerificationService().list(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:verifications:start', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: payload.mode === 'checksum' ? 'verification.start-repository-checksum' : 'verification.start-sampled-restore', resourceType: 'verification-run', component: 'backup-repository-verification', details: { mode: payload.mode, repositoryId: payload.repositoryId, recoveryPointId: payload.recoveryPointId, samplePercent: payload.samplePercent } },
+    () => getBackupRepositoryVerificationService().start(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:verifications:wait', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupRepositoryVerificationService().wait(context.workspaceId, payload.verificationRunId);
+});
+
+ipcMain.handle('backup:logs:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  const runId = String(payload.runId || '').trim();
+  const run = runId ? await getBackupControlDatabase().repository('run').get(context.workspaceId, runId) : null;
+  if (!run) throw new Error('The backup run was not found.');
+  return getBackupLogStore().list(context.workspaceId, {
+    limit: payload.limit,
+    correlationId: run.id,
+    component: 'backup-run',
+    levels: payload.levels
+  });
+});
+
+ipcMain.handle('backup:notifications:routes:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupNotificationService().listRoutes(context.workspaceId);
+});
+
+ipcMain.handle('backup:notifications:routes:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'notification-route.create', resourceType: 'notification-route', component: 'backup-notifications', details: { type: payload.type, eventCount: Array.isArray(payload.events) ? payload.events.length : 0 } },
+    () => getBackupNotificationService().createRoute(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:notifications:routes:update', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'notification-route.update', resourceType: 'notification-route', resourceId: payload.id, component: 'backup-notifications', details: { enabled: payload.enabled, eventCount: Array.isArray(payload.events) ? payload.events.length : undefined } },
+    () => getBackupNotificationService().updateRoute(context.workspaceId, context.actorId, payload.id, payload)
+  );
+});
+
+ipcMain.handle('backup:notifications:routes:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'notification-route.delete', resourceType: 'notification-route', resourceId: payload.id, component: 'backup-notifications' },
+    () => getBackupNotificationService().deleteRoute(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:notifications:routes:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'notification-route.test', resourceType: 'notification-route', resourceId: payload.id, component: 'backup-notifications' },
+    () => getBackupNotificationService().testRoute(context.workspaceId, payload.id)
+  );
+});
+
+ipcMain.handle('backup:notifications:deliveries:list', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupNotificationService().listDeliveries(context.workspaceId, payload);
+});
+
+ipcMain.handle('backup:jobs:run', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'run.start-manual-file-backup', resourceType: 'run', component: 'backup-manual-execution', details: { jobId: payload.jobId } },
+    () => getBackupManualBackupService().start(context.workspaceId, context.actorId, payload.jobId)
+  );
+});
+
+ipcMain.handle('backup:runs:resume', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'run.resume-manual-file-backup', resourceType: 'run', component: 'backup-manual-execution', details: { interruptedRunId: payload.runId } },
+    () => getBackupManualBackupService().resume(context.workspaceId, context.actorId, payload.runId)
+  );
+});
+
+ipcMain.handle('backup:runs:cancel', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'run.cancel-file-backup', resourceType: 'run', resourceId: payload.runId, component: 'backup-manual-execution' },
+    () => getBackupManualBackupService().cancel(context.workspaceId, context.actorId, payload.runId)
+  );
+});
+
+ipcMain.handle('backup:runs:retry', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'run.retry-file-backup', resourceType: 'run', resourceId: payload.runId, component: 'backup-manual-execution' },
+    () => getBackupManualBackupService().retry(context.workspaceId, context.actorId, payload.runId)
+  );
+});
+
+ipcMain.handle('backup:repositories:local:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupLocalRepositoryService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:repositories:storage-policy:update', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.update-storage-policy', resourceType: 'repository', resourceId: payload.repositoryId, component: 'backup-repository-pruning' },
+    () => getBackupRepositoryPruningService().configure(context.workspaceId, context.actorId, payload.repositoryId, payload)
+  );
+});
+
+ipcMain.handle('backup:repositories:prune-plan', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return getBackupRepositoryPruningService().plan(context.workspaceId, payload.repositoryId);
+});
+
+ipcMain.handle('backup:repositories:prune', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.prune', resourceType: 'repository', resourceId: payload.repositoryId, component: 'backup-repository-pruning', details: { planId: payload.planId } },
+    () => getBackupRepositoryPruningService().execute(context.workspaceId, context.actorId, payload.repositoryId, payload.planId)
+  );
+});
+
+ipcMain.handle('backup:repositories:local:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.test-local', resourceType: 'repository', resourceId: payload.id, component: 'backup-local-repository' },
+    () => getBackupLocalRepositoryService().test(context.workspaceId, context.actorId, payload.id)
+  );
+});
+
+ipcMain.handle('backup:repositories:local:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.create-local', resourceType: 'repository', component: 'backup-local-repository', details: { name: payload.name, rootPath: payload.rootPath } },
+    () => getBackupLocalRepositoryService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:repositories:local:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.delete-local-config', resourceType: 'repository', resourceId: payload.id, component: 'backup-local-repository' },
+    () => getBackupLocalRepositoryService().remove(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:repositories:sftp:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupSftpRepositoryService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:repositories:sftp:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.test-sftp', resourceType: 'repository', resourceId: payload.id, component: 'backup-sftp-repository' },
+    () => getBackupSftpRepositoryService().test(context.workspaceId, context.actorId, payload.id)
+  );
+});
+
+ipcMain.handle('backup:repositories:sftp:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.create-sftp', resourceType: 'repository', component: 'backup-sftp-repository', details: { name: payload.name, connectionId: payload.connectionId, rootPath: payload.rootPath } },
+    () => getBackupSftpRepositoryService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:repositories:sftp:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.delete-sftp-config', resourceType: 'repository', resourceId: payload.id, component: 'backup-sftp-repository' },
+    () => getBackupSftpRepositoryService().remove(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:repositories:s3:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupS3RepositoryService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:repositories:s3:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.test-s3', resourceType: 'repository', resourceId: payload.id, component: 'backup-s3-repository' },
+    () => getBackupS3RepositoryService().test(context.workspaceId, context.actorId, payload.id)
+  );
+});
+
+ipcMain.handle('backup:repositories:s3:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.create-s3', resourceType: 'repository', component: 'backup-s3-repository', details: { name: payload.name, endpoint: payload.endpoint, region: payload.region, bucket: payload.bucket, prefix: payload.prefix } },
+    () => getBackupS3RepositoryService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:repositories:s3:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'repository.delete-s3-config', resourceType: 'repository', resourceId: payload.id, component: 'backup-s3-repository' },
+    () => getBackupS3RepositoryService().remove(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
 
 ipcMain.handle('app:update-state', async () => publicUpdateState());
 
@@ -4346,7 +10179,15 @@ ipcMain.handle('setup:setMode', async (_event, mode) => {
   const current = await readSettings();
   if (mode === 'offline') {
     cloudUnlock = { teamId: '', key: null };
-    const settings = await writeSettings({ ...current, setupComplete: true, mode: 'offline', activeTeamId: '', auth: null });
+    const settings = await writeSettings({
+      ...current,
+      setupComplete: true,
+      mode: 'offline',
+      activeTeamId: '',
+      activeTeamName: '',
+      activeTeamUid: '',
+      auth: null
+    });
     return { ...settings, firebase: await firebaseConfigStatus() };
   }
   const settings = await writeSettings({ ...current, setupComplete: true, mode: 'cloud' });
@@ -4445,14 +10286,57 @@ ipcMain.handle('auth:resendVerification', async () => {
 });
 
 ipcMain.handle('auth:google', async () => {
-  const auth = await signInWithGoogle();
-  return finishCloudAuth(auth);
+  try {
+    const auth = await signInWithGoogle();
+    const result = await finishCloudAuth(auth);
+    setImmediate(focusMainWindow);
+    return result;
+  } catch (error) {
+    setImmediate(focusMainWindow);
+    throw error;
+  }
 });
 
 ipcMain.handle('auth:logout', async () => {
   const settings = await readSettings();
   cloudUnlock = { teamId: '', key: null };
-  await writeSettings({ ...settings, auth: null, activeTeamId: '' });
+  await writeSettings({ ...settings, auth: null });
+  return true;
+});
+
+ipcMain.handle('mcp-integration:get', async () => {
+  const settings = await readSettings();
+  return publicMcpIntegration(settings.mcpIntegration);
+});
+ipcMain.handle('mcp-integration:start', async (_event, payload = {}) => startMcpIntegration(payload));
+ipcMain.handle('mcp-integration:stop', async () => stopMcpIntegration());
+ipcMain.handle('mcp-integration:rotate-token', async () => rotateMcpToken());
+ipcMain.handle('mcp-integration:test', async () => testMcpIntegration());
+
+ipcMain.handle('auth:changePassword', async (_event, payload = {}) => {
+  const currentPassword = String(payload.currentPassword || '');
+  const newPassword = String(payload.newPassword || '');
+  if (!currentPassword || !newPassword) throw new Error('Current and new passwords are required.');
+  if (newPassword.length < 6) throw new Error('Password must be at least 6 characters.');
+
+  const auth = await requireAuthSession();
+  // Reauthenticate before changing the credential so a stale session cannot update it.
+  const reauthenticated = await firebaseAuthRequest('accounts:signInWithPassword', {
+    email: auth.email,
+    password: currentPassword,
+    returnSecureToken: true
+  });
+  const updated = await firebaseAuthRequest('accounts:update', {
+    idToken: reauthenticated.idToken,
+    password: newPassword,
+    returnSecureToken: true
+  });
+  const nextAuth = normalizeAuthSession(
+    { ...updated, email: auth.email, emailVerified: auth.emailVerified, provider: auth.provider },
+    auth.displayName || ''
+  );
+  const settings = await readSettings();
+  await writeSettings({ ...settings, auth: nextAuth });
   return true;
 });
 
@@ -4463,12 +10347,6 @@ ipcMain.handle('auth:session', async () => {
   try {
     auth = await refreshAuthSession(settings);
   } catch (error) {
-    if (shouldClearStoredAuth(error)) {
-      cloudUnlock = { teamId: '', key: null };
-      await writeSettings({ ...settings, auth: null, activeTeamId: '' });
-      return { session: null };
-    }
-
     return {
       session: publicSession(settings.auth),
       cloudError: error.message || 'Could not refresh your cloud session right now.',
@@ -4514,7 +10392,7 @@ ipcMain.handle('teams:create', async (_event, payload = {}) => {
 
   const settings = await readSettings();
   cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
-  await writeSettings({ ...settings, activeTeamId: teamId });
+  await writeSettings({ ...settings, activeTeamId: teamId, activeTeamName: name, activeTeamUid: auth.uid });
   return teamSnapshot();
 });
 
@@ -4525,7 +10403,12 @@ ipcMain.handle('teams:switch', async (_event, teamId) => {
   if (!team || !member) throw new Error('You do not have access to this team.');
   const settings = await readSettings();
   cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
-  await writeSettings({ ...settings, activeTeamId: teamId });
+  await writeSettings({
+    ...settings,
+    activeTeamId: teamId,
+    activeTeamName: team.name || 'Workspace',
+    activeTeamUid: auth.uid
+  });
   return teamSnapshot();
 });
 
@@ -4533,7 +10416,7 @@ ipcMain.handle('teams:invite', async (_event, payload = {}) => {
   const settings = await readSettings();
   const teamId = String(payload.teamId || settings.activeTeamId || '');
   const email = emailKey(payload.email);
-  const role = 'member';
+  const role = normalizeWorkspaceRole(payload.role);
   if (!teamId) throw new Error('Select a team first.');
   if (!email) throw new Error('Invite email is required.');
   await ensureTeamManager(teamId);
@@ -4583,7 +10466,7 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
     email: auth.email,
     emailLower: emailKey(auth.email),
     displayName: auth.displayName || '',
-    role: 'member',
+    role: normalizeWorkspaceRole(invite.role),
     acceptedInviteId: inviteId,
     createdAt: acceptedAt,
     updatedAt: acceptedAt
@@ -4659,7 +10542,19 @@ ipcMain.handle('cloud:import-local', async () => {
 });
 
 ipcMain.handle('projects:list', async () => {
-  const data = await readCurrentStore();
+  let data;
+  try {
+    data = await readCurrentStore();
+  } catch (error) {
+    // Login and the dashboard should remain usable when Firestore is briefly
+    // rate-limited or unavailable. Reads can be retried from the dashboard.
+    if (!isRecoverableCloudDataError(error)) throw error;
+    return {
+      projects: [],
+      templates: mergeBuiltInTemplates([]),
+      cloudError: error.message || 'Cloud data is temporarily unavailable.'
+    };
+  }
   return {
     ...data,
     templates: mergeBuiltInTemplates(data.templates)
@@ -4966,6 +10861,16 @@ ipcMain.handle('dialog:select-ftp-download', async (_event, defaultName = 'downl
   return result.filePath;
 });
 
+ipcMain.handle('dialog:select-terminal-download', async (_event, defaultName = 'download') => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Server File',
+    defaultPath: String(defaultName || 'download')
+  });
+
+  if (result.canceled || !result.filePath) return null;
+  return result.filePath;
+});
+
 ipcMain.handle('deployment:run', async (_event, payload) => {
   const runId = payload.runId || `${Date.now()}`;
   executeDeployment(payload.project, payload.upload, runId).catch(() => {});
@@ -4981,6 +10886,22 @@ ipcMain.handle('terminal:start', async (_event, payload) => {
 });
 
 ipcMain.handle('terminal:home-directory', async (_event, sessionId) => readTerminalHomeDirectory(sessionId));
+
+ipcMain.handle('terminal:list-directory', async (_event, payload) =>
+  listTerminalDirectory(payload.sessionId, payload.path)
+);
+
+ipcMain.handle('terminal:read-file', async (_event, payload) =>
+  readTerminalFile(payload.sessionId, payload.path)
+);
+
+ipcMain.handle('terminal:write-file', async (_event, payload) =>
+  writeTerminalFile(payload.sessionId, payload.path, payload.content)
+);
+
+ipcMain.handle('terminal:download', async (_event, payload) =>
+  downloadTerminalFile(payload.sessionId, payload.path, payload.localPath)
+);
 
 ipcMain.handle('terminal:upload', async (_event, payload) =>
   uploadTerminalFile(payload.sessionId, payload.localPath, payload.remoteDirectory)
@@ -5014,6 +10935,174 @@ ipcMain.handle('project-local-settings:set', async (_event, projectId, payload =
 );
 
 ipcMain.handle('project-local-settings:delete', async (_event, projectId) => deleteProjectLocalSettings(projectId));
+
+const uptimeIpcMain = {
+  handle(channel, handler) {
+    return ipcMain.handle(channel, wrapUptimeIpc(handler));
+  }
+};
+
+uptimeIpcMain.handle('uptime:monitors:list', async (_event, options = {}) => {
+  const context = await uptimeOperationalContext();
+  return getUptimeControlDatabaseV2().listMonitors(context.workspaceId, options);
+});
+
+uptimeIpcMain.handle('uptime:monitors:get', async (_event, payload = {}) => {
+  const context = await uptimeOperationalContext();
+  return getUptimeControlDatabaseV2().getMonitor(context.workspaceId, payload.id);
+});
+
+uptimeIpcMain.handle('uptime:monitors:create', async (_event, input = {}) => {
+  const context = await uptimeOperationalContext();
+  const prepared = await prepareUptimeMonitorForSave(context, input);
+  try {
+    if (!Object.prototype.hasOwnProperty.call(prepared.payload, 'nextCheckAt')) {
+      prepared.payload.nextCheckAt = ['paused', 'disabled'].includes(String(prepared.payload.state || '').toLowerCase()) ? null : nowIso();
+    }
+    const monitor = await getUptimeControlDatabaseV2().createMonitor(context.workspaceId, context.actorId, prepared.payload);
+    emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
+    await maybeStartDetachedUptimeWorker().catch(() => {});
+    return monitor;
+  } catch (error) {
+    await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
+    throw error;
+  }
+});
+
+uptimeIpcMain.handle('uptime:monitors:update', async (_event, input = {}) => {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const current = await database.getMonitor(context.workspaceId, input.id);
+  if (!current) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
+  const prepared = await prepareUptimeMonitorForSave(context, input, current);
+  try {
+    const monitor = await database.updateMonitor(context.workspaceId, context.actorId, current.id, prepared.payload, input.revision);
+    const previousRefs = Object.values(current.config?.secretHeaderRefs || {});
+    const currentRefs = new Set(Object.values(monitor.config?.secretHeaderRefs || {}).map(String));
+    await cleanupUptimeSecretReferences(context, previousRefs.filter((id) => !currentRefs.has(String(id))));
+    emitUptimeEvent('uptime:monitor-updated-v2', { monitorId: monitor.id });
+    return monitor;
+  } catch (error) {
+    await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
+    throw error;
+  }
+});
+
+uptimeIpcMain.handle('uptime:monitors:delete', async (_event, payload = {}) => {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const current = await database.getMonitor(context.workspaceId, payload.id);
+  if (!current) return { id: String(payload.id || ''), deleted: false, absent: true };
+  const result = await database.deleteMonitor(context.workspaceId, context.actorId, current.id, payload.revision);
+  if (result.deleted) {
+    await cleanupUptimeSecretReferences(context, Object.values(current.config?.secretHeaderRefs || {}));
+    emitUptimeEvent('uptime:monitor-deleted-v2', { monitorId: current.id });
+  }
+  return result;
+});
+
+uptimeIpcMain.handle('uptime:monitors:test', async (_event, input = {}) => {
+  const context = await uptimeOperationalContext();
+  const current = input.id ? await getUptimeControlDatabaseV2().getMonitor(context.workspaceId, input.id) : null;
+  const prepared = prepareUptimeMonitorForTest(context, input, current);
+  return runMonitorCheck(prepared.monitor, { secretResolver: prepared.secretResolver });
+});
+
+uptimeIpcMain.handle('uptime:monitors:run-now', async (_event, payload = {}) => {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const monitor = await database.getMonitor(context.workspaceId, payload.id);
+  if (!monitor) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
+  if (monitor.state !== 'enabled') throw Object.assign(new Error('Enable the monitor before running it.'), { code: 'UPTIME_MONITOR_NOT_ENABLED' });
+  const queued = await database.updateMonitor(context.workspaceId, context.actorId, monitor.id, { nextCheckAt: nowIso() }, monitor.revision);
+  await maybeStartDetachedUptimeWorker().catch(() => {});
+  emitUptimeEvent('uptime:monitor-run-queued-v2', { monitorId: monitor.id });
+  return { queued: true, monitorId: monitor.id, revision: queued.revision };
+});
+
+uptimeIpcMain.handle('uptime:checks:list', async (_event, payload = {}) => {
+  const context = await uptimeOperationalContext();
+  return getUptimeControlDatabaseV2().listChecks(context.workspaceId, payload.monitorId, payload);
+});
+
+uptimeIpcMain.handle('uptime:incidents:list', async (_event, options = {}) => {
+  const context = await uptimeOperationalContext();
+  return getUptimeControlDatabaseV2().listIncidents(context.workspaceId, options);
+});
+
+uptimeIpcMain.handle('uptime:incidents:acknowledge', async (_event, payload = {}) => {
+  const context = await uptimeOperationalContext();
+  if (!uptimeIncidentPolicyService) throw new Error('Uptime incident policy is not initialized.');
+  const incident = await uptimeIncidentPolicyService.acknowledge(context.workspaceId, context.actorId, payload.id, payload.revision, payload.note);
+  if (!incident) throw Object.assign(new Error('Incident was not found.'), { code: 'UPTIME_INCIDENT_NOT_FOUND' });
+  emitUptimeEvent('uptime:incident-acknowledged-v2', { monitorId: incident.monitorId, incidentId: incident.id });
+  return incident;
+});
+
+uptimeIpcMain.handle('uptime:maintenance:list', async (_event, options = {}) => {
+  const context = await uptimeOperationalContext();
+  return getUptimeControlDatabaseV2().listMaintenanceWindows(context.workspaceId, options);
+});
+
+uptimeIpcMain.handle('uptime:maintenance:create', async (_event, input = {}) => {
+  const context = await uptimeOperationalContext();
+  const maintenance = await getUptimeControlDatabaseV2().createMaintenanceWindow(context.workspaceId, context.actorId, input);
+  emitUptimeEvent('uptime:maintenance-created', { maintenanceId: maintenance.id });
+  return maintenance;
+});
+
+uptimeIpcMain.handle('uptime:maintenance:update', async (_event, input = {}) => {
+  const context = await uptimeOperationalContext();
+  const maintenance = await getUptimeControlDatabaseV2().updateMaintenanceWindow(context.workspaceId, context.actorId, input.id, input, input.revision);
+  if (!maintenance) throw Object.assign(new Error('Maintenance window was not found.'), { code: 'UPTIME_MAINTENANCE_NOT_FOUND' });
+  emitUptimeEvent('uptime:maintenance-updated', { maintenanceId: maintenance.id });
+  return maintenance;
+});
+
+uptimeIpcMain.handle('uptime:maintenance:delete', async (_event, payload = {}) => {
+  const context = await uptimeOperationalContext();
+  const result = await getUptimeControlDatabaseV2().deleteMaintenanceWindow(context.workspaceId, context.actorId, payload.id, payload.revision);
+  if (result.deleted) emitUptimeEvent('uptime:maintenance-deleted', { maintenanceId: result.id });
+  return result;
+});
+
+uptimeIpcMain.handle('uptime:worker:status', async () => getUptimeServiceStatusV2());
+uptimeIpcMain.handle('uptime:settings:get', async () => getUptimeMonitoringSettings());
+uptimeIpcMain.handle('uptime:settings:update', async (_event, input = {}) => updateUptimeMonitoringSettings(input));
+
+uptimeIpcMain.handle('uptime:reports:get', async (_event, options = {}) => buildWorkspaceUptimeReport(options));
+
+uptimeIpcMain.handle('uptime:reports:export-csv', async (_event, options = {}) => {
+  const report = await buildWorkspaceUptimeReport(options);
+  const dataset = String(options.dataset || 'summary').toLowerCase();
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Uptime report CSV',
+    defaultPath: `deployerx-uptime-${dataset}-${report.period.from.slice(0, 10)}.csv`,
+    filters: [{ name: 'CSV file', extensions: ['csv'] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  await fs.writeFile(result.filePath, reportToCsv(report, dataset), 'utf8');
+  return { canceled: false, filePath: result.filePath, dataset };
+});
+
+uptimeIpcMain.handle('uptime:reports:export-pdf', async (_event, options = {}) => {
+  const report = await buildWorkspaceUptimeReport(options);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Uptime report PDF',
+    defaultPath: `deployerx-uptime-report-${report.period.from.slice(0, 10)}.pdf`,
+    filters: [{ name: 'PDF file', extensions: ['pdf'] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  const reportWindow = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  try {
+    await reportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(uptimeReportHtml(report))}`);
+    const bytes = await reportWindow.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+    await fs.writeFile(result.filePath, bytes);
+    return { canceled: false, filePath: result.filePath };
+  } finally {
+    reportWindow.destroy();
+  }
+});
 
 ipcMain.handle('uptime:getProjectState', async (_event, projectId) => getUptimeProjectState(projectId));
 
@@ -5085,5 +11174,6 @@ ipcMain.handle('ftp:disconnect', async (_event, sessionId) => disconnectFtp(sess
 
 ipcMain.handle('emergency:stop', async () => {
   emergencyStop();
+  await rdpSessionManager?.closeAll();
   return true;
 });

@@ -1,0 +1,2120 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "native/deployerx-db-host/Cargo.lock",
+  "packageCount": 239,
+  "packages": [
+    {
+      "name": "ahash",
+      "version": "0.7.8",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/ahash-0.7.8-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/ahash-0.7.8-2-ff8f68cb076c.txt"
+      ]
+    },
+    {
+      "name": "allocator-api2",
+      "version": "0.2.21",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/allocator-api2-0.2.21-1-20fe7b00e904.txt",
+        "third_party_licenses/database-manager-rust/allocator-api2-0.2.21-2-36516aefdc84.txt"
+      ]
+    },
+    {
+      "name": "android_system_properties",
+      "version": "0.1.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/android_system_properties-0.1.6-1-216486f29671.txt",
+        "third_party_licenses/database-manager-rust/android_system_properties-0.1.6-2-80f275e90d79.txt"
+      ]
+    },
+    {
+      "name": "arrayvec",
+      "version": "0.7.8",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/arrayvec-0.7.8-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/arrayvec-0.7.8-2-4da95ec4ecb6.txt"
+      ]
+    },
+    {
+      "name": "atoi",
+      "version": "2.0.0",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/atoi-2.0.0-1-afb11426e09d.txt"
+      ]
+    },
+    {
+      "name": "autocfg",
+      "version": "1.5.1",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/autocfg-1.5.1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/autocfg-1.5.1-2-27995d58ad5c.txt"
+      ]
+    },
+    {
+      "name": "base64",
+      "version": "0.22.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/base64-0.22.1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/base64-0.22.1-2-0dd882e53de1.txt"
+      ]
+    },
+    {
+      "name": "base64ct",
+      "version": "1.6.0",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/base64ct-1.6.0-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/base64ct-1.6.0-2-4e2b34f7d4aa.txt"
+      ]
+    },
+    {
+      "name": "bitflags",
+      "version": "2.13.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/bitflags-2.13.1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/bitflags-2.13.1-2-6485b8ed310d.txt"
+      ]
+    },
+    {
+      "name": "bitvec",
+      "version": "1.1.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/bitvec-1.1.1-1-411781fd3870.txt"
+      ]
+    },
+    {
+      "name": "block-buffer",
+      "version": "0.10.4",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/block-buffer-0.10.4-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/block-buffer-0.10.4-2-d5c22aa3118d.txt"
+      ]
+    },
+    {
+      "name": "borsh",
+      "version": "1.8.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/borsh-1.8.0-1-7b724c8fa4a8.txt",
+        "third_party_licenses/database-manager-rust/borsh-1.8.0-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "borsh-derive",
+      "version": "1.8.0",
+      "license": "Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/borsh-derive-1.8.0-1-7b724c8fa4a8.txt",
+        "third_party_licenses/database-manager-rust/borsh-derive-1.8.0-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "bumpalo",
+      "version": "3.20.3",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/bumpalo-3.20.3-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/bumpalo-3.20.3-2-65f94e99ddaf.txt"
+      ]
+    },
+    {
+      "name": "bytecheck",
+      "version": "0.6.12",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/bytecheck-0.6.12-1-fd8fd6dd623c.txt"
+      ]
+    },
+    {
+      "name": "bytecheck_derive",
+      "version": "0.6.12",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/bytecheck_derive-0.6.12-1-fd8fd6dd623c.txt"
+      ]
+    },
+    {
+      "name": "byteorder",
+      "version": "1.5.0",
+      "license": "Unlicense OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/byteorder-1.5.0-1-01c266bced4a.txt",
+        "third_party_licenses/database-manager-rust/byteorder-1.5.0-2-0f96a83840e1.txt"
+      ]
+    },
+    {
+      "name": "bytes",
+      "version": "1.12.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/bytes-1.12.1-1-45f522cacecb.txt"
+      ]
+    },
+    {
+      "name": "cc",
+      "version": "1.4.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/cc-1.4.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/cc-1.4.0-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "cfg_aliases",
+      "version": "0.2.2",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/cfg_aliases-0.2.2-1-31b94860253d.txt"
+      ]
+    },
+    {
+      "name": "cfg-if",
+      "version": "1.0.4",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/cfg-if-1.0.4-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/cfg-if-1.0.4-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "chrono",
+      "version": "0.4.45",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/chrono-0.4.45-1-946c9835d803.txt"
+      ]
+    },
+    {
+      "name": "const-oid",
+      "version": "0.9.6",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/const-oid-0.9.6-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/const-oid-0.9.6-2-bada9e7ed8dc.txt"
+      ]
+    },
+    {
+      "name": "core-foundation",
+      "version": "0.10.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/core-foundation-0.10.1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/core-foundation-0.10.1-2-62065228e42c.txt"
+      ]
+    },
+    {
+      "name": "core-foundation-sys",
+      "version": "0.8.7",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/core-foundation-sys-0.8.7-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/core-foundation-sys-0.8.7-2-62065228e42c.txt"
+      ]
+    },
+    {
+      "name": "cpufeatures",
+      "version": "0.2.17",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/cpufeatures-0.2.17-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/cpufeatures-0.2.17-2-ae9baa7beea9.txt"
+      ]
+    },
+    {
+      "name": "crc",
+      "version": "3.3.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/crc-3.3.0-1-470355a7eed9.txt",
+        "third_party_licenses/database-manager-rust/crc-3.3.0-2-3488679340a4.txt"
+      ]
+    },
+    {
+      "name": "crc-catalog",
+      "version": "2.5.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/crc-catalog-2.5.0-1-6e16d19ff72a.txt",
+        "third_party_licenses/database-manager-rust/crc-catalog-2.5.0-2-508a77d2e7b5.txt"
+      ]
+    },
+    {
+      "name": "crossbeam-queue",
+      "version": "0.3.13",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/crossbeam-queue-0.3.13-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/crossbeam-queue-0.3.13-2-5734ed989dfc.txt"
+      ]
+    },
+    {
+      "name": "crossbeam-utils",
+      "version": "0.8.22",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/crossbeam-utils-0.8.22-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/crossbeam-utils-0.8.22-2-5734ed989dfc.txt"
+      ]
+    },
+    {
+      "name": "crypto-common",
+      "version": "0.1.7",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/crypto-common-0.1.7-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/crypto-common-0.1.7-2-3521672491a3.txt"
+      ]
+    },
+    {
+      "name": "der",
+      "version": "0.7.10",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/der-0.7.10-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/der-0.7.10-2-ad64fcb9589f.txt"
+      ]
+    },
+    {
+      "name": "digest",
+      "version": "0.10.7",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/digest-0.10.7-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/digest-0.10.7-2-9e0dfd2dd417.txt"
+      ]
+    },
+    {
+      "name": "displaydoc",
+      "version": "0.2.7",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/displaydoc-0.2.7-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/displaydoc-0.2.7-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "dotenvy",
+      "version": "0.15.7",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/dotenvy-0.15.7-1-37653ea50ac8.txt"
+      ]
+    },
+    {
+      "name": "either",
+      "version": "1.17.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/either-1.17.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/either-1.17.0-2-7576269ea71f.txt"
+      ]
+    },
+    {
+      "name": "equivalent",
+      "version": "1.0.2",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/equivalent-1.0.2-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/equivalent-1.0.2-2-7365cc8878a1.txt"
+      ]
+    },
+    {
+      "name": "etcetera",
+      "version": "0.8.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/etcetera-0.8.0-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/etcetera-0.8.0-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "event-listener",
+      "version": "5.4.2",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/event-listener-5.4.2-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/event-listener-5.4.2-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "find-msvc-tools",
+      "version": "0.1.9",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/find-msvc-tools-0.1.9-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/find-msvc-tools-0.1.9-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "flume",
+      "version": "0.11.1",
+      "license": "Apache-2.0/MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/flume-0.11.1-1-d8621ec2eee5.txt",
+        "third_party_licenses/database-manager-rust/flume-0.11.1-2-30fefc3a7d6a.txt"
+      ]
+    },
+    {
+      "name": "foldhash",
+      "version": "0.1.5",
+      "license": "Zlib",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/foldhash-0.1.5-1-b1181a40b2a7.txt"
+      ]
+    },
+    {
+      "name": "form_urlencoded",
+      "version": "1.2.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/form_urlencoded-1.2.2-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/form_urlencoded-1.2.2-2-20c7855c364d.txt"
+      ]
+    },
+    {
+      "name": "funty",
+      "version": "2.0.0",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/funty-2.0.0-1-f790cc576999.txt"
+      ]
+    },
+    {
+      "name": "futures-channel",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-channel-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-channel-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "futures-core",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-core-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-core-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "futures-executor",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-executor-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-executor-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "futures-intrusive",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-intrusive-0.5.0-1-4618209e1399.txt",
+        "third_party_licenses/database-manager-rust/futures-intrusive-0.5.0-2-161c4bcb09e9.txt"
+      ]
+    },
+    {
+      "name": "futures-io",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-io-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-io-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "futures-macro",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-macro-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-macro-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "futures-sink",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-sink-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-sink-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "futures-task",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-task-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-task-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "futures-util",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/futures-util-0.3.33-1-275c491d6d11.txt",
+        "third_party_licenses/database-manager-rust/futures-util-0.3.33-2-6652c868f35d.txt"
+      ]
+    },
+    {
+      "name": "generic-array",
+      "version": "0.14.7",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/generic-array-0.14.7-1-c09aae9d3c77.txt"
+      ]
+    },
+    {
+      "name": "getrandom",
+      "version": "0.2.17",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/getrandom-0.2.17-1-aaff376532ea.txt",
+        "third_party_licenses/database-manager-rust/getrandom-0.2.17-2-42fa16951ce7.txt"
+      ]
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.12.3",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/hashbrown-0.12.3-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/hashbrown-0.12.3-2-ff8f68cb076c.txt"
+      ]
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.15.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/hashbrown-0.15.5-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/hashbrown-0.15.5-2-ff8f68cb076c.txt"
+      ]
+    },
+    {
+      "name": "hashlink",
+      "version": "0.10.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/hashlink-0.10.0-1-c144680885b2.txt",
+        "third_party_licenses/database-manager-rust/hashlink-0.10.0-2-e915669a595b.txt"
+      ]
+    },
+    {
+      "name": "heck",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/heck-0.5.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/heck-0.5.0-2-7b63ecd5f190.txt"
+      ]
+    },
+    {
+      "name": "hex",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/hex-0.4.3-1-c6596eb7be85.txt",
+        "third_party_licenses/database-manager-rust/hex-0.4.3-2-f7bdb3426d04.txt"
+      ]
+    },
+    {
+      "name": "hkdf",
+      "version": "0.12.4",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/hkdf-0.12.4-1-59013a5c8d3a.txt",
+        "third_party_licenses/database-manager-rust/hkdf-0.12.4-2-d288f9c9b459.txt"
+      ]
+    },
+    {
+      "name": "hmac",
+      "version": "0.12.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/hmac-0.12.1-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/hmac-0.12.1-2-9e0dfd2dd417.txt"
+      ]
+    },
+    {
+      "name": "home",
+      "version": "0.5.9",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/home-0.5.9-1-8ada45cd9f84.txt",
+        "third_party_licenses/database-manager-rust/home-0.5.9-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "iana-time-zone",
+      "version": "0.1.65",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/iana-time-zone-0.1.65-1-696759d65dfe.txt",
+        "third_party_licenses/database-manager-rust/iana-time-zone-0.1.65-2-da28ccc6b158.txt"
+      ]
+    },
+    {
+      "name": "iana-time-zone-haiku",
+      "version": "0.1.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/iana-time-zone-haiku-0.1.2-1-696759d65dfe.txt",
+        "third_party_licenses/database-manager-rust/iana-time-zone-haiku-0.1.2-2-da28ccc6b158.txt"
+      ]
+    },
+    {
+      "name": "icu_collections",
+      "version": "1.5.0",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_collections-1.5.0-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_locid",
+      "version": "1.5.0",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_locid-1.5.0-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_locid_transform",
+      "version": "1.5.0",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_locid_transform-1.5.0-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_locid_transform_data",
+      "version": "1.5.1",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_locid_transform_data-1.5.1-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_normalizer",
+      "version": "1.5.0",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_normalizer-1.5.0-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_normalizer_data",
+      "version": "1.5.1",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_normalizer_data-1.5.1-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_properties",
+      "version": "1.5.1",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_properties-1.5.1-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_properties_data",
+      "version": "1.5.1",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_properties_data-1.5.1-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_provider",
+      "version": "1.5.0",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_provider-1.5.0-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "icu_provider_macros",
+      "version": "1.5.0",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/icu_provider_macros-1.5.0-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "idna",
+      "version": "1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/idna-1.1.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/idna-1.1.0-2-b38f11f60967.txt"
+      ]
+    },
+    {
+      "name": "idna_adapter",
+      "version": "1.2.0",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/idna_adapter-1.2.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/idna_adapter-1.2.0-2-8b43ce8accd6.txt"
+      ]
+    },
+    {
+      "name": "indexmap",
+      "version": "2.11.4",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/indexmap-2.11.4-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/indexmap-2.11.4-2-ecc269ef87fd.txt"
+      ]
+    },
+    {
+      "name": "itoa",
+      "version": "1.0.18",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/itoa-1.0.18-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/itoa-1.0.18-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "js-sys",
+      "version": "0.3.103",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/js-sys-0.3.103-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/js-sys-0.3.103-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "lazy_static",
+      "version": "1.5.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/lazy_static-1.5.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/lazy_static-1.5.0-2-0621878e61f0.txt"
+      ]
+    },
+    {
+      "name": "libc",
+      "version": "0.2.189",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/libc-0.2.189-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/libc-0.2.189-2-123a331b5dbf.txt"
+      ]
+    },
+    {
+      "name": "libm",
+      "version": "0.2.16",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/libm-0.2.16-1-3823dda7cf04.txt"
+      ]
+    },
+    {
+      "name": "libredox",
+      "version": "0.1.19",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/libredox-0.1.19-1-8d073a6a80d1.txt"
+      ]
+    },
+    {
+      "name": "libsqlite3-sys",
+      "version": "0.30.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/libsqlite3-sys-0.30.1-1-f59ba65550f2.txt"
+      ]
+    },
+    {
+      "name": "litemap",
+      "version": "0.7.4",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/litemap-0.7.4-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "lock_api",
+      "version": "0.4.14",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/lock_api-0.4.14-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/lock_api-0.4.14-2-c9a75f18b9ab.txt"
+      ]
+    },
+    {
+      "name": "log",
+      "version": "0.4.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/log-0.4.33-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/log-0.4.33-2-6485b8ed310d.txt"
+      ]
+    },
+    {
+      "name": "md-5",
+      "version": "0.10.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/md-5-0.10.6-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/md-5-0.10.6-2-b4eb00df6e2a.txt"
+      ]
+    },
+    {
+      "name": "memchr",
+      "version": "2.8.3",
+      "license": "Unlicense OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/memchr-2.8.3-1-01c266bced4a.txt",
+        "third_party_licenses/database-manager-rust/memchr-2.8.3-2-0f96a83840e1.txt"
+      ]
+    },
+    {
+      "name": "mio",
+      "version": "1.2.2",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/mio-1.2.2-1-07919255c7e0.txt"
+      ]
+    },
+    {
+      "name": "num-bigint-dig",
+      "version": "0.8.6",
+      "license": "MIT/Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/num-bigint-dig-0.8.6-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/num-bigint-dig-0.8.6-2-6485b8ed310d.txt"
+      ]
+    },
+    {
+      "name": "num-integer",
+      "version": "0.1.46",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/num-integer-0.1.46-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/num-integer-0.1.46-2-6485b8ed310d.txt"
+      ]
+    },
+    {
+      "name": "num-iter",
+      "version": "0.1.46",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/num-iter-0.1.46-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/num-iter-0.1.46-2-6485b8ed310d.txt"
+      ]
+    },
+    {
+      "name": "num-traits",
+      "version": "0.2.19",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/num-traits-0.2.19-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/num-traits-0.2.19-2-6485b8ed310d.txt"
+      ]
+    },
+    {
+      "name": "once_cell",
+      "version": "1.21.4",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/once_cell-1.21.4-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/once_cell-1.21.4-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "openssl-probe",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/openssl-probe-0.2.1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/openssl-probe-0.2.1-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "parking",
+      "version": "2.2.1",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/parking-2.2.1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/parking-2.2.1-2-23f18e03dc49.txt",
+        "third_party_licenses/database-manager-rust/parking-2.2.1-3-9a6d7a3c1b8e.txt"
+      ]
+    },
+    {
+      "name": "parking_lot",
+      "version": "0.12.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/parking_lot-0.12.5-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/parking_lot-0.12.5-2-c9a75f18b9ab.txt"
+      ]
+    },
+    {
+      "name": "parking_lot_core",
+      "version": "0.9.12",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/parking_lot_core-0.9.12-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/parking_lot_core-0.9.12-2-c9a75f18b9ab.txt"
+      ]
+    },
+    {
+      "name": "pem-rfc7468",
+      "version": "0.7.0",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/pem-rfc7468-0.7.0-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/pem-rfc7468-0.7.0-2-90c503b61dee.txt"
+      ]
+    },
+    {
+      "name": "percent-encoding",
+      "version": "2.3.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/percent-encoding-2.3.2-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/percent-encoding-2.3.2-2-b38f11f60967.txt"
+      ]
+    },
+    {
+      "name": "pin-project-lite",
+      "version": "0.2.17",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/pin-project-lite-0.2.17-1-0d542e0c8804.txt",
+        "third_party_licenses/database-manager-rust/pin-project-lite-0.2.17-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "pkcs1",
+      "version": "0.7.5",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/pkcs1-0.7.5-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/pkcs1-0.7.5-2-c995204cc6ba.txt"
+      ]
+    },
+    {
+      "name": "pkcs8",
+      "version": "0.10.2",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/pkcs8-0.10.2-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/pkcs8-0.10.2-2-ad64fcb9589f.txt"
+      ]
+    },
+    {
+      "name": "pkg-config",
+      "version": "0.3.33",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/pkg-config-0.3.33-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/pkg-config-0.3.33-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "plain",
+      "version": "0.2.3",
+      "license": "MIT/Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/plain-0.2.3-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/plain-0.2.3-2-bc12b75fd818.txt"
+      ]
+    },
+    {
+      "name": "ppv-lite86",
+      "version": "0.2.21",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/ppv-lite86-0.2.21-1-0218327e7a48.txt",
+        "third_party_licenses/database-manager-rust/ppv-lite86-0.2.21-2-4cada0bd02ea.txt"
+      ]
+    },
+    {
+      "name": "proc-macro-crate",
+      "version": "3.3.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/proc-macro-crate-3.3.0-1-8ada45cd9f84.txt",
+        "third_party_licenses/database-manager-rust/proc-macro-crate-3.3.0-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.107",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/proc-macro2-1.0.107-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/proc-macro2-1.0.107-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "ptr_meta",
+      "version": "0.1.4",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/ptr_meta-0.1.4-1-635111a95549.txt"
+      ]
+    },
+    {
+      "name": "ptr_meta_derive",
+      "version": "0.1.4",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/ptr_meta_derive-0.1.4-1-635111a95549.txt"
+      ]
+    },
+    {
+      "name": "quote",
+      "version": "1.0.47",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/quote-1.0.47-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/quote-1.0.47-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "radium",
+      "version": "0.7.0",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/radium-0.7.0-1-13f4cc9fbc8d.txt"
+      ]
+    },
+    {
+      "name": "rand",
+      "version": "0.8.7",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rand-0.8.7-1-90eb64f0279b.txt",
+        "third_party_licenses/database-manager-rust/rand-0.8.7-2-35242e7a83f6.txt",
+        "third_party_licenses/database-manager-rust/rand-0.8.7-3-209fbbe0ad52.txt"
+      ]
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rand_chacha-0.3.1-1-90eb64f0279b.txt",
+        "third_party_licenses/database-manager-rust/rand_chacha-0.3.1-2-aaff376532ea.txt",
+        "third_party_licenses/database-manager-rust/rand_chacha-0.3.1-3-209fbbe0ad52.txt"
+      ]
+    },
+    {
+      "name": "rand_core",
+      "version": "0.6.4",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rand_core-0.6.4-1-90eb64f0279b.txt",
+        "third_party_licenses/database-manager-rust/rand_core-0.6.4-2-6df43f6f4b5d.txt",
+        "third_party_licenses/database-manager-rust/rand_core-0.6.4-3-209fbbe0ad52.txt"
+      ]
+    },
+    {
+      "name": "redox_syscall",
+      "version": "0.5.18",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/redox_syscall-0.5.18-1-efcfee7981ff.txt"
+      ]
+    },
+    {
+      "name": "redox_syscall",
+      "version": "0.9.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/redox_syscall-0.9.1-1-efcfee7981ff.txt"
+      ]
+    },
+    {
+      "name": "rend",
+      "version": "0.4.2",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rend-0.4.2-1-635111a95549.txt"
+      ]
+    },
+    {
+      "name": "ring",
+      "version": "0.17.14",
+      "license": "Apache-2.0 AND ISC",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/ring-0.17.14-1-b3d734001a94.txt",
+        "third_party_licenses/database-manager-rust/ring-0.17.14-2-005fc765ddc5.txt",
+        "third_party_licenses/database-manager-rust/ring-0.17.14-3-f025ccfb7dfb.txt"
+      ]
+    },
+    {
+      "name": "rkyv",
+      "version": "0.7.46",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rkyv-0.7.46-1-635111a95549.txt"
+      ]
+    },
+    {
+      "name": "rkyv_derive",
+      "version": "0.7.46",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rkyv_derive-0.7.46-1-635111a95549.txt"
+      ]
+    },
+    {
+      "name": "rsa",
+      "version": "0.9.10",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rsa-0.9.10-1-769f80b5bcb4.txt",
+        "third_party_licenses/database-manager-rust/rsa-0.9.10-2-30fefc3a7d6a.txt"
+      ]
+    },
+    {
+      "name": "rust_decimal",
+      "version": "1.42.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rust_decimal-1.42.1-1-f8218253704e.txt"
+      ]
+    },
+    {
+      "name": "rustls",
+      "version": "0.23.43",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rustls-0.23.43-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/rustls-0.23.43-2-7cfafc877ecc.txt",
+        "third_party_licenses/database-manager-rust/rustls-0.23.43-3-709e3175b421.txt"
+      ]
+    },
+    {
+      "name": "rustls-native-certs",
+      "version": "0.8.4",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rustls-native-certs-0.8.4-1-d75967ce7881.txt",
+        "third_party_licenses/database-manager-rust/rustls-native-certs-0.8.4-2-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/rustls-native-certs-0.8.4-3-7cfafc877ecc.txt",
+        "third_party_licenses/database-manager-rust/rustls-native-certs-0.8.4-4-709e3175b421.txt"
+      ]
+    },
+    {
+      "name": "rustls-pki-types",
+      "version": "1.15.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rustls-pki-types-1.15.1-1-45fd05c4865e.txt",
+        "third_party_licenses/database-manager-rust/rustls-pki-types-1.15.1-2-9117d922e667.txt"
+      ]
+    },
+    {
+      "name": "rustls-webpki",
+      "version": "0.103.13",
+      "license": "ISC",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rustls-webpki-0.103.13-1-5b698ca13897.txt"
+      ]
+    },
+    {
+      "name": "rustversion",
+      "version": "1.0.23",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/rustversion-1.0.23-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/rustversion-1.0.23-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "ryu",
+      "version": "1.0.23",
+      "license": "Apache-2.0 OR BSL-1.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/ryu-1.0.23-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/ryu-1.0.23-2-c9bff7573892.txt"
+      ]
+    },
+    {
+      "name": "schannel",
+      "version": "0.1.29",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/schannel-0.1.29-1-aa72991ac35b.txt"
+      ]
+    },
+    {
+      "name": "scopeguard",
+      "version": "1.2.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/scopeguard-1.2.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/scopeguard-1.2.0-2-fb77f0a9c53e.txt"
+      ]
+    },
+    {
+      "name": "seahash",
+      "version": "4.1.0",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/seahash-4.1.0-1-508a77d2e7b5.txt"
+      ]
+    },
+    {
+      "name": "security-framework",
+      "version": "3.6.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/security-framework-3.6.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/security-framework-3.6.0-2-91e934255ba3.txt"
+      ]
+    },
+    {
+      "name": "security-framework-sys",
+      "version": "2.17.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/security-framework-sys-2.17.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/security-framework-sys-2.17.0-2-91e934255ba3.txt"
+      ]
+    },
+    {
+      "name": "serde",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/serde-1.0.229-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/serde-1.0.229-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "serde_core",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/serde_core-1.0.229-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/serde_core-1.0.229-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "serde_derive",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/serde_derive-1.0.229-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/serde_derive-1.0.229-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.151",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/serde_json-1.0.151-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/serde_json-1.0.151-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "serde_urlencoded",
+      "version": "0.7.1",
+      "license": "MIT/Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/serde_urlencoded-0.7.1-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/serde_urlencoded-0.7.1-2-b9eb26629432.txt"
+      ]
+    },
+    {
+      "name": "sha1",
+      "version": "0.10.7",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sha1-0.10.7-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/sha1-0.10.7-2-b4eb00df6e2a.txt"
+      ]
+    },
+    {
+      "name": "sha2",
+      "version": "0.10.9",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sha2-0.10.9-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/sha2-0.10.9-2-b4eb00df6e2a.txt"
+      ]
+    },
+    {
+      "name": "shlex",
+      "version": "2.0.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/shlex-2.0.1-1-553fffcd9b1c.txt",
+        "third_party_licenses/database-manager-rust/shlex-2.0.1-2-4455bf75a911.txt"
+      ]
+    },
+    {
+      "name": "signature",
+      "version": "2.2.0",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/signature-2.2.0-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/signature-2.2.0-2-b3470648aff0.txt"
+      ]
+    },
+    {
+      "name": "simdutf8",
+      "version": "0.1.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/simdutf8-0.1.5-1-0cec06e0e55f.txt",
+        "third_party_licenses/database-manager-rust/simdutf8-0.1.5-2-1847e0e06981.txt"
+      ]
+    },
+    {
+      "name": "slab",
+      "version": "0.4.12",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/slab-0.4.12-1-8ce0830173fd.txt"
+      ]
+    },
+    {
+      "name": "smallvec",
+      "version": "1.15.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/smallvec-1.15.2-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/smallvec-1.15.2-2-0b28172679e0.txt"
+      ]
+    },
+    {
+      "name": "socket2",
+      "version": "0.6.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/socket2-0.6.5-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/socket2-0.6.5-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "spin",
+      "version": "0.9.9",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/spin-0.9.9-1-6ac8711fb340.txt"
+      ]
+    },
+    {
+      "name": "spki",
+      "version": "0.7.3",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/spki-0.7.3-1-a9040321c371.txt",
+        "third_party_licenses/database-manager-rust/spki-0.7.3-2-c995204cc6ba.txt"
+      ]
+    },
+    {
+      "name": "sqlx",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sqlx-0.8.6-1-9be39331309b.txt",
+        "third_party_licenses/database-manager-rust/sqlx-0.8.6-2-44b1600a2603.txt"
+      ]
+    },
+    {
+      "name": "sqlx-core",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sqlx-core-0.8.6-1-9be39331309b.txt",
+        "third_party_licenses/database-manager-rust/sqlx-core-0.8.6-2-44b1600a2603.txt"
+      ]
+    },
+    {
+      "name": "sqlx-macros",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sqlx-macros-0.8.6-1-9be39331309b.txt",
+        "third_party_licenses/database-manager-rust/sqlx-macros-0.8.6-2-44b1600a2603.txt"
+      ]
+    },
+    {
+      "name": "sqlx-macros-core",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sqlx-macros-core-0.8.6-1-9be39331309b.txt",
+        "third_party_licenses/database-manager-rust/sqlx-macros-core-0.8.6-2-44b1600a2603.txt"
+      ]
+    },
+    {
+      "name": "sqlx-mysql",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sqlx-mysql-0.8.6-1-9be39331309b.txt",
+        "third_party_licenses/database-manager-rust/sqlx-mysql-0.8.6-2-44b1600a2603.txt"
+      ]
+    },
+    {
+      "name": "sqlx-postgres",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sqlx-postgres-0.8.6-1-9be39331309b.txt",
+        "third_party_licenses/database-manager-rust/sqlx-postgres-0.8.6-2-44b1600a2603.txt"
+      ]
+    },
+    {
+      "name": "sqlx-sqlite",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/sqlx-sqlite-0.8.6-1-9be39331309b.txt",
+        "third_party_licenses/database-manager-rust/sqlx-sqlite-0.8.6-2-44b1600a2603.txt"
+      ]
+    },
+    {
+      "name": "stable_deref_trait",
+      "version": "1.2.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/stable_deref_trait-1.2.1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/stable_deref_trait-1.2.1-2-5e05b024f653.txt"
+      ]
+    },
+    {
+      "name": "stringprep",
+      "version": "0.1.5",
+      "license": "MIT/Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/stringprep-0.1.5-1-c6596eb7be85.txt",
+        "third_party_licenses/database-manager-rust/stringprep-0.1.5-2-a07450fd4496.txt"
+      ]
+    },
+    {
+      "name": "subtle",
+      "version": "2.6.1",
+      "license": "BSD-3-Clause",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/subtle-2.6.1-1-d1fc1bc0d155.txt"
+      ]
+    },
+    {
+      "name": "syn",
+      "version": "1.0.109",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/syn-1.0.109-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/syn-1.0.109-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "syn",
+      "version": "2.0.119",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/syn-2.0.119-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/syn-2.0.119-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "syn",
+      "version": "3.0.3",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/syn-3.0.3-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/syn-3.0.3-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "synstructure",
+      "version": "0.13.2",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/synstructure-0.13.2-1-219920e865ee.txt"
+      ]
+    },
+    {
+      "name": "tap",
+      "version": "1.0.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tap-1.0.1-1-8b4e95f5cf0d.txt"
+      ]
+    },
+    {
+      "name": "thiserror",
+      "version": "2.0.19",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/thiserror-2.0.19-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/thiserror-2.0.19-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "thiserror-impl",
+      "version": "2.0.19",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/thiserror-impl-2.0.19-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/thiserror-impl-2.0.19-2-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "tinystr",
+      "version": "0.7.6",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tinystr-0.7.6-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "tinyvec",
+      "version": "1.12.0",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tinyvec-1.12.0-1-cfc7749b96f6.txt",
+        "third_party_licenses/database-manager-rust/tinyvec-1.12.0-2-fd80a26fbb3f.txt",
+        "third_party_licenses/database-manager-rust/tinyvec-1.12.0-3-84b34dd7608f.txt"
+      ]
+    },
+    {
+      "name": "tinyvec_macros",
+      "version": "0.1.1",
+      "license": "MIT OR Apache-2.0 OR Zlib",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tinyvec_macros-0.1.1-1-4f44572785f3.txt",
+        "third_party_licenses/database-manager-rust/tinyvec_macros-0.1.1-2-1dd8eca0f836.txt",
+        "third_party_licenses/database-manager-rust/tinyvec_macros-0.1.1-3-41ace205715d.txt"
+      ]
+    },
+    {
+      "name": "tokio",
+      "version": "1.53.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tokio-1.53.1-1-253cd04c6714.txt"
+      ]
+    },
+    {
+      "name": "tokio-macros",
+      "version": "2.7.2",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tokio-macros-2.7.2-1-0b83dc40cba8.txt"
+      ]
+    },
+    {
+      "name": "tokio-stream",
+      "version": "0.1.19",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tokio-stream-0.1.19-1-253cd04c6714.txt"
+      ]
+    },
+    {
+      "name": "toml_datetime",
+      "version": "0.6.11",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/toml_datetime-0.6.11-1-c6596eb7be85.txt",
+        "third_party_licenses/database-manager-rust/toml_datetime-0.6.11-2-6efb0476a1cc.txt"
+      ]
+    },
+    {
+      "name": "toml_edit",
+      "version": "0.22.27",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/toml_edit-0.22.27-1-c6596eb7be85.txt",
+        "third_party_licenses/database-manager-rust/toml_edit-0.22.27-2-6efb0476a1cc.txt"
+      ]
+    },
+    {
+      "name": "tracing",
+      "version": "0.1.44",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tracing-0.1.44-1-898b1ae9821e.txt"
+      ]
+    },
+    {
+      "name": "tracing-attributes",
+      "version": "0.1.31",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tracing-attributes-0.1.31-1-898b1ae9821e.txt"
+      ]
+    },
+    {
+      "name": "tracing-core",
+      "version": "0.1.36",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/tracing-core-0.1.36-1-898b1ae9821e.txt"
+      ]
+    },
+    {
+      "name": "typenum",
+      "version": "1.20.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/typenum-1.20.1-1-db11fec99467.txt",
+        "third_party_licenses/database-manager-rust/typenum-1.20.1-2-516b24e051bf.txt",
+        "third_party_licenses/database-manager-rust/typenum-1.20.1-3-a825bd853ab7.txt"
+      ]
+    },
+    {
+      "name": "unicode-bidi",
+      "version": "0.3.18",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/unicode-bidi-0.3.18-1-edb20b474f6c.txt",
+        "third_party_licenses/database-manager-rust/unicode-bidi-0.3.18-2-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/unicode-bidi-0.3.18-3-7b63ecd5f190.txt"
+      ]
+    },
+    {
+      "name": "unicode-ident",
+      "version": "1.0.24",
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/unicode-ident-1.0.24-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/unicode-ident-1.0.24-2-23f18e03dc49.txt",
+        "third_party_licenses/database-manager-rust/unicode-ident-1.0.24-3-f7db81051789.txt"
+      ]
+    },
+    {
+      "name": "unicode-normalization",
+      "version": "0.1.25",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/unicode-normalization-0.1.25-1-23860c2a7b5d.txt",
+        "third_party_licenses/database-manager-rust/unicode-normalization-0.1.25-2-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/unicode-normalization-0.1.25-3-7b63ecd5f190.txt"
+      ]
+    },
+    {
+      "name": "unicode-properties",
+      "version": "0.1.4",
+      "license": "MIT/Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/unicode-properties-0.1.4-1-23860c2a7b5d.txt",
+        "third_party_licenses/database-manager-rust/unicode-properties-0.1.4-2-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/unicode-properties-0.1.4-3-7b63ecd5f190.txt"
+      ]
+    },
+    {
+      "name": "untrusted",
+      "version": "0.9.0",
+      "license": "ISC",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/untrusted-0.9.0-1-7abd9b6960dc.txt"
+      ]
+    },
+    {
+      "name": "url",
+      "version": "2.5.8",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/url-2.5.8-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/url-2.5.8-2-b38f11f60967.txt"
+      ]
+    },
+    {
+      "name": "utf16_iter",
+      "version": "1.0.5",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/utf16_iter-1.0.5-1-b84efe109a42.txt",
+        "third_party_licenses/database-manager-rust/utf16_iter-1.0.5-2-cfc7749b96f6.txt",
+        "third_party_licenses/database-manager-rust/utf16_iter-1.0.5-3-3fa4ca83dcc9.txt"
+      ]
+    },
+    {
+      "name": "utf8_iter",
+      "version": "1.0.4",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/utf8_iter-1.0.4-1-c30152c94a6d.txt",
+        "third_party_licenses/database-manager-rust/utf8_iter-1.0.4-2-cfc7749b96f6.txt",
+        "third_party_licenses/database-manager-rust/utf8_iter-1.0.4-3-3fa4ca83dcc9.txt"
+      ]
+    },
+    {
+      "name": "uuid",
+      "version": "1.20.0",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/uuid-1.20.0-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/uuid-1.20.0-2-436bc5a105d8.txt"
+      ]
+    },
+    {
+      "name": "vcpkg",
+      "version": "0.2.15",
+      "license": "MIT/Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/vcpkg-0.2.15-1-60c93a31f490.txt",
+        "third_party_licenses/database-manager-rust/vcpkg-0.2.15-2-016d20f33506.txt"
+      ]
+    },
+    {
+      "name": "version_check",
+      "version": "0.9.5",
+      "license": "MIT/Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/version_check-0.9.5-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/version_check-0.9.5-2-b7e650f3fce5.txt"
+      ]
+    },
+    {
+      "name": "wasi",
+      "version": "0.11.1+wasi-snapshot-preview1",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/wasi-0.11.1-wasi-snapshot-preview1-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/wasi-0.11.1-wasi-snapshot-preview1-2-268872b9816f.txt",
+        "third_party_licenses/database-manager-rust/wasi-0.11.1-wasi-snapshot-preview1-3-23f18e03dc49.txt"
+      ]
+    },
+    {
+      "name": "wasite",
+      "version": "0.1.0",
+      "license": "Apache-2.0 OR BSL-1.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/wasite-0.1.0-1-6e16d19ff72a.txt",
+        "third_party_licenses/database-manager-rust/wasite-0.1.0-2-3f77c10f1437.txt",
+        "third_party_licenses/database-manager-rust/wasite-0.1.0-3-508a77d2e7b5.txt"
+      ]
+    },
+    {
+      "name": "wasm-bindgen",
+      "version": "0.2.126",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/wasm-bindgen-0.2.126-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/wasm-bindgen-0.2.126-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "wasm-bindgen-macro",
+      "version": "0.2.126",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/wasm-bindgen-macro-0.2.126-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/wasm-bindgen-macro-0.2.126-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "wasm-bindgen-macro-support",
+      "version": "0.2.126",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/wasm-bindgen-macro-support-0.2.126-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/wasm-bindgen-macro-support-0.2.126-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "wasm-bindgen-shared",
+      "version": "0.2.126",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/wasm-bindgen-shared-0.2.126-1-a60eea817514.txt",
+        "third_party_licenses/database-manager-rust/wasm-bindgen-shared-0.2.126-2-378f5840b258.txt"
+      ]
+    },
+    {
+      "name": "whoami",
+      "version": "1.6.1",
+      "license": "Apache-2.0 OR BSL-1.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/whoami-1.6.1-1-62c7a1e35f56.txt",
+        "third_party_licenses/database-manager-rust/whoami-1.6.1-2-c9bff7573892.txt",
+        "third_party_licenses/database-manager-rust/whoami-1.6.1-3-508a77d2e7b5.txt"
+      ]
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_aarch64_gnullvm-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_aarch64_gnullvm-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_aarch64_gnullvm-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_aarch64_gnullvm-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_aarch64_msvc-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_aarch64_msvc-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_aarch64_msvc-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_aarch64_msvc-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_i686_gnu-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_i686_gnu-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_i686_gnu-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_i686_gnu-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_i686_gnullvm",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_i686_gnullvm-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_i686_gnullvm-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_i686_msvc-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_i686_msvc-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_i686_msvc-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_i686_msvc-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnu-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnu-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnu-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnu-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnullvm-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnullvm-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnullvm-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_x86_64_gnullvm-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_x86_64_msvc-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_x86_64_msvc-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows_x86_64_msvc-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows_x86_64_msvc-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-core",
+      "version": "0.61.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-core-0.61.2-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-core-0.61.2-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-implement",
+      "version": "0.60.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-implement-0.60.2-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-implement-0.60.2-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-interface",
+      "version": "0.59.3",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-interface-0.59.3-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-interface-0.59.3-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-link",
+      "version": "0.1.3",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-link-0.1.3-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-link-0.1.3-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-link",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-link-0.2.1-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-link-0.2.1-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-result",
+      "version": "0.3.4",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-result-0.3.4-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-result-0.3.4-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-strings",
+      "version": "0.4.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-strings-0.4.2-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-strings-0.4.2-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.48.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-sys-0.48.0-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-sys-0.48.0-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.52.0",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-sys-0.52.0-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-sys-0.52.0-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.61.2",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-sys-0.61.2-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-sys-0.61.2-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-targets",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-targets-0.48.5-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-targets-0.48.5-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "windows-targets",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/windows-targets-0.52.6-1-c16f8dcf1a36.txt",
+        "third_party_licenses/database-manager-rust/windows-targets-0.52.6-2-c2cfccb812fe.txt"
+      ]
+    },
+    {
+      "name": "winnow",
+      "version": "0.7.15",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/winnow-0.7.15-1-cb5aedb296c5.txt"
+      ]
+    },
+    {
+      "name": "write16",
+      "version": "1.0.0",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/write16-1.0.0-1-3210be7332b5.txt",
+        "third_party_licenses/database-manager-rust/write16-1.0.0-2-cfc7749b96f6.txt",
+        "third_party_licenses/database-manager-rust/write16-1.0.0-3-3fa4ca83dcc9.txt"
+      ]
+    },
+    {
+      "name": "writeable",
+      "version": "0.5.5",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/writeable-0.5.5-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "wyz",
+      "version": "0.5.1",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/wyz-0.5.1-1-411781fd3870.txt"
+      ]
+    },
+    {
+      "name": "yoke",
+      "version": "0.7.5",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/yoke-0.7.5-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "yoke-derive",
+      "version": "0.7.5",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/yoke-derive-0.7.5-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "zerocopy",
+      "version": "0.8.55",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zerocopy-0.8.55-1-9d185ac6703c.txt",
+        "third_party_licenses/database-manager-rust/zerocopy-0.8.55-2-83c1763356e8.txt",
+        "third_party_licenses/database-manager-rust/zerocopy-0.8.55-3-1a2f5c12ddc9.txt"
+      ]
+    },
+    {
+      "name": "zerocopy-derive",
+      "version": "0.8.55",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zerocopy-derive-0.8.55-1-9d185ac6703c.txt",
+        "third_party_licenses/database-manager-rust/zerocopy-derive-0.8.55-2-83c1763356e8.txt",
+        "third_party_licenses/database-manager-rust/zerocopy-derive-0.8.55-3-1a2f5c12ddc9.txt"
+      ]
+    },
+    {
+      "name": "zerofrom",
+      "version": "0.1.8",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zerofrom-0.1.8-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "zerofrom-derive",
+      "version": "0.1.7",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zerofrom-derive-0.1.7-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "zeroize",
+      "version": "1.8.2",
+      "license": "Apache-2.0 OR MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zeroize-1.8.2-1-cfc7749b96f6.txt",
+        "third_party_licenses/database-manager-rust/zeroize-1.8.2-2-0b04ee3ce002.txt"
+      ]
+    },
+    {
+      "name": "zerovec",
+      "version": "0.10.4",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zerovec-0.10.4-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "zerovec-derive",
+      "version": "0.10.3",
+      "license": "Unicode-3.0",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zerovec-derive-0.10.3-1-f367c1b8e1aa.txt"
+      ]
+    },
+    {
+      "name": "zmij",
+      "version": "1.0.23",
+      "license": "MIT",
+      "licenseFiles": [
+        "third_party_licenses/database-manager-rust/zmij-1.0.23-1-23f18e03dc49.txt"
+      ]
+    }
+  ]
+}

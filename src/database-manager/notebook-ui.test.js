@@ -1,0 +1,64 @@
+const assert = require('node:assert/strict');
+const { execFile } = require('node:child_process');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+const { promisify } = require('node:util');
+
+const execFileAsync = promisify(execFile);
+
+test('saves, reopens, executes, and cancels responsive notebook cells', async (context) => {
+  const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'deployerx-database-notebook-ui-'));
+  context.after(async () => fs.rm(outputDirectory, { recursive: true, force: true }));
+  const { stdout } = await execFileAsync(require('electron'), [path.join(__dirname, 'notebook-ui-fixture.js'), outputDirectory], { windowsHide: true, timeout: 30000 });
+  const result = JSON.parse(stdout.trim().split(/\r?\n/).at(-1));
+  assert.equal(result.approval.title, 'Confirm production change');
+  assert.equal(result.approval.label, 'Run cell');
+  assert.equal(result.approval.source, 'notebook');
+  assert.match(result.approval.query, /^UPDATE orders/);
+  assert.doesNotMatch(result.approval.query, /SELECT 1/);
+  assert.equal(result.desktop.monacoMounted, true);
+  assert.equal(result.desktop.activeTab, 'notebooks');
+  assert.equal(result.desktop.visible, true);
+  assert.equal(result.desktop.cellCount, 3);
+  assert.equal(result.desktop.savedPayload.cells.length, 3);
+  assert.deepEqual(result.desktop.savedPayload.tags, ['ops', 'daily']);
+  assert.equal(Object.hasOwn(result.desktop.savedPayload.cells[0], 'result'), false);
+  assert.equal(Object.hasOwn(result.desktop.savedPayload, 'executions'), false);
+  assert.match(result.desktop.savedPayload.cells[0].content, /^SELECT 1;/);
+  assert.deepEqual(result.desktop.savedPayload.cells[1].chart, { sourceCellId: result.desktop.savedPayload.cells[0].id, chartType: 'line', categoryColumn: 'status', valueColumn: 'id' });
+  assert.match(result.desktop.resultText, /processing/);
+  assert.match(result.desktop.markdownText, /Review notes/);
+  assert.match(result.desktop.markdownText, /Operations/);
+  assert.match(result.desktop.markdownText, /Processing/);
+  assert.match(result.desktop.markdownHtml, /<table>/);
+  assert.match(result.desktop.markdownHtml, /<strong>Owner:<\/strong>/);
+  assert.doesNotMatch(result.desktop.markdownHtml, /<script|markdownExecuted/i);
+  assert.equal(result.desktop.chartMounted, true);
+  assert.match(result.desktop.chartText, /id by status/);
+  assert.deepEqual(result.finalState.querySources, ['notebook', 'notebook', 'notebook']);
+  assert.deepEqual(result.finalState.cancels, [result.requestId]);
+  assert.equal(result.finalState.monacoEditorsAfterTabChange, 0);
+  assert.equal(result.finalState.monacoModelsDisposed, true);
+  assert.equal(result.finalState.guardTitle, 'Discard unsaved notebook changes?');
+  assert.equal(result.finalState.guardStayedInNotebook, true);
+  assert.deepEqual(result.finalState.taskCancels, ['dbtask-import']);
+  assert.equal(result.taskProgressBeforeCancel, '45%');
+  assert.equal(result.taskDesktop.count, 2);
+  assert.equal(result.taskDesktop.visible, true);
+  assert.match(result.taskDesktop.text, /Import customer archive/);
+  assert.match(result.taskDesktop.text, /Canceled/);
+  assert.match(result.taskDesktop.text, /Nightly schema dump/);
+  assert.equal(result.taskMobile.bodyOverflowX, false);
+  assert.ok(result.taskMobile.panel.left >= 0 && result.taskMobile.panel.right <= result.taskMobile.viewport.width);
+  assert.ok(result.taskMobile.item.left >= 0 && result.taskMobile.item.right <= result.taskMobile.viewport.width);
+  assert.equal(result.mobile.bodyOverflowX, false);
+  assert.ok(result.mobile.panel.left >= 0 && result.mobile.panel.right <= result.mobile.viewport.width);
+  assert.ok(result.mobile.cell.left >= 0 && result.mobile.cell.right <= result.mobile.viewport.width);
+  for (const imagePath of [result.desktopPath, result.mobilePath, result.chartDesktopPath, result.chartMobilePath, result.taskDesktopPath, result.taskMobilePath]) {
+    const bytes = await fs.readFile(imagePath);
+    assert.equal(bytes.subarray(1, 4).toString('ascii'), 'PNG');
+    assert.ok(bytes.length > 10000);
+  }
+});
