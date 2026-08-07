@@ -1,6 +1,7 @@
 const DATABASE_MANAGER_EVENT_VERSION = 1;
 
 const EVENT_STATES = Object.freeze({
+  'access-manager-state': new Set(['launching', 'active', 'focused', 'closed', 'exited', 'failed']),
   'connection-status': new Set(['testing', 'tested', 'opening', 'ready', 'closing', 'closed', 'failed']),
   'query-progress': new Set(['running', 'succeeded', 'failed', 'cancelled']),
   'batch-completion': new Set(['succeeded', 'failed', 'cancelled']),
@@ -44,6 +45,11 @@ function normalizePayload(type, input = {}) {
   const state = requiredText(input.state, 'Database Manager event state', 40).toLowerCase();
   if (!states.has(state)) throw eventError('Database Manager event state is invalid.');
 
+  if (type === 'access-manager-state') return Object.freeze({
+    profileId: requiredText(input.profileId, 'Database profile ID'),
+    state,
+    reason: optionalText(input.reason, 'DB Access Manager event reason', 120)
+  });
   if (type === 'connection-status') return Object.freeze({
     profileId: requiredText(input.profileId, 'Database profile ID'),
     state,

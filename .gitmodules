@@ -1,0 +1,3 @@
+[submodule "DeployerX DB Manager"]
+	path = DeployerX DB Manager
+	url = https://github.com/TabularisDB/tabularis.git

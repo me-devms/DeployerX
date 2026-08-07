@@ -1,6 +1,9 @@
 const THEME_STORAGE_KEY = 'deployerx.theme';
 const THEME_DEFAULT_MIGRATION_KEY = 'deployerx.theme.default-v2';
+const DATABASE_ACCESS_WINDOW_PROFILE_ID = new URLSearchParams(window.location.search).get('databaseAccessProfileId')?.trim() || '';
+const IS_DATABASE_ACCESS_WINDOW = Boolean(DATABASE_ACCESS_WINDOW_PROFILE_ID);
 const SERVER_GROUPS_STORAGE_KEY = 'deployerx.server-groups.v1';
+const UPTIME_GROUP_CATALOG_STORAGE_KEY = 'deployerx.uptime-monitor-groups.v1';
 const SERVER_SIDEBAR_ORDER_STORAGE_KEY = 'deployerx.server-sidebar-order.v1';
 const DATABASE_QUERY_TABS_STORAGE_KEY = 'deployerx.database-query-tabs.v1';
 const BACKUP_DATABASE_ADAPTER_ID_BY_CONNECTION_KIND = Object.freeze({
@@ -86,6 +89,7 @@ function storedThemeId() {
 
 let activeThemeId = storedThemeId();
 document.documentElement.dataset.theme = activeThemeId;
+if (IS_DATABASE_ACCESS_WINDOW) document.documentElement.dataset.databaseAccessWindow = 'true';
 
 const blankProject = () => ({
   id: '',
@@ -239,7 +243,15 @@ function blankBackupBrowser(connection = null) {
 }
 
 function blankBackupJobWizard() {
-  return { step: 0, readiness: { sources: [], repositories: [] }, sourceId: '', repositoryIds: [] };
+  return {
+    step: 0,
+    readiness: { sources: [], repositories: [] },
+    sourceId: '',
+    repositoryIds: [],
+    notificationRouteIds: [],
+    draftActive: false,
+    dependency: ''
+  };
 }
 
 function blankBackupRecovery() {
@@ -384,6 +396,7 @@ const state = {
     editingProfileId: '',
     activeTab: 'connections',
     connectionStates: new Map(),
+    accessStates: new Map(),
     events: { lastSequence: 0, pluginRefreshTimer: null, schemaRefreshTimer: null },
     query: {
       running: false,
@@ -495,7 +508,9 @@ const state = {
     modalMode: 'create',
     modalMonitorId: '',
     modalStep: 1,
-    maintenanceId: ''
+    maintenanceId: '',
+    groupCatalog: { groups: [] },
+    groupModal: { mode: 'create', originalName: '' }
   },
   activeRunId: null,
   terminalSessions: {},
@@ -552,6 +567,7 @@ const state = {
   activeTemplateCategory: 'All',
   duplicateTemplateDraft: null,
   variablePrompt: null,
+  terminalUserPrompt: null,
   exportPicker: {
     type: '',
     selectedIds: new Set()
@@ -599,6 +615,8 @@ function blankTerminalSession(projectId = '', { tabId = '', label = '', startupD
     tabId: tabId || `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     label: label || 'Terminal 1',
     startupDirectory,
+    sshUserId: '',
+    sshUsername: '',
     sessionId: null,
     connected: false,
     status: 'Not connected',
@@ -2198,8 +2216,13 @@ const els = {
   backupJobName: document.getElementById('backupJobName'),
   backupJobSources: document.getElementById('backupJobSources'),
   backupJobSourcesEmpty: document.getElementById('backupJobSourcesEmpty'),
+  backupJobAddSourceDropdown: document.getElementById('backupJobAddSourceDropdown'),
+  backupJobAddSourceButton: document.getElementById('backupJobAddSourceButton'),
   backupJobRepositories: document.getElementById('backupJobRepositories'),
   backupJobRepositoriesEmpty: document.getElementById('backupJobRepositoriesEmpty'),
+  backupJobCreateLocalRepositoryButton: document.getElementById('backupJobCreateLocalRepositoryButton'),
+  backupJobCreateSftpRepositoryButton: document.getElementById('backupJobCreateSftpRepositoryButton'),
+  backupJobCreateS3RepositoryButton: document.getElementById('backupJobCreateS3RepositoryButton'),
   backupJobKeepLast: document.getElementById('backupJobKeepLast'),
   backupJobKeepHourly: document.getElementById('backupJobKeepHourly'),
   backupJobKeepDaily: document.getElementById('backupJobKeepDaily'),
@@ -2212,6 +2235,7 @@ const els = {
   backupJobRtoMinutes: document.getElementById('backupJobRtoMinutes'),
   backupJobNotificationRoutes: document.getElementById('backupJobNotificationRoutes'),
   backupJobNotificationRoutesEmpty: document.getElementById('backupJobNotificationRoutesEmpty'),
+  backupJobCreateNotificationRouteButton: document.getElementById('backupJobCreateNotificationRouteButton'),
   backupJobRetryAttempts: document.getElementById('backupJobRetryAttempts'),
   backupJobRetryBackoff: document.getElementById('backupJobRetryBackoff'),
   backupJobRetryInitialDelay: document.getElementById('backupJobRetryInitialDelay'),
@@ -2254,8 +2278,6 @@ const els = {
   backupJobBlackoutStart: document.getElementById('backupJobBlackoutStart'),
   backupJobBlackoutEnd: document.getElementById('backupJobBlackoutEnd'),
   backupJobBlackoutBehavior: document.getElementById('backupJobBlackoutBehavior'),
-  backupJobReview: document.getElementById('backupJobReview'),
-  backupJobReadiness: document.getElementById('backupJobReadiness'),
   backupCockroachDbScheduleModal: document.getElementById('backupCockroachDbScheduleModal'),
   backupCockroachDbScheduleForm: document.getElementById('backupCockroachDbScheduleForm'),
   backupCockroachDbScheduleCloseButton: document.getElementById('backupCockroachDbScheduleCloseButton'),
@@ -3170,6 +3192,11 @@ const els = {
   uptimeStateFilterButton: document.getElementById('uptimeStateFilterButton'),
   uptimeStateFilterLabel: document.getElementById('uptimeStateFilterLabel'),
   uptimeStateFilterMenu: document.getElementById('uptimeStateFilterMenu'),
+  uptimeGroupFilter: document.getElementById('uptimeGroupFilter'),
+  uptimeGroupFilterDropdown: document.getElementById('uptimeGroupFilterDropdown'),
+  uptimeGroupFilterButton: document.getElementById('uptimeGroupFilterButton'),
+  uptimeGroupFilterLabel: document.getElementById('uptimeGroupFilterLabel'),
+  uptimeGroupFilterMenu: document.getElementById('uptimeGroupFilterMenu'),
   uptimeTypeFilter: document.getElementById('uptimeTypeFilter'),
   uptimeTypeFilterDropdown: document.getElementById('uptimeTypeFilterDropdown'),
   uptimeTypeFilterButton: document.getElementById('uptimeTypeFilterButton'),
@@ -3187,6 +3214,7 @@ const els = {
   uptimeDeleteSelectedButton: document.getElementById('uptimeDeleteSelectedButton'),
   uptimeAddMonitorButton: document.getElementById('uptimeAddMonitorButton'),
   uptimeMonitorDetail: document.getElementById('uptimeMonitorDetail'),
+  uptimeBackToMonitorsButton: document.getElementById('uptimeBackToMonitorsButton'),
   uptimeSelectedMonitorStatus: document.getElementById('uptimeSelectedMonitorStatus'),
   uptimeSelectedMonitorName: document.getElementById('uptimeSelectedMonitorName'),
   uptimeSelectedMonitorMeta: document.getElementById('uptimeSelectedMonitorMeta'),
@@ -3215,14 +3243,34 @@ const els = {
   uptimeIncidentTable: document.getElementById('uptimeIncidentTable'),
   uptimeIncidentsEmpty: document.getElementById('uptimeIncidentsEmpty'),
   uptimeIncidentsEmptyCopy: document.getElementById('uptimeIncidentsEmptyCopy'),
+  uptimeReportFilterButton: document.getElementById('uptimeReportFilterButton'),
+  uptimeReportFilterCount: document.getElementById('uptimeReportFilterCount'),
+  uptimeReportFilterPanel: document.getElementById('uptimeReportFilterPanel'),
+  uptimeClearReportFiltersButton: document.getElementById('uptimeClearReportFiltersButton'),
+  uptimeReportRangeDropdown: document.getElementById('uptimeReportRangeDropdown'),
   uptimeReportRange: document.getElementById('uptimeReportRange'),
+  uptimeReportRangeButton: document.getElementById('uptimeReportRangeButton'),
+  uptimeReportRangeLabel: document.getElementById('uptimeReportRangeLabel'),
+  uptimeReportRangeMenu: document.getElementById('uptimeReportRangeMenu'),
   uptimeReportFromField: document.getElementById('uptimeReportFromField'),
   uptimeReportToField: document.getElementById('uptimeReportToField'),
   uptimeReportFrom: document.getElementById('uptimeReportFrom'),
   uptimeReportTo: document.getElementById('uptimeReportTo'),
+  uptimeReportMonitorDropdown: document.getElementById('uptimeReportMonitorDropdown'),
   uptimeReportMonitor: document.getElementById('uptimeReportMonitor'),
+  uptimeReportMonitorButton: document.getElementById('uptimeReportMonitorButton'),
+  uptimeReportMonitorLabel: document.getElementById('uptimeReportMonitorLabel'),
+  uptimeReportMonitorMenu: document.getElementById('uptimeReportMonitorMenu'),
+  uptimeReportGroupDropdown: document.getElementById('uptimeReportGroupDropdown'),
   uptimeReportGroup: document.getElementById('uptimeReportGroup'),
+  uptimeReportGroupButton: document.getElementById('uptimeReportGroupButton'),
+  uptimeReportGroupLabel: document.getElementById('uptimeReportGroupLabel'),
+  uptimeReportGroupMenu: document.getElementById('uptimeReportGroupMenu'),
+  uptimeReportProjectDropdown: document.getElementById('uptimeReportProjectDropdown'),
   uptimeReportProject: document.getElementById('uptimeReportProject'),
+  uptimeReportProjectButton: document.getElementById('uptimeReportProjectButton'),
+  uptimeReportProjectLabel: document.getElementById('uptimeReportProjectLabel'),
+  uptimeReportProjectMenu: document.getElementById('uptimeReportProjectMenu'),
   uptimeApplyReportButton: document.getElementById('uptimeApplyReportButton'),
   uptimeCsvDataset: document.getElementById('uptimeCsvDataset'),
   uptimeExportCsvButton: document.getElementById('uptimeExportCsvButton'),
@@ -3304,7 +3352,11 @@ const els = {
   uptimeMonitorStepButtons: Array.from(document.querySelectorAll('[data-uptime-monitor-step-button]')),
   uptimeMonitorStepPanels: Array.from(document.querySelectorAll('[data-uptime-monitor-step]')),
   uptimeMonitorName: document.getElementById('uptimeMonitorName'),
+  uptimeMonitorTypeDropdown: document.getElementById('uptimeMonitorTypeDropdown'),
   uptimeMonitorType: document.getElementById('uptimeMonitorType'),
+  uptimeMonitorTypeButton: document.getElementById('uptimeMonitorTypeButton'),
+  uptimeMonitorTypeLabel: document.getElementById('uptimeMonitorTypeLabel'),
+  uptimeMonitorTypeMenu: document.getElementById('uptimeMonitorTypeMenu'),
   uptimeMonitorProject: document.getElementById('uptimeMonitorProject'),
   uptimeMonitorGroup: document.getElementById('uptimeMonitorGroup'),
   uptimeMonitorTags: document.getElementById('uptimeMonitorTags'),
@@ -3492,6 +3544,14 @@ const els = {
   variablePromptCancelButton: document.getElementById('variablePromptCancelButton'),
   variablePromptSaveButton: document.getElementById('variablePromptSaveButton'),
   variablePromptSaveLabel: document.getElementById('variablePromptSaveLabel'),
+  terminalUserPromptModal: document.getElementById('terminalUserPromptModal'),
+  terminalUserPromptForm: document.getElementById('terminalUserPromptForm'),
+  terminalUserPromptTitle: document.getElementById('terminalUserPromptTitle'),
+  terminalUserPromptDetail: document.getElementById('terminalUserPromptDetail'),
+  terminalUserPromptList: document.getElementById('terminalUserPromptList'),
+  terminalUserPromptCloseButton: document.getElementById('terminalUserPromptCloseButton'),
+  terminalUserPromptCancelButton: document.getElementById('terminalUserPromptCancelButton'),
+  terminalUserPromptConnectButton: document.getElementById('terminalUserPromptConnectButton'),
   confirmModal: document.getElementById('confirmModal'),
   confirmModalTitle: document.getElementById('confirmModalTitle'),
   confirmModalDetail: document.getElementById('confirmModalDetail'),
@@ -3535,6 +3595,19 @@ const els = {
   serverGroupCancelButton: document.getElementById('serverGroupCancelButton'),
   serverGroupSaveButton: document.getElementById('serverGroupSaveButton'),
   serverGroupSaveLabel: document.getElementById('serverGroupSaveLabel'),
+  uptimeMonitorGroupCreateButton: document.getElementById('uptimeMonitorGroupCreateButton'),
+  uptimeMonitorGroupList: document.getElementById('uptimeMonitorGroupList'),
+  uptimeMonitorGroupsEmpty: document.getElementById('uptimeMonitorGroupsEmpty'),
+  uptimeGroupModal: document.getElementById('uptimeGroupModal'),
+  uptimeGroupForm: document.getElementById('uptimeGroupForm'),
+  uptimeGroupModalTitle: document.getElementById('uptimeGroupModalTitle'),
+  uptimeGroupModalSubtitle: document.getElementById('uptimeGroupModalSubtitle'),
+  uptimeGroupNameLabel: document.getElementById('uptimeGroupNameLabel'),
+  uptimeGroupName: document.getElementById('uptimeGroupName'),
+  uptimeGroupCloseButton: document.getElementById('uptimeGroupCloseButton'),
+  uptimeGroupCancelButton: document.getElementById('uptimeGroupCancelButton'),
+  uptimeGroupSaveButton: document.getElementById('uptimeGroupSaveButton'),
+  uptimeGroupSaveLabel: document.getElementById('uptimeGroupSaveLabel'),
   settingsAppVersion: document.getElementById('settingsAppVersion'),
   settingsUptimeWorkerStatus: document.getElementById('settingsUptimeWorkerStatus'),
   settingsUptimeWorkerMeta: document.getElementById('settingsUptimeWorkerMeta'),
@@ -3753,7 +3826,10 @@ let dashboardOperationsLoaded = false;
 let backupRunPollTimer = null;
 let uptimeRefreshInFlight = false;
 let confirmModalResolve = null;
+let confirmModalFocusOrigin = null;
 let variablePromptResolve = null;
+let terminalUserPromptResolve = null;
+let terminalUserPromptFocusOrigin = null;
 const pendingActions = new Set();
 let backupBrowserRequestId = 0;
 let backupConnectionsLoadPromise = null;
@@ -4613,7 +4689,7 @@ function renderUptimeKeyValueList(target, items) {
 
 function renderUptimeMonitorList() {
   if (!state.uptime.project.projectId) {
-    els.uptimeMonitorListMeta.textContent = 'No server selected.';
+    if (els.uptimeMonitorListMeta) els.uptimeMonitorListMeta.textContent = 'No server selected.';
     els.uptimeMonitorList.innerHTML = `
       <div class="uptime-empty-state compact">
         <strong>No server available</strong>
@@ -4624,7 +4700,7 @@ function renderUptimeMonitorList() {
   }
 
   const monitors = state.uptime.project.monitors || [];
-  els.uptimeMonitorListMeta.textContent = `${state.uptime.project.projectName || 'Server'} · ${monitors.length} configured monitor${monitors.length === 1 ? '' : 's'}`;
+  if (els.uptimeMonitorListMeta) els.uptimeMonitorListMeta.textContent = `${state.uptime.project.projectName || 'Server'} · ${monitors.length} configured monitor${monitors.length === 1 ? '' : 's'}`;
   if (!monitors.length) {
     els.uptimeMonitorList.innerHTML = `
       <div class="uptime-empty-state compact">
@@ -4830,6 +4906,47 @@ function startUptimeAutoRefresh() {
   }, 2500);
 }
 
+function closeUptimeMonitorTypeMenu({ focusTrigger = false } = {}) {
+  els.uptimeMonitorTypeDropdown.classList.remove('is-open');
+  els.uptimeMonitorTypeMenu.classList.add('hidden');
+  els.uptimeMonitorTypeMenu.classList.remove('opens-up');
+  els.uptimeMonitorTypeMenu.style.removeProperty('--template-menu-space');
+  els.uptimeMonitorTypeButton.setAttribute('aria-expanded', 'false');
+  if (focusTrigger) els.uptimeMonitorTypeButton.focus();
+}
+
+function openUptimeMonitorTypeMenu() {
+  const triggerRect = els.uptimeMonitorTypeButton.getBoundingClientRect();
+  const modalRect = els.uptimeMonitorForm.getBoundingClientRect();
+  const spaceBelow = Math.max(0, modalRect.bottom - triggerRect.bottom - 76);
+  const spaceAbove = Math.max(0, triggerRect.top - modalRect.top - 12);
+  const opensUp = spaceBelow < 150 && spaceAbove > spaceBelow;
+  const availableSpace = Math.max(120, Math.min(220, opensUp ? spaceAbove : spaceBelow));
+  els.uptimeMonitorTypeDropdown.classList.add('is-open');
+  els.uptimeMonitorTypeMenu.classList.toggle('opens-up', opensUp);
+  els.uptimeMonitorTypeMenu.style.setProperty('--template-menu-space', `${availableSpace}px`);
+  els.uptimeMonitorTypeMenu.classList.remove('hidden');
+  els.uptimeMonitorTypeButton.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => {
+    const selected = els.uptimeMonitorTypeMenu.querySelector('[aria-selected="true"]');
+    (selected || els.uptimeMonitorTypeMenu.querySelector('.workspace-switcher-option'))?.focus();
+  });
+}
+
+function renderUptimeMonitorTypeDropdown() {
+  const options = Array.from(els.uptimeMonitorType.options);
+  const selected = options.find((option) => option.value === els.uptimeMonitorType.value) || options[0];
+  if (!selected) return;
+  els.uptimeMonitorType.value = selected.value;
+  els.uptimeMonitorTypeLabel.textContent = selected.textContent;
+  els.uptimeMonitorTypeButton.setAttribute('aria-label', `Type: ${selected.textContent}`);
+  els.uptimeMonitorTypeMenu.innerHTML = options.map((option) => {
+    const isSelected = option.value === selected.value;
+    return `<button class="workspace-switcher-option" type="button" role="option" data-uptime-monitor-type="${escapeHtml(option.value)}" aria-selected="${isSelected}" tabindex="-1"><span>${escapeHtml(option.textContent)}</span>${isSelected ? icon('check') : ''}</button>`;
+  }).join('');
+  closeUptimeMonitorTypeMenu();
+}
+
 function updateUptimeMonitorTypeFields() {
   const isTcp = els.uptimeMonitorType.value === 'tcp';
   els.uptimeTcpFields.classList.toggle('hidden', !isTcp);
@@ -5001,6 +5118,195 @@ function uptimeStatusLabel(status) {
   return ({ up: 'Up', down: 'Down', warning: 'Warning', maintenance: 'Maintenance', paused: 'Paused', disabled: 'Disabled', unknown: 'Unknown', queued: 'Queued' })[status] || 'Unknown';
 }
 
+const UPTIME_UNGROUPED_VALUE = '__ungrouped__';
+const UPTIME_STANDALONE_SERVER_VALUE = '__standalone_monitor__';
+
+function uptimeGroupLabel(group = '') {
+  return String(group || '').trim() || 'Ungrouped';
+}
+
+function uptimeGroupValue(group = '') {
+  return String(group || '').trim() ? String(group).trim() : UPTIME_UNGROUPED_VALUE;
+}
+
+function uptimeLinkedProject(monitor = {}) {
+  const projectId = String(monitor.projectId || '').trim();
+  return projectId ? state.projects.find((project) => String(project.id) === projectId) || null : null;
+}
+
+function uptimeServerLinkLabel(monitor = {}) {
+  const project = uptimeLinkedProject(monitor);
+  if (project) return String(project.name || '').trim() || 'Untitled Server';
+  if (String(monitor.projectId || '').trim()) return String(monitor.parentGroup || '').trim() || 'Unavailable Server';
+  return 'Standalone Monitor';
+}
+
+function uptimeServerLinkValue(monitor = {}) {
+  const projectId = String(monitor.projectId || '').trim();
+  return projectId ? `server:${projectId}` : UPTIME_STANDALONE_SERVER_VALUE;
+}
+
+function uptimeGroupHierarchyKey(monitor = {}) {
+  return `${uptimeServerLinkValue(monitor)}::${uptimeGroupValue(monitor.group)}`;
+}
+
+function uptimeGroupHierarchyLabel(monitor = {}) {
+  return `${uptimeServerLinkLabel(monitor)} / ${uptimeGroupLabel(monitor.group)}`;
+}
+
+function normalizeUptimeGroupName(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ');
+}
+
+function dedupeUptimeGroupNames(names = []) {
+  const unique = new Map();
+  for (const value of names) {
+    const name = normalizeUptimeGroupName(value);
+    if (!name) continue;
+    const key = name.toLocaleLowerCase();
+    if (!unique.has(key)) unique.set(key, name);
+  }
+  return [...unique.values()].sort((left, right) => left.localeCompare(right));
+}
+
+function uptimeGroupCatalogStorageKey() {
+  return `${UPTIME_GROUP_CATALOG_STORAGE_KEY}:${workspaceStorageScope()}`;
+}
+
+function readUptimeGroupCatalog() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(uptimeGroupCatalogStorageKey()) || '{}');
+    return { groups: dedupeUptimeGroupNames(stored?.groups) };
+  } catch {
+    return { groups: [] };
+  }
+}
+
+function persistUptimeGroupCatalog() {
+  state.uptime.groupCatalog = { groups: dedupeUptimeGroupNames(state.uptime.groupCatalog.groups) };
+  try {
+    window.localStorage.setItem(uptimeGroupCatalogStorageKey(), JSON.stringify(state.uptime.groupCatalog));
+  } catch {
+    // Monitor assignments still remain persisted with the monitor records.
+  }
+}
+
+function currentUptimeGroupCatalog() {
+  const stored = readUptimeGroupCatalog();
+  return { groups: dedupeUptimeGroupNames([...stored.groups, ...state.uptime.monitors.map((monitor) => monitor.group)]) };
+}
+
+function renderUptimeGroupSettings() {
+  if (!els.uptimeMonitorGroupList) return;
+  const catalog = currentUptimeGroupCatalog();
+  state.uptime.groupCatalog = catalog;
+  const groupRows = catalog.groups.map((group) => {
+    const count = state.uptime.monitors.filter((monitor) => normalizeUptimeGroupName(monitor.group).toLocaleLowerCase() === group.toLocaleLowerCase()).length;
+    return `<div class="monitor-group-settings-row"><span class="monitor-group-settings-copy"><strong>${escapeHtml(group)}</strong><small>${count} monitor${count === 1 ? '' : 's'}</small></span><span class="monitor-group-settings-actions"><button class="icon-button compact" type="button" data-edit-uptime-group="${escapeHtml(group)}" aria-label="Edit monitor group ${escapeHtml(group)}" title="Edit">${icon('edit')}</button><button class="icon-button compact danger" type="button" data-delete-uptime-group="${escapeHtml(group)}" aria-label="Delete monitor group ${escapeHtml(group)}" title="Delete">${icon('trash')}</button></span></div>`;
+  }).join('');
+  els.uptimeMonitorGroupList.innerHTML = groupRows;
+  els.uptimeMonitorGroupList.classList.toggle('hidden', !groupRows);
+  els.uptimeMonitorGroupsEmpty.classList.toggle('hidden', Boolean(groupRows));
+}
+
+function openUptimeGroupModal(name = '') {
+  const normalizedName = normalizeUptimeGroupName(name);
+  state.uptime.groupModal = { mode: normalizedName ? 'edit' : 'create', originalName: normalizedName };
+  els.uptimeGroupModalTitle.textContent = normalizedName ? 'Edit monitor group' : 'Create monitor group';
+  els.uptimeGroupModalSubtitle.textContent = 'Manage a subgroup used beneath linked servers.';
+  els.uptimeGroupNameLabel.textContent = 'Monitor group name';
+  els.uptimeGroupName.placeholder = 'Enter monitor group';
+  els.uptimeGroupSaveLabel.textContent = normalizedName ? 'Save changes' : 'Create group';
+  els.uptimeGroupName.value = normalizedName;
+  els.uptimeGroupName.setCustomValidity('');
+  setModalVisible(true, els.uptimeGroupModal);
+  requestAnimationFrame(() => {
+    els.uptimeGroupName.focus();
+    if (normalizedName) els.uptimeGroupName.select();
+  });
+}
+
+function closeUptimeGroupModal() {
+  setModalVisible(false, els.uptimeGroupModal);
+  els.uptimeGroupForm.reset();
+  els.uptimeGroupName.setCustomValidity('');
+  state.uptime.groupModal = { mode: 'create', originalName: '' };
+}
+
+function validateUptimeGroupName(name, originalName = '') {
+  if (!name) return 'Enter a group name.';
+  const duplicate = currentUptimeGroupCatalog().groups.some((value) => value.toLocaleLowerCase() === name.toLocaleLowerCase() && value.toLocaleLowerCase() !== originalName.toLocaleLowerCase());
+  return duplicate ? 'A monitor group with this name already exists.' : '';
+}
+
+async function updateUptimeGroupReferences(originalName, nextName) {
+  const key = originalName.toLocaleLowerCase();
+  const affected = state.uptime.monitors.filter((monitor) => normalizeUptimeGroupName(monitor.group).toLocaleLowerCase() === key);
+  if (!affected.length) return;
+  await Promise.all(affected.map((monitor) => window.deployerx.updateUptimeMonitor({
+    id: monitor.id,
+    revision: monitor.revision,
+    group: nextName
+  })));
+  await refreshUptimeProjectState({ preserveSelection: true });
+}
+
+async function saveUptimeGroupFromModal(event) {
+  event.preventDefault();
+  const { mode, originalName } = state.uptime.groupModal;
+  const name = normalizeUptimeGroupName(els.uptimeGroupName.value);
+  const validationMessage = validateUptimeGroupName(name, originalName);
+  els.uptimeGroupName.setCustomValidity(validationMessage);
+  if (validationMessage) {
+    els.uptimeGroupName.reportValidity();
+    return;
+  }
+  if (mode === 'edit' && name !== originalName) await updateUptimeGroupReferences(originalName, name);
+  const catalog = currentUptimeGroupCatalog();
+  if (mode === 'edit') catalog.groups.splice(catalog.groups.findIndex((value) => value.toLocaleLowerCase() === originalName.toLocaleLowerCase()), 1, name);
+  else catalog.groups.push(name);
+  state.uptime.groupCatalog = catalog;
+  persistUptimeGroupCatalog();
+  closeUptimeGroupModal();
+  renderUptimeGroupSettings();
+  renderUptimeOverview();
+  renderUptimeMonitorTable();
+  showToast(mode === 'edit' ? 'Monitor group updated' : 'Monitor group created');
+}
+
+async function deleteUptimeGroup(name, button) {
+  const normalizedName = normalizeUptimeGroupName(name);
+  const count = state.uptime.monitors.filter((monitor) => normalizeUptimeGroupName(monitor.group).toLocaleLowerCase() === normalizedName.toLocaleLowerCase()).length;
+  const confirmed = await confirmDangerousAction(`Delete ${normalizedName}?`, count ? `${count} monitor${count === 1 ? '' : 's'} will become ungrouped. Monitors will not be deleted.` : 'The group will be removed. No monitors will be deleted.', 'Delete group');
+  if (!confirmed) return;
+  await withButtonLoading(`uptime-group:delete:${normalizedName.toLocaleLowerCase()}`, button, async () => {
+    await updateUptimeGroupReferences(normalizedName, '');
+    const catalog = currentUptimeGroupCatalog();
+    state.uptime.groupCatalog = { groups: catalog.groups.filter((value) => value.toLocaleLowerCase() !== normalizedName.toLocaleLowerCase()) };
+    persistUptimeGroupCatalog();
+  });
+  renderUptimeGroupSettings();
+  renderUptimeOverview();
+  renderUptimeMonitorTable();
+  showToast('Monitor group deleted');
+}
+
+function uptimeGroupSummaries(monitors = state.uptime.monitors) {
+  const summaries = new Map();
+  for (const monitor of monitors) {
+    const key = uptimeGroupHierarchyKey(monitor);
+    const summary = summaries.get(key) || { key, name: uptimeGroupHierarchyLabel(monitor), monitors: [], healthy: 0, incidents: 0 };
+    summary.monitors.push(monitor);
+    if (currentUptimeStatus(monitor) === 'up') summary.healthy += 1;
+    summaries.set(key, summary);
+  }
+  for (const summary of summaries.values()) {
+    const monitorIds = new Set(summary.monitors.map((monitor) => monitor.id));
+    summary.incidents = state.uptime.incidents.filter((incident) => monitorIds.has(incident.monitorId) && incident.state !== 'resolved').length;
+  }
+  return [...summaries.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function selectedUptimeMonitor() {
   return state.uptime.monitors.find((monitor) => String(monitor.id) === String(state.uptime.selectedMonitorId)) || null;
 }
@@ -5015,6 +5321,83 @@ function uptimePercent(value, digits = 2) {
   return value == null || !Number.isFinite(Number(value)) ? '--' : `${Number(value).toFixed(digits)}%`;
 }
 
+function uptimeChartLatency(check = {}) {
+  if (check.latencyMs == null || check.latencyMs === '') return null;
+  const latency = Number(check.latencyMs);
+  return Number.isFinite(latency) && latency >= 0 ? latency : null;
+}
+
+function uptimeChartTimeLabel(value, includeDate = false) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '--';
+  return date.toLocaleString(undefined, includeDate
+    ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+    : { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
+function uptimeLatencyScaleMaximum(value) {
+  const target = Math.max(10, Number(value) || 0);
+  const rawStep = target / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalizedStep = rawStep / magnitude;
+  const stepFactor = normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10;
+  const step = stepFactor * magnitude;
+  return Math.ceil(target / step) * step;
+}
+
+function renderUptimeLatencyChart(checks, monitor) {
+  const latencies = checks.map(uptimeChartLatency).filter((latency) => latency != null).sort((left, right) => left - right);
+  const p95 = latencies.length ? latencies[Math.max(0, Math.ceil(latencies.length * 0.95) - 1)] : null;
+  const warningLatency = Number(monitor.alertPolicy?.latencyWarningMs);
+  const observedMaximum = Math.max(0, ...latencies);
+  const scaleTarget = Math.max(observedMaximum * 1.1, Number.isFinite(warningLatency) && warningLatency > 0 ? warningLatency * 1.1 : 0);
+  const scaleMaximum = uptimeLatencyScaleMaximum(scaleTarget);
+  els.uptimeSelectedMonitorP95.textContent = p95 == null ? 'P95 --' : `P95 ${Math.round(p95 * 100) / 100} ms`;
+  els.uptimeLatencyChart.classList.toggle('is-empty', checks.length === 0);
+
+  if (!checks.length) {
+    els.uptimeLatencyChart.setAttribute('aria-label', 'No response-time evidence yet');
+    els.uptimeLatencyChart.innerHTML = '<span class="uptime-inline-empty">No response-time evidence yet.</span>';
+    return;
+  }
+
+  const firstAt = checks[0]?.completedAt;
+  const lastAt = checks[checks.length - 1]?.completedAt;
+  const crossesDate = new Date(firstAt).toDateString() !== new Date(lastAt).toDateString();
+  const ticks = Array.from({ length: 5 }, (_, index) => Math.round(scaleMaximum * (4 - index) / 4));
+  const labelCount = Math.min(5, checks.length);
+  const labelIndexes = labelCount === 1
+    ? [0]
+    : [...new Set(Array.from({ length: labelCount }, (_, index) => Math.round(index * (checks.length - 1) / (labelCount - 1))))];
+  const axisLabels = labelIndexes.map((checkIndex, labelIndex) => {
+    const position = checks.length === 1 ? 0 : checkIndex / (checks.length - 1) * 100;
+    const alignment = labelIndex === 0 ? 'is-first' : labelIndex === labelIndexes.length - 1 ? 'is-last' : '';
+    return `<span class="${alignment}" style="left:${position}%">${escapeHtml(uptimeChartTimeLabel(checks[checkIndex]?.completedAt, crossesDate))}</span>`;
+  }).join('');
+  const bars = checks.map((check) => {
+    const latency = uptimeChartLatency(check);
+    const height = latency == null ? 2 : Math.max(3, Math.min(100, latency / scaleMaximum * 100));
+    const valueLabel = latency == null ? check.summary || 'No response' : formatLatency(latency);
+    const detail = `${formatDateTime(check.completedAt)} - ${uptimeStatusLabel(check.outcome)} - ${valueLabel}`;
+    return `<span class="uptime-latency-point" tabindex="0" aria-label="${escapeHtml(detail)}" title="${escapeHtml(detail)}"><i class="uptime-latency-bar status-${escapeHtml(check.outcome)} ${latency == null ? 'is-missing' : ''}" style="height:${height}%"></i></span>`;
+  }).join('');
+  const warningLine = Number.isFinite(warningLatency) && warningLatency > 0 && warningLatency <= scaleMaximum
+    ? `<span class="uptime-latency-threshold" style="bottom:${warningLatency / scaleMaximum * 100}%"><small>Warning ${escapeHtml(formatLatency(warningLatency))}</small></span>`
+    : '';
+  els.uptimeLatencyChart.setAttribute('aria-label', `Response times from ${formatDateTime(firstAt)} to ${formatDateTime(lastAt)}. Maximum scale ${scaleMaximum} milliseconds.`);
+  els.uptimeLatencyChart.innerHTML = `
+    <div class="uptime-latency-frame">
+      <div class="uptime-latency-y-axis" aria-hidden="true">${ticks.map((tick) => `<span>${escapeHtml(formatLatency(tick))}</span>`).join('')}</div>
+      <div class="uptime-latency-plot">
+        <div class="uptime-latency-grid" aria-hidden="true">${ticks.map(() => '<span></span>').join('')}</div>
+        ${warningLine}
+        <div class="uptime-latency-bars" style="--uptime-chart-points:${checks.length}">${bars}</div>
+        <div class="uptime-latency-x-axis" aria-hidden="true">${axisLabels}</div>
+      </div>
+    </div>
+    <div class="uptime-latency-legend"><span><i class="status-up"></i>Healthy</span><span><i class="status-warning"></i>Warning</span><span><i class="status-down"></i>Failed</span><small>${checks.length} recent check${checks.length === 1 ? '' : 's'}</small></div>`;
+}
+
 function uptimeDuration(milliseconds) {
   const value = Math.max(0, Number(milliseconds) || 0);
   if (value < 60000) return `${Math.round(value / 1000)} sec`;
@@ -5024,7 +5407,16 @@ function uptimeDuration(milliseconds) {
 }
 
 function setUptimeTab(tab) {
-  state.uptime.activeTab = ['overview', 'monitors', 'incidents', 'reports', 'maintenance'].includes(tab) ? tab : 'overview';
+  const nextTab = ['overview', 'monitors', 'incidents', 'reports', 'maintenance'].includes(tab) ? tab : 'overview';
+  if (state.uptime.activeTab === 'monitors' && nextTab !== 'monitors') {
+    state.uptime.selectedMonitorId = '';
+    state.uptime.selectedMonitorHistory = [];
+    state.uptime.selectedMonitorIncidents = [];
+    state.uptime.selectedMonitorDeliveries = [];
+    els.uptimeMonitorTableCard.classList.remove('hidden');
+    els.uptimeMonitorDetail.classList.add('hidden');
+  }
+  state.uptime.activeTab = nextTab;
   for (const button of els.uptimeTabs) button.classList.toggle('active', button.dataset.uptimeTab === state.uptime.activeTab);
   for (const panel of els.uptimePanels) panel.classList.toggle('active', panel.dataset.uptimePanel === state.uptime.activeTab);
   if (state.uptime.activeTab === 'reports' && !state.uptime.report) loadUptimeReport().catch((error) => showAlert(error.message || 'Could not load the Uptime report.'));
@@ -5033,6 +5425,7 @@ function setUptimeTab(tab) {
 function uptimeMonitorFilterDropdowns() {
   return [
     { name: 'State', dropdown: els.uptimeStateFilterDropdown, select: els.uptimeStateFilter, button: els.uptimeStateFilterButton, label: els.uptimeStateFilterLabel, menu: els.uptimeStateFilterMenu },
+    { name: 'Group', dropdown: els.uptimeGroupFilterDropdown, select: els.uptimeGroupFilter, button: els.uptimeGroupFilterButton, label: els.uptimeGroupFilterLabel, menu: els.uptimeGroupFilterMenu },
     { name: 'Type', dropdown: els.uptimeTypeFilterDropdown, select: els.uptimeTypeFilter, button: els.uptimeTypeFilterButton, label: els.uptimeTypeFilterLabel, menu: els.uptimeTypeFilterMenu },
     { name: 'Sort By', dropdown: els.uptimeSortFilterDropdown, select: els.uptimeSortFilter, button: els.uptimeSortFilterButton, label: els.uptimeSortFilterLabel, menu: els.uptimeSortFilterMenu },
   ];
@@ -5044,8 +5437,21 @@ function uptimeIncidentFilterDropdowns() {
   ];
 }
 
+function uptimeReportFilterDropdowns() {
+  return [
+    { name: 'Period', dropdown: els.uptimeReportRangeDropdown, select: els.uptimeReportRange, button: els.uptimeReportRangeButton, label: els.uptimeReportRangeLabel, menu: els.uptimeReportRangeMenu },
+    { name: 'Group', dropdown: els.uptimeReportGroupDropdown, select: els.uptimeReportGroup, button: els.uptimeReportGroupButton, label: els.uptimeReportGroupLabel, menu: els.uptimeReportGroupMenu },
+    { name: 'Linked server', dropdown: els.uptimeReportProjectDropdown, select: els.uptimeReportProject, button: els.uptimeReportProjectButton, label: els.uptimeReportProjectLabel, menu: els.uptimeReportProjectMenu },
+    { name: 'Monitor', dropdown: els.uptimeReportMonitorDropdown, select: els.uptimeReportMonitor, button: els.uptimeReportMonitorButton, label: els.uptimeReportMonitorLabel, menu: els.uptimeReportMonitorMenu },
+  ];
+}
+
 function uptimeTableFilterDropdowns() {
   return [...uptimeMonitorFilterDropdowns(), ...uptimeIncidentFilterDropdowns()];
+}
+
+function uptimeFilterDropdowns() {
+  return [...uptimeTableFilterDropdowns(), ...uptimeReportFilterDropdowns()];
 }
 
 function closeUptimeMonitorFilterMenu(config, { focusTrigger = false } = {}) {
@@ -5056,7 +5462,7 @@ function closeUptimeMonitorFilterMenu(config, { focusTrigger = false } = {}) {
 }
 
 function closeUptimeMonitorFilterMenus({ except = null } = {}) {
-  for (const config of uptimeTableFilterDropdowns()) {
+  for (const config of uptimeFilterDropdowns()) {
     if (config.dropdown !== except?.dropdown) closeUptimeMonitorFilterMenu(config);
   }
 }
@@ -5093,6 +5499,216 @@ function renderUptimeIncidentFilterDropdowns() {
   for (const config of uptimeIncidentFilterDropdowns()) renderUptimeMonitorFilterDropdown(config);
 }
 
+function renderUptimeReportFilterDropdowns() {
+  for (const config of uptimeReportFilterDropdowns()) renderUptimeMonitorFilterDropdown(config);
+}
+
+let openProjectDropdown = null;
+let projectDropdownId = 0;
+const projectDropdownForms = new WeakSet();
+
+function projectDropdownName(select) {
+  if (select.getAttribute('aria-label')) return select.getAttribute('aria-label');
+  const field = select.closest('.field, label');
+  const label = field?.querySelector(':scope > span');
+  return label?.textContent?.trim() || 'Select option';
+}
+
+function renderProjectDropdown(controller) {
+  const { select, button, label } = controller;
+  const options = Array.from(select.options);
+  const selected = options.find((option) => option.selected) || options[0];
+  label.textContent = selected?.textContent || 'Select option';
+  button.title = selected?.textContent || '';
+  button.disabled = select.disabled;
+  button.setAttribute('aria-label', `${controller.name}: ${selected?.textContent || 'Select option'}`);
+  button.setAttribute('aria-invalid', select.matches(':invalid') ? 'true' : 'false');
+  if (!openProjectDropdown || openProjectDropdown !== controller) return;
+  controller.menu.innerHTML = options.map((option) => {
+    const isSelected = option === selected;
+    return `<button class="workspace-switcher-option" type="button" role="option" data-project-dropdown-value="${escapeHtml(option.value)}" aria-selected="${isSelected}" tabindex="-1" ${option.disabled ? 'disabled' : ''}><span>${escapeHtml(option.textContent)}</span>${isSelected ? icon('check') : ''}</button>`;
+  }).join('');
+}
+
+function closeProjectDropdown({ focusTrigger = false } = {}) {
+  const controller = openProjectDropdown;
+  if (!controller) return;
+  controller.wrapper.classList.remove('is-open');
+  controller.menu.classList.add('hidden');
+  controller.button.setAttribute('aria-expanded', 'false');
+  controller.menu.style.removeProperty('top');
+  controller.menu.style.removeProperty('bottom');
+  controller.menu.style.removeProperty('left');
+  controller.menu.style.removeProperty('width');
+  controller.menu.style.removeProperty('max-height');
+  openProjectDropdown = null;
+  if (focusTrigger && controller.wrapper.isConnected) controller.button.focus();
+}
+
+function positionProjectDropdown(controller) {
+  const rect = controller.button.getBoundingClientRect();
+  const viewportGap = 8;
+  const menuGap = 6;
+  const width = Math.min(Math.max(rect.width, 180), window.innerWidth - viewportGap * 2);
+  const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - viewportGap - menuGap);
+  const spaceAbove = Math.max(0, rect.top - viewportGap - menuGap);
+  const opensUp = spaceBelow < 180 && spaceAbove > spaceBelow;
+  const maxHeight = Math.max(120, Math.min(280, opensUp ? spaceAbove : spaceBelow));
+  const left = Math.min(Math.max(viewportGap, rect.left), window.innerWidth - width - viewportGap);
+  controller.menu.style.left = `${left}px`;
+  controller.menu.style.width = `${width}px`;
+  controller.menu.style.maxHeight = `${maxHeight}px`;
+  controller.menu.style.top = opensUp ? 'auto' : `${rect.bottom + menuGap}px`;
+  controller.menu.style.bottom = opensUp ? `${window.innerHeight - rect.top + menuGap}px` : 'auto';
+}
+
+function openEnhancedProjectDropdown(controller, { focusLast = false } = {}) {
+  if (controller.select.disabled) return;
+  closeProjectDropdown();
+  openProjectDropdown = controller;
+  controller.wrapper.classList.add('is-open');
+  controller.button.setAttribute('aria-expanded', 'true');
+  controller.menu.classList.remove('hidden');
+  renderProjectDropdown(controller);
+  positionProjectDropdown(controller);
+  requestAnimationFrame(() => {
+    const options = Array.from(controller.menu.querySelectorAll('.workspace-switcher-option:not(:disabled)'));
+    const selected = controller.menu.querySelector('[aria-selected="true"]:not(:disabled)');
+    (focusLast ? options.at(-1) : selected || options[0])?.focus();
+  });
+}
+
+function enhanceProjectDropdown(select) {
+  if (!(select instanceof HTMLSelectElement) || select.multiple || select.dataset.projectDropdownEnhanced === 'true') return;
+  if (select.classList.contains('hidden') || select.closest('.top-workspace-switcher')) return;
+  select.dataset.projectDropdownEnhanced = 'true';
+  const id = select.id || `projectDropdown${++projectDropdownId}`;
+  const menuId = `${id}ComponentMenu`;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'project-dropdown top-workspace-switcher';
+  wrapper.dataset.selectId = id;
+  const button = document.createElement('button');
+  button.className = 'workspace-switcher-trigger';
+  button.type = 'button';
+  button.setAttribute('aria-haspopup', 'listbox');
+  button.setAttribute('aria-expanded', 'false');
+  button.setAttribute('aria-controls', menuId);
+  const label = document.createElement('span');
+  label.className = 'workspace-switcher-label';
+  const chevron = document.createElement('span');
+  chevron.className = 'workspace-switcher-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  button.append(label, chevron);
+  const menu = document.createElement('div');
+  menu.id = menuId;
+  menu.className = 'workspace-switcher-menu project-dropdown-menu hidden';
+  menu.setAttribute('role', 'listbox');
+  menu.setAttribute('aria-label', projectDropdownName(select));
+  select.before(wrapper);
+  wrapper.append(select, button, menu);
+  select.classList.add('project-dropdown-native');
+  const originalTabIndex = select.getAttribute('tabindex');
+  select.tabIndex = -1;
+  const controller = { select, wrapper, button, label, menu, name: projectDropdownName(select), originalTabIndex };
+
+  const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  if (valueDescriptor?.get && valueDescriptor?.set) {
+    Object.defineProperty(select, 'value', {
+      configurable: true,
+      enumerable: valueDescriptor.enumerable,
+      get() { return valueDescriptor.get.call(this); },
+      set(value) {
+        valueDescriptor.set.call(this, value);
+        queueMicrotask(() => { if (wrapper.isConnected) renderProjectDropdown(controller); });
+      }
+    });
+  }
+
+  button.addEventListener('click', () => {
+    if (openProjectDropdown === controller) closeProjectDropdown();
+    else openEnhancedProjectDropdown(controller);
+  });
+  button.addEventListener('keydown', (event) => {
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    openEnhancedProjectDropdown(controller, { focusLast: event.key === 'ArrowUp' });
+  });
+  menu.addEventListener('click', (event) => {
+    const option = event.target.closest('[data-project-dropdown-value]');
+    if (!option || option.disabled) return;
+    select.value = option.dataset.projectDropdownValue;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    renderProjectDropdown(controller);
+    closeProjectDropdown({ focusTrigger: true });
+  });
+  menu.addEventListener('keydown', (event) => {
+    const options = Array.from(menu.querySelectorAll('.workspace-switcher-option:not(:disabled)'));
+    if (!options.length) return;
+    const currentIndex = options.indexOf(document.activeElement);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % options.length;
+    else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + options.length) % options.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = options.length - 1;
+    else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      document.activeElement?.click();
+      return;
+    } else if (event.key === 'Escape' || event.key === 'Tab') {
+      if (event.key === 'Escape') event.preventDefault();
+      closeProjectDropdown({ focusTrigger: event.key === 'Escape' });
+      return;
+    } else return;
+    event.preventDefault();
+    options[nextIndex]?.focus();
+  });
+  select.addEventListener('change', () => renderProjectDropdown(controller));
+  select.addEventListener('focus', () => button.focus());
+  select.addEventListener('invalid', (event) => {
+    event.preventDefault();
+    button.setAttribute('aria-invalid', 'true');
+    button.focus();
+  });
+  new MutationObserver(() => renderProjectDropdown(controller)).observe(select, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['disabled', 'label', 'selected']
+  });
+  const form = select.form;
+  if (form && !projectDropdownForms.has(form)) {
+    projectDropdownForms.add(form);
+    form.addEventListener('reset', () => window.setTimeout(() => {
+      form.querySelectorAll('select[data-project-dropdown-enhanced="true"]').forEach((field) => field.dispatchEvent(new Event('change')));
+    }, 0));
+  }
+  renderProjectDropdown(controller);
+}
+
+function enhanceProjectDropdowns(root = document) {
+  if (root instanceof HTMLSelectElement) enhanceProjectDropdown(root);
+  root.querySelectorAll?.('select').forEach(enhanceProjectDropdown);
+}
+
+function initializeProjectDropdowns() {
+  enhanceProjectDropdowns();
+  new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node instanceof Element) enhanceProjectDropdowns(node);
+      }
+    }
+    if (openProjectDropdown && !openProjectDropdown.wrapper.isConnected) closeProjectDropdown();
+  }).observe(document.body, { childList: true, subtree: true });
+  document.addEventListener('click', (event) => {
+    if (openProjectDropdown && !openProjectDropdown.wrapper.contains(event.target)) closeProjectDropdown();
+  });
+  window.addEventListener('resize', () => { if (openProjectDropdown) positionProjectDropdown(openProjectDropdown); });
+  window.addEventListener('scroll', (event) => {
+    if (openProjectDropdown && !openProjectDropdown.menu.contains(event.target)) closeProjectDropdown();
+  }, true);
+}
+
 function openUptimeMonitorFilterMenu(config) {
   closeUptimeMonitorFilterMenus({ except: config });
   config.dropdown.classList.add('is-open');
@@ -5123,23 +5739,70 @@ function setUptimeIncidentFilterPanel(open) {
   if (!visible) closeUptimeMonitorFilterMenus();
 }
 
+function syncUptimeReportRangeFields() {
+  const custom = els.uptimeReportRange.value === 'custom';
+  els.uptimeReportFromField.classList.toggle('hidden', !custom);
+  els.uptimeReportToField.classList.toggle('hidden', !custom);
+}
+
+function updateUptimeReportFilterCount() {
+  const count = Number(els.uptimeReportRange.value !== '24h')
+    + Number(Boolean(els.uptimeReportGroup.value))
+    + Number(Boolean(els.uptimeReportProject.value))
+    + Number(Boolean(els.uptimeReportMonitor.value));
+  els.uptimeReportFilterCount.textContent = String(count);
+  els.uptimeReportFilterCount.classList.toggle('hidden', count === 0);
+  els.uptimeReportFilterButton.classList.toggle('active', count > 0);
+}
+
+function setUptimeReportFilterPanel(open) {
+  const visible = Boolean(open);
+  els.uptimeReportFilterPanel.classList.toggle('hidden', !visible);
+  els.uptimeReportFilterButton.setAttribute('aria-expanded', String(visible));
+  if (!visible) closeUptimeMonitorFilterMenus();
+}
+
 function filteredUptimeMonitors() {
   const query = String(els.uptimeSearchInput?.value || '').trim().toLowerCase();
   const stateFilter = els.uptimeStateFilter?.value || '';
+  const groupFilter = els.uptimeGroupFilter?.value || '';
   const typeFilter = els.uptimeTypeFilter?.value || '';
   const monitors = state.uptime.monitors.filter((monitor) => {
     if (stateFilter && monitor.state !== stateFilter) return false;
+    if (groupFilter && uptimeGroupHierarchyKey(monitor) !== groupFilter) return false;
     if (typeFilter && monitor.type !== typeFilter) return false;
-    const haystack = [monitor.name, monitor.group, uptimeTarget(monitor), ...(monitor.tags || [])].join(' ').toLowerCase();
+    const haystack = [monitor.name, uptimeServerLinkLabel(monitor), monitor.group, uptimeTarget(monitor), ...(monitor.tags || [])].join(' ').toLowerCase();
     return !query || haystack.includes(query);
   });
   const sort = els.uptimeSortFilter?.value || 'name';
   return monitors.sort((left, right) => {
+    const leftParent = uptimeServerLinkLabel(left);
+    const rightParent = uptimeServerLinkLabel(right);
+    if (leftParent !== rightParent) {
+      if (!left.projectId) return 1;
+      if (!right.projectId) return -1;
+      return leftParent.localeCompare(rightParent);
+    }
+    const leftGroup = uptimeGroupLabel(left.group);
+    const rightGroup = uptimeGroupLabel(right.group);
+    if (leftGroup !== rightGroup) {
+      if (leftGroup === 'Ungrouped') return 1;
+      if (rightGroup === 'Ungrouped') return -1;
+      return leftGroup.localeCompare(rightGroup);
+    }
     if (sort === 'status') return currentUptimeStatus(left).localeCompare(currentUptimeStatus(right)) || left.name.localeCompare(right.name);
     if (sort === 'latency') return Number(left.runtime?.lastLatencyMs ?? Number.POSITIVE_INFINITY) - Number(right.runtime?.lastLatencyMs ?? Number.POSITIVE_INFINITY);
     if (sort === 'lastCheck') return String(right.runtime?.lastCheckAt || '').localeCompare(String(left.runtime?.lastCheckAt || ''));
     return left.name.localeCompare(right.name);
   });
+}
+
+function populateUptimeGroupFilter() {
+  if (!els.uptimeGroupFilter) return;
+  const current = els.uptimeGroupFilter.value;
+  const options = uptimeGroupSummaries().map((group) => `<option value="${escapeHtml(group.key)}">${escapeHtml(group.name)}</option>`).join('');
+  els.uptimeGroupFilter.innerHTML = `<option value="">All Groups</option>${options}`;
+  els.uptimeGroupFilter.value = [...els.uptimeGroupFilter.options].some((option) => option.value === current) ? current : '';
 }
 
 function renderUptimeOverview() {
@@ -5170,21 +5833,32 @@ function renderUptimeOverview() {
 }
 
 function renderUptimeMonitorTable() {
+  populateUptimeGroupFilter();
   renderUptimeMonitorFilterDropdowns();
   const monitors = filteredUptimeMonitors();
   const totalMonitors = state.uptime.monitors.length;
-  const activeOptions = [els.uptimeStateFilter.value, els.uptimeTypeFilter.value, els.uptimeSortFilter.value === 'name' ? '' : els.uptimeSortFilter.value].filter(Boolean).length;
-  els.uptimeMonitorListMeta.textContent = 'Track endpoint availability and response performance';
+  const activeOptions = [els.uptimeStateFilter.value, els.uptimeGroupFilter.value, els.uptimeTypeFilter.value, els.uptimeSortFilter.value === 'name' ? '' : els.uptimeSortFilter.value].filter(Boolean).length;
+  if (els.uptimeMonitorListMeta) els.uptimeMonitorListMeta.textContent = 'Track endpoint availability and response performance';
   els.uptimeMonitorTableCard.classList.toggle('is-empty', monitors.length === 0);
   els.uptimeMonitorFilterButton.classList.toggle('active', activeOptions > 0);
   els.uptimeMonitorFilterCount.textContent = String(activeOptions);
   els.uptimeMonitorFilterCount.classList.toggle('hidden', activeOptions === 0);
   els.uptimeMonitorsEmpty.classList.toggle('hidden', monitors.length > 0);
   els.uptimeMonitorsEmptyCopy.textContent = totalMonitors ? 'No monitors match the current search or filters.' : 'Create a monitor to begin tracking availability.';
+  const groupCounts = new Map();
+  for (const monitor of monitors) {
+    const key = uptimeGroupHierarchyKey(monitor);
+    groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+  }
+  let previousGroup = null;
   els.uptimeMonitorTableBody.innerHTML = monitors.map((monitor) => {
     const status = currentUptimeStatus(monitor);
     const selected = state.uptime.selectedMonitorIds.has(monitor.id);
-    return `<tr class="${monitor.id === state.uptime.selectedMonitorId ? 'is-active' : ''}" data-uptime-monitor-row="${escapeHtml(monitor.id)}"><td><input type="checkbox" data-uptime-monitor-select="${escapeHtml(monitor.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(monitor.name)}" /></td><td><button class="uptime-monitor-name" type="button" data-uptime-select-monitor="${escapeHtml(monitor.id)}"><strong>${escapeHtml(monitor.name)}</strong><small>${escapeHtml([monitor.group, ...(monitor.tags || [])].filter(Boolean).join(' · ') || 'Ungrouped')}</small></button></td><td><span class="uptime-status-pill status-${escapeHtml(status)}">${escapeHtml(uptimeStatusLabel(status))}</span></td><td class="uptime-target-cell">${escapeHtml(uptimeTarget(monitor))}</td><td>${escapeHtml(formatDateTime(monitor.runtime?.lastCheckAt))}</td><td>${escapeHtml(formatLatency(monitor.runtime?.lastLatencyMs))}</td><td><button class="button plain compact icon-only" type="button" data-uptime-run-monitor="${escapeHtml(monitor.id)}" title="Run now" aria-label="Run ${escapeHtml(monitor.name)} now"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg></button><button class="button plain compact icon-only" type="button" data-uptime-edit-monitor="${escapeHtml(monitor.id)}" title="Edit" aria-label="Edit ${escapeHtml(monitor.name)}"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button></td></tr>`;
+    const groupKey = uptimeGroupHierarchyKey(monitor);
+    const groupLabel = uptimeGroupHierarchyLabel(monitor);
+    const groupHeader = previousGroup === groupKey ? '' : `<tr class="uptime-group-row"><th colspan="7"><span>${escapeHtml(groupLabel)}</span><small>${escapeHtml(String(groupCounts.get(groupKey) || 0))} monitors</small></th></tr>`;
+    previousGroup = groupKey;
+    return `${groupHeader}<tr class="${monitor.id === state.uptime.selectedMonitorId ? 'is-active' : ''}" data-uptime-monitor-row="${escapeHtml(monitor.id)}"><td><input type="checkbox" data-uptime-monitor-select="${escapeHtml(monitor.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(monitor.name)}" /></td><td><button class="uptime-monitor-name" type="button" data-uptime-select-monitor="${escapeHtml(monitor.id)}"><strong>${escapeHtml(monitor.name)}</strong><small>${escapeHtml([monitor.group, ...(monitor.tags || [])].filter(Boolean).join(' · ') || 'Ungrouped')}</small></button></td><td><span class="uptime-status-pill status-${escapeHtml(status)}">${escapeHtml(uptimeStatusLabel(status))}</span></td><td class="uptime-target-cell">${escapeHtml(uptimeTarget(monitor))}</td><td>${escapeHtml(formatDateTime(monitor.runtime?.lastCheckAt))}</td><td>${escapeHtml(formatLatency(monitor.runtime?.lastLatencyMs))}</td><td><button class="button plain compact icon-only" type="button" data-uptime-run-monitor="${escapeHtml(monitor.id)}" title="Run now" aria-label="Run ${escapeHtml(monitor.name)} now"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg></button><button class="button plain compact icon-only" type="button" data-uptime-edit-monitor="${escapeHtml(monitor.id)}" title="Edit" aria-label="Edit ${escapeHtml(monitor.name)}"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button></td></tr>`;
   }).join('');
   const selectedCount = state.uptime.selectedMonitorIds.size;
   els.uptimeRunSelectedButton.disabled = selectedCount === 0;
@@ -5202,6 +5876,7 @@ function renderUptimeKeyValueList(target, items) {
 
 function renderUptimeMonitorDetail() {
   const monitor = selectedUptimeMonitor();
+  els.uptimeMonitorTableCard.classList.toggle('hidden', Boolean(monitor));
   els.uptimeMonitorDetail.classList.toggle('hidden', !monitor);
   if (!monitor) return;
   const status = currentUptimeStatus(monitor);
@@ -5212,23 +5887,13 @@ function renderUptimeMonitorDetail() {
   els.uptimeToggleMonitorButton.textContent = monitor.state === 'enabled' ? 'Pause' : 'Resume';
   const config = monitor.config || {};
   renderUptimeKeyValueList(els.uptimeConfigList, [
-    ['Target', uptimeTarget(monitor)], ['Group', monitor.group || 'Ungrouped'], ['Interval', `${monitor.intervalSec} sec`], ['Timeout', `${monitor.timeoutMs} ms`],
+    ['Target', uptimeTarget(monitor)], ['Server Link', uptimeServerLinkLabel(monitor)], ['Monitor Group', monitor.group || 'Ungrouped'], ['Interval', `${monitor.intervalSec} sec`], ['Timeout', `${monitor.timeoutMs} ms`],
     ['Failure threshold', String(monitor.alertPolicy?.failureThreshold || 2)], ['Recovery threshold', String(monitor.alertPolicy?.recoveryThreshold || 1)],
     ['Expected status', monitor.type === 'http' ? (config.expectedStatusRanges || []).map((range) => range.minimum === range.maximum ? range.minimum : `${range.minimum}-${range.maximum}`).join(', ') : 'Connection success'],
     ['Notification routes', String((monitor.notificationRouteIds || []).length)]
   ]);
   const chartChecks = [...state.uptime.selectedMonitorHistory].slice(0, 30).reverse();
-  const latencies = chartChecks.map((check) => Number(check.latencyMs)).filter(Number.isFinite).sort((left, right) => left - right);
-  const p95 = latencies.length ? latencies[Math.max(0, Math.ceil(latencies.length * 0.95) - 1)] : null;
-  const maximumLatency = Math.max(1, ...latencies);
-  els.uptimeSelectedMonitorP95.textContent = p95 == null ? 'P95 --' : `P95 ${Math.round(p95 * 100) / 100} ms`;
-  els.uptimeLatencyChart.classList.toggle('is-empty', chartChecks.length === 0);
-  els.uptimeLatencyChart.innerHTML = chartChecks.length ? chartChecks.map((check) => {
-    const latency = Number.isFinite(Number(check.latencyMs)) ? Number(check.latencyMs) : 0;
-    const height = Math.max(7, Math.min(100, latency / maximumLatency * 100));
-    const title = `${formatDateTime(check.completedAt)} - ${uptimeStatusLabel(check.outcome)} - ${Number.isFinite(Number(check.latencyMs)) ? formatLatency(check.latencyMs) : check.summary || 'No response'}`;
-    return `<span class="uptime-latency-bar status-${escapeHtml(check.outcome)}" style="height:${height}%" title="${escapeHtml(title)}"></span>`;
-  }).join('') : '<span class="uptime-inline-empty">No response-time evidence yet.</span>';
+  renderUptimeLatencyChart(chartChecks, monitor);
   els.uptimeHistoryList.innerHTML = state.uptime.selectedMonitorHistory.length ? state.uptime.selectedMonitorHistory.slice(0, 10).map((check) => `<article class="uptime-history-row"><div class="uptime-history-top"><strong>${escapeHtml(uptimeStatusLabel(check.outcome))}</strong><span>${escapeHtml(formatDateTime(check.completedAt))}</span></div><div class="uptime-history-meta">${escapeHtml(check.summary || check.failureCategory || '-')}</div><div class="uptime-history-meta">${escapeHtml(formatLatency(check.latencyMs))}</div></article>`).join('') : '<div class="uptime-inline-empty">No checks recorded.</div>';
   const incidents = state.uptime.incidents.filter((incident) => incident.monitorId === monitor.id);
   els.uptimeMonitorIncidentList.innerHTML = incidents.length ? incidents.slice(0, 10).map((incident) => `<article class="uptime-history-row"><div class="uptime-history-top"><strong>${escapeHtml(incident.state)}</strong><span>${escapeHtml(formatDateTime(incident.openedAt))}</span></div><div class="uptime-history-meta">${escapeHtml(incident.summary || incident.failureCategory || '-')}</div></article>`).join('') : '<div class="uptime-inline-empty">No incidents recorded.</div>';
@@ -5297,7 +5962,12 @@ function renderUptimeReport() {
   const slaText = report.summary.slaTargetPct == null ? '' : ` · ${report.summary.slaMet ? 'SLA met' : 'SLA missed'} at ${report.summary.slaTargetPct}%`;
   els.uptimeReportPeriod.textContent = `${formatDateTime(report.period.from)} to ${formatDateTime(report.period.to)}${slaText}`;
   els.uptimeReportChart.innerHTML = report.daily.map((day) => `<div class="uptime-chart-day" title="${escapeHtml(day.dateUtc)}: ${escapeHtml(uptimePercent(day.availabilityPct, 2))} availability, ${escapeHtml(uptimePercent(day.coveragePct, 2))} coverage"><span class="uptime-chart-coverage" style="height:${Math.max(2, Number(day.coveragePct) || 0)}%"><i style="height:${Math.max(2, Number(day.availabilityPct) || 0)}%"></i></span><small>${escapeHtml(day.dateUtc.slice(5))}</small></div>`).join('');
-  els.uptimeReportMonitorTable.innerHTML = report.monitors.length ? `<table class="uptime-table"><thead><tr><th>Monitor</th><th>Availability</th><th>Coverage</th><th>Incidents</th><th>P95</th></tr></thead><tbody>${report.monitors.map((monitor) => `<tr><td><strong>${escapeHtml(monitor.name)}</strong></td><td>${escapeHtml(uptimePercent(monitor.availabilityPct, 3))}</td><td>${escapeHtml(uptimePercent(monitor.coveragePct, 2))}</td><td>${monitor.incidentCount}</td><td>${monitor.p95LatencyMs == null ? '--' : `${monitor.p95LatencyMs} ms`}</td></tr>`).join('')}</tbody></table>` : '<div class="uptime-inline-empty">No monitors matched this report.</div>';
+  els.uptimeReportMonitorTable.innerHTML = report.monitors.length ? `<table class="uptime-table uptime-comparison-table"><colgroup><col class="uptime-comparison-monitor-column" /><col class="uptime-comparison-metric-column" /><col class="uptime-comparison-metric-column" /><col class="uptime-comparison-compact-column" /><col class="uptime-comparison-compact-column" /></colgroup><thead><tr><th>Monitor</th><th>Availability</th><th>Coverage</th><th class="uptime-comparison-number">Incidents</th><th class="uptime-comparison-number">P95</th></tr></thead><tbody>${report.monitors.map((monitor) => {
+    const availability = Math.max(0, Math.min(100, Number(monitor.availabilityPct) || 0));
+    const coverage = Math.max(0, Math.min(100, Number(monitor.coveragePct) || 0));
+    const incidentCount = Number(monitor.incidentCount) || 0;
+    return `<tr><td data-label="Monitor"><div class="uptime-comparison-monitor"><span class="uptime-comparison-monitor-mark" aria-hidden="true">${escapeHtml(String(monitor.name || '?').charAt(0).toUpperCase())}</span><strong>${escapeHtml(monitor.name)}</strong></div></td><td data-label="Availability"><div class="uptime-comparison-metric"><strong>${escapeHtml(uptimePercent(monitor.availabilityPct, 3))}</strong><span><i style="width:${availability}%"></i></span></div></td><td data-label="Coverage"><div class="uptime-comparison-metric"><strong>${escapeHtml(uptimePercent(monitor.coveragePct, 2))}</strong><span><i style="width:${coverage}%"></i></span></div></td><td data-label="Incidents" class="uptime-comparison-number"><span class="uptime-comparison-incidents${incidentCount > 0 ? ' has-incidents' : ''}">${incidentCount}</span></td><td data-label="P95" class="uptime-comparison-number"><strong class="uptime-comparison-latency">${monitor.p95LatencyMs == null ? '--' : `${monitor.p95LatencyMs} ms`}</strong></td></tr>`;
+  }).join('')}</tbody></table>` : '<div class="uptime-inline-empty">No monitors matched this report.</div>';
   els.uptimeReportMethodology.textContent = report.methodology;
 }
 
@@ -5307,6 +5977,7 @@ function renderUptimeWorkspace() {
   const selectedReportProject = els.uptimeReportProject.value;
   setUptimeTab(state.uptime.activeTab);
   renderUptimeOverview();
+  renderUptimeGroupSettings();
   renderUptimeMonitorTable();
   renderUptimeIncidents();
   renderUptimeMaintenance();
@@ -5318,6 +5989,9 @@ function renderUptimeWorkspace() {
   if (groups.includes(selectedReportGroup)) els.uptimeReportGroup.value = selectedReportGroup;
   els.uptimeReportProject.innerHTML = '<option value="">All Linked Servers</option>' + state.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name || 'Untitled Server')}</option>`).join('');
   if (state.projects.some((project) => project.id === selectedReportProject)) els.uptimeReportProject.value = selectedReportProject;
+  renderUptimeReportFilterDropdowns();
+  syncUptimeReportRangeFields();
+  updateUptimeReportFilterCount();
   renderTopNotificationsMenu();
 }
 
@@ -5423,7 +6097,11 @@ function fillUptimeMonitorForm(monitor = {}) {
   const config = monitor.config || {};
   els.uptimeMonitorName.value = monitor.name || '';
   els.uptimeMonitorType.value = monitor.type || 'http';
-  els.uptimeMonitorProject.innerHTML = '<option value="">Standalone Monitor</option>' + state.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name || 'Untitled Server')}</option>`).join('');
+  const linkedProjectExists = state.projects.some((project) => String(project.id) === String(monitor.projectId || ''));
+  const unavailableProjectOption = monitor.projectId && !linkedProjectExists
+    ? `<option value="${escapeHtml(monitor.projectId)}">${escapeHtml(monitor.parentGroup || 'Unavailable Server')}</option>`
+    : '';
+  els.uptimeMonitorProject.innerHTML = '<option value="">Standalone Monitor</option>' + unavailableProjectOption + state.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name || 'Untitled Server')}</option>`).join('');
   els.uptimeMonitorProject.value = monitor.projectId || '';
   els.uptimeMonitorGroup.value = monitor.group || '';
   els.uptimeMonitorTags.value = (monitor.tags || []).join(', ');
@@ -5463,12 +6141,16 @@ function fillUptimeMonitorForm(monitor = {}) {
   els.uptimeNotificationRoutes.innerHTML = routes.map((route) => `<label class="backup-job-check"><input type="checkbox" value="${escapeHtml(route.id)}" ${(monitor.notificationRouteIds || []).includes(route.id) ? 'checked' : ''} /><span><strong>${escapeHtml(route.name)}</strong><small>${escapeHtml(route.type)}</small></span></label>`).join('');
   els.uptimeNotificationRoutesEmpty.classList.toggle('hidden', routes.length > 0);
   els.uptimeMonitorTestResult.textContent = '';
+  renderUptimeMonitorTypeDropdown();
   updateUptimeMonitorTypeFields();
   setUptimeMonitorStep(1);
 }
 
 function readUptimeMonitorFormValue() {
   const existing = selectedUptimeMonitor();
+  const projectId = els.uptimeMonitorProject.value || null;
+  const linkedProject = projectId ? state.projects.find((project) => String(project.id) === String(projectId)) : null;
+  const parentGroup = projectId ? String(linkedProject?.name || existing?.parentGroup || '').trim() : '';
   const headers = {};
   for (const row of els.uptimeHeaderRows.querySelectorAll('.uptime-header-row')) {
     const [nameInput, valueInput] = row.querySelectorAll('input');
@@ -5490,7 +6172,7 @@ function readUptimeMonitorFormValue() {
   };
   return {
     ...(state.uptime.modalMode === 'edit' && existing?.id === state.uptime.modalMonitorId ? { id: existing.id, revision: existing.revision } : {}),
-    name: els.uptimeMonitorName.value, projectId: els.uptimeMonitorProject.value || null, group: els.uptimeMonitorGroup.value,
+    name: els.uptimeMonitorName.value, projectId, parentGroup, group: els.uptimeMonitorGroup.value,
     tags: els.uptimeMonitorTags.value.split(',').map((value) => value.trim()).filter(Boolean), type, state: els.uptimeMonitorEnabled.value,
     intervalSec: Number(els.uptimeMonitorInterval.value), timeoutMs: Number(els.uptimeMonitorTimeout.value), config,
     alertPolicy: { failureThreshold: Number(els.uptimeFailureThreshold.value), recoveryThreshold: Number(els.uptimeRecoveryThreshold.value), latencyWarningMs: Number(els.uptimeLatencyWarning.value), latencyCriticalMs: Number(els.uptimeLatencyCritical.value) },
@@ -5800,6 +6482,8 @@ const DATABASE_DRIVER_UI = Object.freeze({
   sqlite: Object.freeze({ name: 'SQLite', defaultPort: null, defaultUsername: '', capabilities: Object.freeze({ schemas: false, fileBased: true, supportsSsl: false, supportsSsh: false, connectionString: false }) })
 });
 
+const DATABASE_ACCESS_DRIVER_IDS = new Set(['postgresql', 'mysql', 'sqlite']);
+
 const BUNDLED_DATABASE_PLUGINS = Object.freeze([
   Object.freeze({ pluginId: 'mysql', name: 'MySQL', logo: 'mysql.svg', description: 'Native MySQL connections, schema browsing, queries, and backup workflows.' }),
   Object.freeze({ pluginId: 'mariadb', name: 'MariaDB', logo: 'mariadb.svg', description: 'MariaDB connectivity and database protection workflows.' }),
@@ -6005,6 +6689,50 @@ function databaseBackupHandoffAvailability(profile) {
   return { available: true, reason: 'Protect with Backup Manager' };
 }
 
+function databaseAccessButtonState(profile, connectionState) {
+  const accessState = state.databaseManager.accessStates.get(profile.id) || '';
+  if (!DATABASE_ACCESS_DRIVER_IDS.has(profile.driverId)) {
+    return {
+      accessState,
+      available: false,
+      label: `DB Access Manager is unavailable for ${profile.name}`,
+      reason: 'DB Access Manager supports PostgreSQL, MySQL / MariaDB, and SQLite profiles only.'
+    };
+  }
+  if (profile.ssl?.clientCertificateRequired) {
+    return {
+      accessState,
+      available: false,
+      label: `DB Access Manager is unavailable for ${profile.name}`,
+      reason: 'Client-certificate database profiles are not supported by DB Access Manager yet.'
+    };
+  }
+  if (connectionState !== 'ready') {
+    const reason = connectionState === 'opening'
+      ? 'Wait for the database connection to finish opening.'
+      : connectionState === 'closing'
+        ? 'Wait for the database connection to finish closing.'
+        : 'Connect this database before opening DB Access Manager.';
+    return { accessState, available: false, label: `Open ${profile.name} in DB Access Manager`, reason };
+  }
+  if (accessState === 'launching') {
+    return { accessState, available: false, label: `Opening ${profile.name} in DB Access Manager`, reason: 'DB Access Manager is opening.' };
+  }
+  if (accessState === 'active') {
+    return { accessState, available: true, label: `Focus ${profile.name} in DB Access Manager`, reason: 'DB Access Manager is open. Click to focus it.' };
+  }
+  if (accessState === 'failed') {
+    return { accessState, available: true, label: `Retry opening ${profile.name} in DB Access Manager`, reason: 'DB Access Manager failed to open. Click to try again.' };
+  }
+  return { accessState, available: true, label: `Open ${profile.name} in DB Access Manager`, reason: 'Open in DB Access Manager' };
+}
+
+function databaseAccessButton(profile, connectionState) {
+  const access = databaseAccessButtonState(profile, connectionState);
+  const buttonStyle = access.accessState === 'active' ? 'solid' : access.accessState === 'failed' ? 'outline danger' : 'outline';
+  return `<button class="button ${buttonStyle} compact icon-only" type="button" data-database-profile-access="${escapeHtml(profile.id)}" aria-label="${escapeHtml(access.label)}" title="${escapeHtml(access.reason)}" ${access.available ? '' : 'disabled'} ${access.accessState === 'launching' ? 'aria-busy="true"' : ''}><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-external-link"></use></svg></button>`;
+}
+
 function renderDatabaseProfiles() {
   const profiles = state.databaseManager.profiles || [];
   const query = String(els.databaseProfileSearch.value || '').trim().toLowerCase();
@@ -6037,6 +6765,7 @@ function renderDatabaseProfiles() {
       const connectionBusy = connectionState === 'opening' || connectionState === 'closing';
       const databaseLabel = profile.database || databaseProfileEndpoint(profile);
       const backupHandoff = databaseBackupHandoffAvailability(profile);
+      const accessButton = databaseAccessButton(profile, connectionState);
       const setupRequired = profile.cloudOnly;
       const setupReason = profile.driverState === 'required' ? 'Install this database driver on this device first.' : 'Add credentials on this device.';
       const syncConflict = profile.cloudSyncState === 'conflict';
@@ -6053,10 +6782,11 @@ function renderDatabaseProfiles() {
         <span class="database-access-badge" title="${escapeHtml(accessTitle)}">${escapeHtml(accessLabel)}</span>
         <div class="database-profile-actions">
           ${syncConflict
-            ? `<button class="button outline compact icon-only" type="button" data-database-profile-conflict-local="${escapeHtml(profile.id)}" aria-label="Keep this device metadata for ${escapeHtml(profile.name)}" title="Keep this device metadata"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-save"></use></svg></button><button class="button outline compact icon-only" type="button" data-database-profile-conflict-cloud="${escapeHtml(profile.id)}" aria-label="Use cloud metadata for ${escapeHtml(profile.name)}" title="Use cloud metadata"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-cloud"></use></svg></button>`
+            ? `<button class="button outline compact icon-only" type="button" data-database-profile-conflict-local="${escapeHtml(profile.id)}" aria-label="Keep this device metadata for ${escapeHtml(profile.name)}" title="Keep this device metadata"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-save"></use></svg></button><button class="button outline compact icon-only" type="button" data-database-profile-conflict-cloud="${escapeHtml(profile.id)}" aria-label="Use cloud metadata for ${escapeHtml(profile.name)}" title="Use cloud metadata"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-cloud"></use></svg></button>${accessButton}`
             : `${['file', 'folder'].includes(profile.endpoint?.kind) && !setupRequired ? `<button class="button outline compact icon-only" type="button" data-database-profile-bind="${escapeHtml(profile.id)}" aria-label="Choose local resource for ${escapeHtml(profile.name)}" title="Choose local database resource"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg></button>` : ''}
               <button class="button outline compact icon-only" type="button" data-database-profile-backup="${escapeHtml(profile.id)}" aria-label="Protect ${escapeHtml(profile.name)} with Backup Manager" title="${escapeHtml(backupHandoff.reason)}" ${backupHandoff.available ? '' : 'disabled'}><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-save"></use></svg></button>
               <button class="button ${connectionReady ? 'solid' : 'outline'} compact icon-only" type="button" data-database-profile-connection="${escapeHtml(profile.id)}" aria-label="${connectionReady ? 'Close' : 'Open'} ${escapeHtml(profile.name)}" title="${escapeHtml(connectionState === 'opening' ? 'Opening connection' : connectionState === 'closing' ? 'Closing connection' : connectionReady ? 'Close connection' : 'Open connection')}" ${setupRequired || connectionBusy ? 'disabled' : ''}><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-power"></use></svg></button>
+              ${accessButton}
               <button class="button outline compact icon-only" type="button" data-database-profile-test="${escapeHtml(profile.id)}" aria-label="Test ${escapeHtml(profile.name)}" title="${escapeHtml(connectionState === 'testing' ? 'Testing connection' : connectionState === 'tested' ? 'Connection test passed' : connectionState === 'failed' ? 'Connection failed; test again' : connectionReady ? 'Close the connection before running a separate test' : 'Test connection')}" ${setupRequired || connectionState === 'testing' || connectionBusy || connectionReady ? 'disabled' : ''}><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-check"></use></svg></button>
               <button class="button outline compact icon-only" type="button" data-database-profile-edit="${escapeHtml(profile.id)}" aria-label="${setupRequired ? 'Set up' : 'Edit'} ${escapeHtml(profile.name)}" title="${escapeHtml(setupRequired ? setupReason : 'Edit profile')}" ${profile.driverState === 'required' ? 'disabled' : ''}><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-edit"></use></svg></button>
               <button class="button outline danger compact icon-only" type="button" data-database-profile-delete="${escapeHtml(profile.id)}" aria-label="Delete ${escapeHtml(profile.name)}" title="Delete profile"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg></button>`}
@@ -6364,6 +7094,26 @@ async function toggleDatabaseConnection(profile, button) {
   renderDatabaseQueryProfile();
   const mode = result.connectionMode === 'physical-pool' ? 'Pooled session' : result.connectionMode === 'logical' ? 'Managed session' : 'Operation-scoped session';
   showToast(`${profile.name} connected. ${mode}.`);
+}
+
+async function openDatabaseAccess(profile) {
+  state.databaseManager.accessStates.set(profile.id, 'launching');
+  renderDatabaseProfiles();
+  try {
+    const result = await window.deployerx.openDatabaseAccess(profile.id);
+    if (!['active', 'focused', 'launching'].includes(result?.state)) {
+      throw new Error('DB Access Manager returned an unsupported launch state.');
+    }
+    state.databaseManager.accessStates.set(profile.id, result.state === 'launching' ? 'launching' : 'active');
+    renderDatabaseProfiles();
+    if (result.state === 'focused') showToast(`${profile.name} DB Access Manager focused.`);
+    else if (result.state === 'active') showToast(`${profile.name} opened in DB Access Manager.`);
+    else showToast(`${profile.name} DB Access Manager is opening.`);
+  } catch (error) {
+    state.databaseManager.accessStates.set(profile.id, 'failed');
+    renderDatabaseProfiles();
+    throw error;
+  }
 }
 
 async function bindDatabaseProfileLocalResource(profile, button) {
@@ -6970,7 +7720,6 @@ async function setDatabaseManagerTab(tab) {
     syncDatabaseLogProfiles();
     loadDatabaseOperationalLogs().catch((error) => showAlert(error.message || 'Could not load operational logs.'));
   }
-  if (settingsActive) loadDatabasePlugins().catch(() => {});
   return true;
 }
 
@@ -6995,14 +7744,16 @@ function handleDatabaseTablistKeydown(event, tabs, activate) {
 }
 
 function syncDatabaseQueryProfiles(preferredProfileId = '') {
-  const previous = preferredProfileId || activeDatabaseQueryTab()?.profileId || els.databaseQueryProfile.value;
+  const previous = IS_DATABASE_ACCESS_WINDOW
+    ? DATABASE_ACCESS_WINDOW_PROFILE_ID
+    : preferredProfileId || activeDatabaseQueryTab()?.profileId || els.databaseQueryProfile.value;
   const profiles = (state.databaseManager.profiles || []).filter((profile) => !profile.cloudOnly);
   els.databaseQueryProfile.innerHTML = profiles.length
     ? profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} - ${escapeHtml(databaseDriverUi(profile.driverId).name)}</option>`).join('')
     : '<option value="">No database profiles</option>';
   const selected = profiles.some((profile) => profile.id === previous) ? previous : profiles[0]?.id || '';
   els.databaseQueryProfile.value = selected;
-  els.databaseQueryProfile.disabled = !profiles.length || state.databaseManager.query.running;
+  els.databaseQueryProfile.disabled = IS_DATABASE_ACCESS_WINDOW || !profiles.length || state.databaseManager.query.running;
   const queryTab = activeDatabaseQueryTab();
   if (queryTab && profiles.length && queryTab.profileId !== selected) {
     window.DatabaseQueryTabs.updateTab(state.databaseManager.queryTabs.session, queryTab.id, { profileId: selected });
@@ -8500,6 +9251,21 @@ function handleDatabaseManagerEvent(event) {
     renderDatabaseQueryProfile();
     return;
   }
+  if (event.type === 'access-manager-state' && payload.profileId) {
+    if (['active', 'focused'].includes(payload.state)) {
+      state.databaseManager.accessStates.set(payload.profileId, 'active');
+    } else if (payload.state === 'launching') {
+      state.databaseManager.accessStates.set(payload.profileId, 'launching');
+    } else if (['closed', 'exited'].includes(payload.state)) {
+      state.databaseManager.accessStates.delete(payload.profileId);
+    } else if (payload.state === 'failed') {
+      state.databaseManager.accessStates.set(payload.profileId, 'failed');
+    } else {
+      return;
+    }
+    renderDatabaseProfiles();
+    return;
+  }
   if (event.type === 'query-progress' && payload.requestId === state.databaseManager.query.requestId) {
     if (payload.state === 'running') els.databaseQueryStatus.textContent = 'Running';
     else if (payload.state === 'cancelled') els.databaseQueryStatus.textContent = 'Cancelled';
@@ -8807,7 +9573,7 @@ function updateDatabaseQueryControls() {
   els.databaseQueryRunAllButton.classList.toggle('hidden', !selectedQuery);
   els.databaseQueryRunLabel.textContent = selectedQuery ? 'Run selection' : 'Run';
   els.databaseQueryCancelButton.classList.toggle('hidden', !running || state.databaseManager.query.awaitingApproval);
-  els.databaseQueryProfile.disabled = running || !(state.databaseManager.profiles || []).length;
+  els.databaseQueryProfile.disabled = IS_DATABASE_ACCESS_WINDOW || running || !(state.databaseManager.profiles || []).length;
   els.databaseQueryPageSize.disabled = running;
   setDatabaseQueryEditorReadOnly(running);
   els.databaseQueryFormatButton.disabled = running || !databaseQueryEditorValue().trim();
@@ -9513,6 +10279,9 @@ function showView(view) {
     state.settingsTab = 'templates';
     view = 'team';
   }
+  if (IS_DATABASE_ACCESS_WINDOW && state.setup.complete && state.setup.mode && view !== 'database') {
+    view = 'database';
+  }
   if (state.setup.mode === 'cloud' && !state.teams.activeTeamId && !['team', 'profile'].includes(view)) {
     view = 'team';
   }
@@ -9524,8 +10293,10 @@ function showView(view) {
   }
   if (view === 'database') {
     setDatabaseManagerTab(state.databaseManager.activeTab);
-    loadDatabasePlugins().catch(() => {});
-    loadDatabaseProfiles().catch((error) => showAlert(error.message || 'Could not load database profiles.'));
+    if (!IS_DATABASE_ACCESS_WINDOW) {
+      loadDatabasePlugins().catch(() => {});
+      loadDatabaseProfiles().catch((error) => showAlert(error.message || 'Could not load database profiles.'));
+    }
   }
   if (view === 'team') renderSettingsView();
   if (view === 'profile') renderProfileView();
@@ -9540,6 +10311,7 @@ function showView(view) {
   const isProfile = view === 'profile';
   const isTeam = view === 'team';
   const isFullPageView = isProfile || isSshFile;
+  document.body.classList.toggle('project-view-active', isProject);
   if (isDashboard) startDashboardAutoRefresh();
   else stopDashboardAutoRefresh();
   if (!isProject && !isServerMonitoring) {
@@ -9810,10 +10582,14 @@ async function loadBackupObjectives() {
   renderBackupObjectives();
 }
 
+let backupSourceAddMenuTrigger = els.backupSourceAddButton;
+let backupSourceAddMenuHost = els.backupSourceAddDropdown;
+let backupSourceAddMenuContext = 'sources';
+
 function closeBackupSourceAddMenu({ focusTrigger = false } = {}) {
   els.backupSourceAddMenu.classList.add('hidden');
-  els.backupSourceAddButton.setAttribute('aria-expanded', 'false');
-  if (focusTrigger) els.backupSourceAddButton.focus();
+  backupSourceAddMenuTrigger?.setAttribute('aria-expanded', 'false');
+  if (focusTrigger) backupSourceAddMenuTrigger?.focus();
 }
 
 function backupSourceAddMenuOptions() {
@@ -9825,7 +10601,7 @@ function positionBackupSourceAddMenu() {
   if (els.backupSourceAddMenu.classList.contains('hidden')) return;
   els.backupSourceAddMenu.classList.remove('open-up');
   els.backupSourceAddMenu.style.removeProperty('max-height');
-  const trigger = els.backupSourceAddButton.getBoundingClientRect();
+  const trigger = backupSourceAddMenuTrigger.getBoundingClientRect();
   const naturalHeight = els.backupSourceAddMenu.scrollHeight;
   const spaceAbove = Math.max(0, trigger.top - 16);
   const spaceBelow = Math.max(0, window.innerHeight - trigger.bottom - 16);
@@ -9835,9 +10611,22 @@ function positionBackupSourceAddMenu() {
   els.backupSourceAddMenu.style.maxHeight = `${Math.max(160, availableHeight)}px`;
 }
 
-function openBackupSourceAddMenu({ focusLast = false } = {}) {
+function openBackupSourceAddMenu({
+  focusLast = false,
+  trigger = els.backupSourceAddButton,
+  host = els.backupSourceAddDropdown,
+  context = 'sources'
+} = {}) {
+  backupSourceAddMenuTrigger?.setAttribute('aria-expanded', 'false');
+  backupSourceAddMenuTrigger = trigger;
+  backupSourceAddMenuHost = host;
+  backupSourceAddMenuContext = context;
+  if (els.backupSourceAddMenu.parentElement !== host) host.append(els.backupSourceAddMenu);
+  const currentConnection = allBackupConnections().find((connection) => connection.connectionKind === 'local' && connection.currentDevice);
+  els.backupAddLocalConnectionButton.disabled = context === 'sources' && Boolean(currentConnection);
+  els.backupAddLocalConnectionButton.title = context === 'sources' && currentConnection ? 'This computer is already connected' : '';
   els.backupSourceAddMenu.classList.remove('hidden');
-  els.backupSourceAddButton.setAttribute('aria-expanded', 'true');
+  trigger.setAttribute('aria-expanded', 'true');
   requestAnimationFrame(() => {
     positionBackupSourceAddMenu();
     const options = backupSourceAddMenuOptions();
@@ -9964,6 +10753,7 @@ function openBackupNotificationRouteModal() {
 
 function closeBackupNotificationRouteModal() {
   els.backupNotificationRouteModal.classList.add('hidden');
+  resumeBackupJobFromDependency('notification-route').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
 }
 
 function backupNotificationRoutePayload() {
@@ -12780,7 +13570,7 @@ function backupJobMode() {
 }
 
 function selectedBackupJobRepositoryIds() {
-  return Array.from(els.backupJobRepositories.querySelectorAll('[data-backup-job-repository]:checked')).map((input) => input.value);
+  return Array.from(els.backupJobRepositories.querySelectorAll('[data-backup-job-repository]:checked:not(:disabled)')).map((input) => input.value);
 }
 
 function backupJobSchedule() {
@@ -14024,7 +14814,7 @@ function renderBackupJobChoices() {
     </label>`).join('');
   els.backupJobNotificationRoutes.innerHTML = notificationRoutes.map((route) => `
     <label class="backup-job-choice backup-job-notification-choice">
-      <input type="checkbox" value="${escapeHtml(route.id)}" data-backup-job-notification-route />
+      <input type="checkbox" value="${escapeHtml(route.id)}" data-backup-job-notification-route ${state.backupJobWizard.notificationRouteIds.includes(route.id) ? 'checked' : ''} />
       <span class="backup-job-choice-copy"><strong>${escapeHtml(route.name)}</strong><small>${escapeHtml(BACKUP_NOTIFICATION_TYPE_LABELS[route.type] || route.type)} - ${route.events?.length || 0} events</small></span>
     </label>`).join('');
 }
@@ -14033,115 +14823,164 @@ function selectedBackupJobNotificationRouteIds() {
   return Array.from(els.backupJobNotificationRoutes.querySelectorAll('[data-backup-job-notification-route]:checked')).map((input) => input.value);
 }
 
-function renderBackupJobReview() {
-  const source = state.backupJobWizard.readiness.sources.find((candidate) => candidate.id === state.backupJobWizard.sourceId);
-  const repositories = state.backupJobWizard.repositoryIds.map((id) => state.backupJobWizard.readiness.repositories.find((candidate) => candidate.id === id)).filter(Boolean);
-  const mode = backupJobMode() === 'full' ? 'Full' : backupJobMode() === 'differential' ? 'Differential' : backupJobMode() === 'native' ? 'Manager native' : 'Incremental';
-  const schedule = backupJobSchedule();
-  const retention = backupRetentionPolicy(schedule);
-  const notificationRoutes = selectedBackupJobNotificationRouteIds().map((id) => state.backupNotificationRoutes.find((route) => route.id === id)).filter(Boolean);
-  const rpo = els.backupJobRpoMinutes.value === '' ? 'Not monitored' : `${els.backupJobRpoMinutes.value} minutes`;
-  const rto = els.backupJobRtoMinutes.value === '' ? 'Not monitored' : `${els.backupJobRtoMinutes.value} minutes`;
-  const calendarRules = schedule.type === 'manual' ? 'Not applicable' : [
-    `${schedule.missedRun.behavior.replace('-', ' ')}, ${schedule.missedRun.graceMinutes}m grace`,
-    schedule.executionCalendar.maintenanceWindows.length ? 'maintenance window' : '',
-    schedule.executionCalendar.blackouts.length ? 'blackout' : ''
-  ].filter(Boolean).join(' - ');
-  els.backupJobReview.innerHTML = `
-    <div class="backup-job-review-item"><span>Job</span><strong>${escapeHtml(els.backupJobName.value.trim())}</strong></div>
-    <div class="backup-job-review-item"><span>Source</span><strong>${escapeHtml(source?.name || 'Not selected')}</strong></div>
-    <div class="backup-job-review-item"><span>Destinations</span><strong>${escapeHtml(repositories.map((repository) => repository.name).join(', ') || 'Not selected')}</strong></div>
-    <div class="backup-job-review-item"><span>Protection</span><strong>${mode}, keep ${escapeHtml(els.backupJobKeepLast.value)} recovery points</strong></div>
-    <div class="backup-job-review-item"><span>Retention</span><strong>${escapeHtml(backupRetentionSummary(retention))} (${escapeHtml(retention.timezone)})</strong></div>
-    <div class="backup-job-review-item"><span>Execution</span><strong>${escapeHtml(els.backupJobPriority.value)} priority, ${escapeHtml(els.backupJobRetryAttempts.value)} attempts, ${escapeHtml(els.backupJobRetryBackoff.value)} backoff</strong></div>
-    <div class="backup-job-review-item"><span>Bandwidth</span><strong>${els.backupJobBandwidthLimit.value ? `${escapeHtml(els.backupJobBandwidthLimit.value)} MiB/s default` : 'Unlimited by default'}${els.backupJobBandwidthWindowEnabled.checked ? ', weekly limit enabled' : ''}</strong></div>
-    <div class="backup-job-review-item"><span>RPO target</span><strong>${escapeHtml(rpo)}</strong></div>
-    <div class="backup-job-review-item"><span>RTO target</span><strong>${escapeHtml(rto)}</strong></div>
-    <div class="backup-job-review-item"><span>Notifications</span><strong>${escapeHtml(notificationRoutes.map((route) => route.name).join(', ') || 'None')}</strong></div>
-    <div class="backup-job-review-item"><span>Schedule</span><strong>${escapeHtml(backupScheduleSummary(schedule))}</strong></div>
-    <div class="backup-job-review-item"><span>Calendar policy</span><strong>${escapeHtml(calendarRules)}</strong></div>`;
-  const automatic = els.backupJobScheduleType.value !== 'manual';
-  els.backupJobReadiness.textContent = `${source?.name || 'Source'} and ${repositories.length} ${repositories.length === 1 ? 'repository are' : 'repositories are'} ready. The job will be enabled for ${automatic ? `automatic ${schedule.timezone} and manual` : 'manual'} execution.`;
-}
-
-function renderBackupJobStep() {
-  const labels = ['Basics', 'Source', 'Destinations', 'Protection', 'Review'];
+function renderBackupJobForm() {
   const step = state.backupJobWizard.step;
-  els.backupJobStepLabel.textContent = `Step ${step + 1} of 5 - ${labels[step]}`;
+  const labels = ['Setup', 'Protection'];
+  els.backupJobStepLabel.textContent = `Step ${step + 1} of 2 - ${labels[step]}`;
   els.backupJobSteps.forEach((item, index) => {
     item.classList.toggle('active', index === step);
     item.classList.toggle('complete', index < step);
   });
   els.backupJobStepPanels.forEach((panel) => panel.classList.toggle('hidden', Number(panel.dataset.backupJobStep) !== step));
   els.backupJobBackButton.classList.toggle('hidden', step === 0);
-  els.backupJobNextButton.classList.toggle('hidden', step === 4);
-  els.backupJobCreateButton.classList.toggle('hidden', step !== 4);
+  els.backupJobNextButton.classList.toggle('hidden', step === 1);
+  els.backupJobCreateButton.classList.toggle('hidden', step !== 1);
   els.backupJobError.classList.add('hidden');
-  if (step >= 3) syncBackupJobModeForSource();
-  if (step === 4) renderBackupJobReview();
+  if (step === 1) syncBackupJobModeForSource();
 }
 
-function backupJobStepError() {
-  const step = state.backupJobWizard.step;
-  if (step === 0 && !els.backupJobName.value.trim()) return 'Enter a backup job name.';
-  if (step === 1 && !els.backupJobSources.querySelector('[data-backup-job-source]:checked')) return 'Choose a ready backup source.';
-  if (step === 2 && selectedBackupJobRepositoryIds().length === 0) return 'Choose at least one ready repository.';
+function backupJobFormError(step = 1) {
+  if (!els.backupJobName.value.trim()) return 'Enter a backup job name.';
+  if (!els.backupJobSources.querySelector('[data-backup-job-source]:checked:not(:disabled)')) return 'Choose a ready backup source.';
+  if (selectedBackupJobRepositoryIds().length === 0) return 'Choose at least one ready repository.';
+  if (step === 0) return '';
   const keepLast = Number(els.backupJobKeepLast.value);
-  if (step === 3 && (!Number.isInteger(keepLast) || keepLast < 1 || keepLast > 10000)) return 'Recovery points to keep must be between 1 and 10000.';
-  if (step === 3) {
-    const rpoMinutes = els.backupJobRpoMinutes.value === '' ? null : Number(els.backupJobRpoMinutes.value);
-    const rtoMinutes = els.backupJobRtoMinutes.value === '' ? null : Number(els.backupJobRtoMinutes.value);
-    if (rpoMinutes !== null && (!Number.isInteger(rpoMinutes) || rpoMinutes < 1 || rpoMinutes > 525600)) return 'RPO target must be between 1 minute and 1 year.';
-    if (rtoMinutes !== null && (!Number.isInteger(rtoMinutes) || rtoMinutes < 1 || rtoMinutes > 525600)) return 'RTO target must be between 1 minute and 1 year.';
-    for (const [input, label] of [[els.backupJobKeepHourly, 'Hourly'], [els.backupJobKeepDaily, 'Daily'], [els.backupJobKeepWeekly, 'Weekly'], [els.backupJobKeepMonthly, 'Monthly'], [els.backupJobKeepYearly, 'Yearly']]) {
-      const value = Number(input.value);
-      if (!Number.isInteger(value) || value < 0 || value > 10000) return `${label} recovery points must be between 0 and 10000.`;
-    }
-    const retryAttempts = Number(els.backupJobRetryAttempts.value);
-    const retryInitial = Number(els.backupJobRetryInitialDelay.value);
-    const retryMaximum = Number(els.backupJobRetryMaximumDelay.value);
-    const retryJitter = Number(els.backupJobRetryJitter.value);
-    const bandwidthLimit = els.backupJobBandwidthLimit.value === '' ? null : Number(els.backupJobBandwidthLimit.value);
-    if (!Number.isInteger(retryAttempts) || retryAttempts < 1 || retryAttempts > 10) return 'Maximum attempts must be between 1 and 10.';
-    if (!Number.isInteger(retryInitial) || retryInitial < 1 || retryInitial > 604800) return 'Initial retry delay must be between 1 and 604800 seconds.';
-    if (!Number.isInteger(retryMaximum) || retryMaximum < retryInitial || retryMaximum > 604800) return 'Maximum retry delay must be at least the initial delay and no more than 604800 seconds.';
-    if (!Number.isInteger(retryJitter) || retryJitter < 0 || retryJitter > 100) return 'Retry jitter must be between 0 and 100 percent.';
-    if (bandwidthLimit !== null && (!Number.isFinite(bandwidthLimit) || bandwidthLimit < 0.0625 || bandwidthLimit > 10240)) return 'Default bandwidth must be between 0.0625 and 10240 MiB/s.';
-    if (els.backupJobBandwidthWindowEnabled.checked) {
-      const days = els.backupJobBandwidthDays.filter((input) => input.checked);
-      const limit = Number(els.backupJobBandwidthWindowLimit.value);
-      if (!days.length || !els.backupJobBandwidthStart.value || !els.backupJobBandwidthEnd.value || els.backupJobBandwidthStart.value === els.backupJobBandwidthEnd.value) return 'Choose bandwidth weekdays with different start and end times.';
-      if (!Number.isFinite(limit) || limit < 0.0625 || limit > 10240) return 'Window bandwidth must be between 0.0625 and 10240 MiB/s.';
-    }
-    const schedule = backupJobSchedule();
-    if (schedule.type === 'interval' && (!Number.isInteger(schedule.intervalMinutes) || schedule.intervalMinutes < 1 || schedule.intervalMinutes > 525600)) return 'Interval minutes must be between 1 and 525600.';
-    if (schedule.type === 'cron' && schedule.expression.split(/\s+/).filter(Boolean).length !== 5) return 'Enter a valid five-field cron expression.';
-    if (schedule.type === 'hourly' && (!Number.isInteger(schedule.minute) || schedule.minute < 0 || schedule.minute > 59)) return 'Minute must be between 0 and 59.';
-    if (schedule.type === 'daily' && !schedule.time) return 'Choose a daily UTC time.';
-    if (schedule.type === 'weekly' && (!schedule.daysOfWeek.length || !schedule.time)) return 'Choose at least one weekday and UTC time.';
-    if (schedule.type === 'monthly' && (!Number.isInteger(schedule.dayOfMonth) || schedule.dayOfMonth < 1 || schedule.dayOfMonth > 31 || !schedule.time)) return 'Choose a day from 1 to 31 and a local time.';
-    if (!schedule.timezone) return 'Choose a schedule timezone.';
-    if (!Number.isInteger(schedule.missedRun.graceMinutes) || schedule.missedRun.graceMinutes < 0 || schedule.missedRun.graceMinutes > 10080) return 'Grace period must be between 0 and 10080 minutes.';
-    if (els.backupJobMaintenanceEnabled.checked && (!schedule.executionCalendar.maintenanceWindows[0]?.daysOfWeek.length || !els.backupJobMaintenanceStart.value || !els.backupJobMaintenanceEnd.value || els.backupJobMaintenanceStart.value === els.backupJobMaintenanceEnd.value)) return 'Choose maintenance weekdays with different start and end times.';
-    if (els.backupJobBlackoutEnabled.checked && (!schedule.executionCalendar.blackouts[0]?.startsAt || !schedule.executionCalendar.blackouts[0]?.endsAt || Date.parse(schedule.executionCalendar.blackouts[0].endsAt) <= Date.parse(schedule.executionCalendar.blackouts[0].startsAt))) return 'Choose a blackout end after its start.';
+  if (!Number.isInteger(keepLast) || keepLast < 1 || keepLast > 10000) return 'Recovery points to keep must be between 1 and 10000.';
+  const rpoMinutes = els.backupJobRpoMinutes.value === '' ? null : Number(els.backupJobRpoMinutes.value);
+  const rtoMinutes = els.backupJobRtoMinutes.value === '' ? null : Number(els.backupJobRtoMinutes.value);
+  if (rpoMinutes !== null && (!Number.isInteger(rpoMinutes) || rpoMinutes < 1 || rpoMinutes > 525600)) return 'RPO target must be between 1 minute and 1 year.';
+  if (rtoMinutes !== null && (!Number.isInteger(rtoMinutes) || rtoMinutes < 1 || rtoMinutes > 525600)) return 'RTO target must be between 1 minute and 1 year.';
+  for (const [input, label] of [[els.backupJobKeepHourly, 'Hourly'], [els.backupJobKeepDaily, 'Daily'], [els.backupJobKeepWeekly, 'Weekly'], [els.backupJobKeepMonthly, 'Monthly'], [els.backupJobKeepYearly, 'Yearly']]) {
+    const value = Number(input.value);
+    if (!Number.isInteger(value) || value < 0 || value > 10000) return `${label} recovery points must be between 0 and 10000.`;
   }
+  const retryAttempts = Number(els.backupJobRetryAttempts.value);
+  const retryInitial = Number(els.backupJobRetryInitialDelay.value);
+  const retryMaximum = Number(els.backupJobRetryMaximumDelay.value);
+  const retryJitter = Number(els.backupJobRetryJitter.value);
+  const bandwidthLimit = els.backupJobBandwidthLimit.value === '' ? null : Number(els.backupJobBandwidthLimit.value);
+  if (!Number.isInteger(retryAttempts) || retryAttempts < 1 || retryAttempts > 10) return 'Maximum attempts must be between 1 and 10.';
+  if (!Number.isInteger(retryInitial) || retryInitial < 1 || retryInitial > 604800) return 'Initial retry delay must be between 1 and 604800 seconds.';
+  if (!Number.isInteger(retryMaximum) || retryMaximum < retryInitial || retryMaximum > 604800) return 'Maximum retry delay must be at least the initial delay and no more than 604800 seconds.';
+  if (!Number.isInteger(retryJitter) || retryJitter < 0 || retryJitter > 100) return 'Retry jitter must be between 0 and 100 percent.';
+  if (bandwidthLimit !== null && (!Number.isFinite(bandwidthLimit) || bandwidthLimit < 0.0625 || bandwidthLimit > 10240)) return 'Default bandwidth must be between 0.0625 and 10240 MiB/s.';
+  if (els.backupJobBandwidthWindowEnabled.checked) {
+    const days = els.backupJobBandwidthDays.filter((input) => input.checked);
+    const limit = Number(els.backupJobBandwidthWindowLimit.value);
+    if (!days.length || !els.backupJobBandwidthStart.value || !els.backupJobBandwidthEnd.value || els.backupJobBandwidthStart.value === els.backupJobBandwidthEnd.value) return 'Choose bandwidth weekdays with different start and end times.';
+    if (!Number.isFinite(limit) || limit < 0.0625 || limit > 10240) return 'Window bandwidth must be between 0.0625 and 10240 MiB/s.';
+  }
+  const schedule = backupJobSchedule();
+  if (schedule.type === 'interval' && (!Number.isInteger(schedule.intervalMinutes) || schedule.intervalMinutes < 1 || schedule.intervalMinutes > 525600)) return 'Interval minutes must be between 1 and 525600.';
+  if (schedule.type === 'cron' && schedule.expression.split(/\s+/).filter(Boolean).length !== 5) return 'Enter a valid five-field cron expression.';
+  if (schedule.type === 'hourly' && (!Number.isInteger(schedule.minute) || schedule.minute < 0 || schedule.minute > 59)) return 'Minute must be between 0 and 59.';
+  if (schedule.type === 'daily' && !schedule.time) return 'Choose a daily UTC time.';
+  if (schedule.type === 'weekly' && (!schedule.daysOfWeek.length || !schedule.time)) return 'Choose at least one weekday and UTC time.';
+  if (schedule.type === 'monthly' && (!Number.isInteger(schedule.dayOfMonth) || schedule.dayOfMonth < 1 || schedule.dayOfMonth > 31 || !schedule.time)) return 'Choose a day from 1 to 31 and a local time.';
+  if (!schedule.timezone) return 'Choose a schedule timezone.';
+  if (!Number.isInteger(schedule.missedRun.graceMinutes) || schedule.missedRun.graceMinutes < 0 || schedule.missedRun.graceMinutes > 10080) return 'Grace period must be between 0 and 10080 minutes.';
+  if (els.backupJobMaintenanceEnabled.checked && (!schedule.executionCalendar.maintenanceWindows[0]?.daysOfWeek.length || !els.backupJobMaintenanceStart.value || !els.backupJobMaintenanceEnd.value || els.backupJobMaintenanceStart.value === els.backupJobMaintenanceEnd.value)) return 'Choose maintenance weekdays with different start and end times.';
+  if (els.backupJobBlackoutEnabled.checked && (!schedule.executionCalendar.blackouts[0]?.startsAt || !schedule.executionCalendar.blackouts[0]?.endsAt || Date.parse(schedule.executionCalendar.blackouts[0].endsAt) <= Date.parse(schedule.executionCalendar.blackouts[0].startsAt))) return 'Choose a blackout end after its start.';
   return '';
 }
 
+function syncBackupJobDraftSelections() {
+  state.backupJobWizard.sourceId = els.backupJobSources.querySelector('[data-backup-job-source]:checked:not(:disabled)')?.value || '';
+  state.backupJobWizard.repositoryIds = selectedBackupJobRepositoryIds();
+  state.backupJobWizard.notificationRouteIds = selectedBackupJobNotificationRouteIds();
+}
+
+function setBackupJobStep(step) {
+  state.backupJobWizard.step = Math.max(0, Math.min(1, step));
+  renderBackupJobForm();
+  els.backupJobModal.querySelector('.modal-body')?.scrollTo({ top: 0 });
+}
+
 function advanceBackupJobStep() {
-  const error = backupJobStepError();
+  const error = backupJobFormError(0);
   if (error) {
     els.backupJobError.textContent = error;
     els.backupJobError.classList.remove('hidden');
     return;
   }
-  if (state.backupJobWizard.step === 1) {
-    state.backupJobWizard.sourceId = els.backupJobSources.querySelector('[data-backup-job-source]:checked').value;
-    syncBackupJobModeForSource();
+  syncBackupJobDraftSelections();
+  setBackupJobStep(1);
+}
+
+function suspendBackupJobForDependency(dependency) {
+  syncBackupJobDraftSelections();
+  state.backupJobWizard.draftActive = true;
+  state.backupJobWizard.dependency = dependency;
+  els.backupJobModal.classList.add('hidden');
+}
+
+async function resumeBackupJobFromDependency(dependency) {
+  if (state.backupJobWizard.dependency !== dependency) return;
+  state.backupJobWizard.dependency = '';
+  await openBackupJobModal();
+}
+
+function resumeBackupJobSourceCreator() {
+  resumeBackupJobFromDependency('source-creator').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
+}
+
+async function openBackupJobFileSourceCreator() {
+  suspendBackupJobForDependency('file-source');
+  await loadBackupConnections();
+  let connection = allBackupConnections().find((candidate) => candidate.connectionKind === 'local' && candidate.currentDevice);
+  if (!connection) {
+    await ensureBackupLocalConnection();
+    connection = allBackupConnections().find((candidate) => candidate.connectionKind === 'local' && candidate.currentDevice);
   }
-  if (state.backupJobWizard.step === 2) state.backupJobWizard.repositoryIds = selectedBackupJobRepositoryIds();
-  state.backupJobWizard.step = Math.min(4, state.backupJobWizard.step + 1);
-  renderBackupJobStep();
+  if (!connection) {
+    await resumeBackupJobFromDependency('file-source');
+    return;
+  }
+  openBackupBrowser(connection);
+}
+
+function openBackupJobSourceTypes() {
+  openBackupSourceAddMenu({
+    trigger: els.backupJobAddSourceButton,
+    host: els.backupJobAddSourceDropdown,
+    context: 'backup-job'
+  });
+}
+
+function openBackupSourceCreator(option) {
+  const fromBackupJob = backupSourceAddMenuContext === 'backup-job';
+  const sourceType = option.id;
+  closeBackupSourceAddMenu();
+  if (sourceType === 'backupAddLocalConnectionButton') {
+    if (fromBackupJob) {
+      openBackupJobFileSourceCreator().catch((error) => {
+        showAlert(error.message || 'Could not prepare a file source.');
+        resumeBackupJobFromDependency('file-source').catch(() => {});
+      });
+    } else ensureBackupLocalConnection();
+    return;
+  }
+  if (fromBackupJob) suspendBackupJobForDependency(sourceType === 'backupAddSshConnectionButton' ? 'ssh-file-source' : 'source-creator');
+  const creators = {
+    backupAddSshConnectionButton: () => openBackupSshModal(),
+    backupAddMysqlConnectionButton: () => openBackupMysqlModal(),
+    backupAddMariadbConnectionButton: () => openBackupMysqlModal(null, 'mariadb'),
+    backupAddPostgresqlConnectionButton: () => openBackupMysqlModal(null, 'postgresql'),
+    backupAddSqlServerConnectionButton: () => openBackupMysqlModal(null, 'sqlserver'),
+    backupAddOracleConnectionButton: () => openBackupMysqlModal(null, 'oracle'),
+    backupAddMongoDbConnectionButton: () => openBackupMysqlModal(null, 'mongodb'),
+    backupAddNeo4jConnectionButton: () => openBackupNeo4jModal(),
+    backupAddClickHouseConnectionButton: () => openBackupClickHouseModal(),
+    backupAddInfluxDbConnectionButton: () => openBackupInfluxDbModal(),
+    backupAddInfluxDb3CoreConnectionButton: () => openBackupInfluxDb3CoreModal(),
+    backupAddInfluxDb3EnterpriseConnectionButton: () => openBackupInfluxDb3EnterpriseModal(),
+    backupAddCockroachDbConnectionButton: () => openBackupCockroachDbModal(),
+    backupAddRedisConnectionButton: () => openBackupRedisModal(),
+    backupAddSearchSnapshotConnectionButton: () => openBackupSearchSnapshotModal(),
+    backupAddScyllaManagerConnectionButton: () => openBackupScyllaManagerModal(),
+    backupAddSqliteConnectionButton: () => openBackupSqliteModal()
+  };
+  creators[sourceType]?.();
 }
 
 async function openBackupJobModal() {
@@ -14152,47 +14991,65 @@ async function openBackupJobModal() {
       window.deployerx.listBackupNotificationRoutes ? window.deployerx.listBackupNotificationRoutes() : Promise.resolve([])
     ]);
     state.backupNotificationRoutes = Array.isArray(notificationRoutes) ? notificationRoutes : [];
-    state.backupJobWizard = { ...blankBackupJobWizard(), readiness };
-    els.backupJobForm.reset();
-    els.backupJobKeepLast.value = '30';
-    els.backupJobKeepHourly.value = '0';
-    els.backupJobKeepDaily.value = '7';
-    els.backupJobKeepWeekly.value = '4';
-    els.backupJobKeepMonthly.value = '12';
-    els.backupJobKeepYearly.value = '3';
-    els.backupJobCompression.value = 'balanced';
-    els.backupJobPriority.value = 'normal';
-    els.backupJobRpoMinutes.value = '';
-    els.backupJobRtoMinutes.value = '';
-    els.backupJobRetryAttempts.value = '3';
-    els.backupJobRetryBackoff.value = 'exponential';
-    els.backupJobRetryInitialDelay.value = '30';
-    els.backupJobRetryMaximumDelay.value = '3600';
-    els.backupJobRetryJitter.value = '20';
-    els.backupJobBandwidthLimit.value = '';
-    els.backupJobBandwidthWindowEnabled.checked = false;
-    els.backupJobVerify.checked = true;
-    els.backupJobScheduleType.value = 'manual';
-    populateBackupJobTimezones();
-    els.backupJobTimezone.value = 'UTC';
-    els.backupJobMissedRun.value = 'run-latest';
-    els.backupJobMissedGrace.value = '15';
-    syncBackupJobScheduleFields();
+    if (state.backupJobWizard.draftActive) {
+      state.backupJobWizard.readiness = readiness;
+      state.backupJobWizard.dependency = '';
+    } else {
+      state.backupJobWizard = { ...blankBackupJobWizard(), readiness, draftActive: true };
+      els.backupJobForm.reset();
+      els.backupJobKeepLast.value = '30';
+      els.backupJobKeepHourly.value = '0';
+      els.backupJobKeepDaily.value = '7';
+      els.backupJobKeepWeekly.value = '4';
+      els.backupJobKeepMonthly.value = '12';
+      els.backupJobKeepYearly.value = '3';
+      els.backupJobCompression.value = 'balanced';
+      els.backupJobPriority.value = 'normal';
+      els.backupJobRpoMinutes.value = '';
+      els.backupJobRtoMinutes.value = '';
+      els.backupJobRetryAttempts.value = '3';
+      els.backupJobRetryBackoff.value = 'exponential';
+      els.backupJobRetryInitialDelay.value = '30';
+      els.backupJobRetryMaximumDelay.value = '3600';
+      els.backupJobRetryJitter.value = '20';
+      els.backupJobBandwidthLimit.value = '';
+      els.backupJobBandwidthWindowEnabled.checked = false;
+      els.backupJobVerify.checked = true;
+      els.backupJobScheduleType.value = 'manual';
+      populateBackupJobTimezones();
+      els.backupJobTimezone.value = 'UTC';
+      els.backupJobMissedRun.value = 'run-latest';
+      els.backupJobMissedGrace.value = '15';
+      syncBackupJobScheduleFields();
+    }
     renderBackupJobChoices();
-    renderBackupJobStep();
+    renderBackupJobForm();
     els.backupJobModal.classList.remove('hidden');
     window.setTimeout(() => els.backupJobName.focus(), 0);
   });
 }
 
 function closeBackupJobModal() {
+  if (backupSourceAddMenuContext === 'backup-job') closeBackupSourceAddMenu();
   els.backupJobModal.classList.add('hidden');
   state.backupJobWizard = blankBackupJobWizard();
 }
 
 async function createBackupJob(event) {
   event.preventDefault();
-  if (state.backupJobWizard.step !== 4) return;
+  if (state.backupJobWizard.step === 0) {
+    advanceBackupJobStep();
+    return;
+  }
+  syncBackupJobDraftSelections();
+  const error = backupJobFormError();
+  if (error) {
+    els.backupJobError.textContent = error;
+    els.backupJobError.classList.remove('hidden');
+    els.backupJobError.scrollIntoView({ block: 'nearest' });
+    return;
+  }
+  syncBackupJobModeForSource();
   await withButtonLoading('backup:job:create', els.backupJobCreateButton, async () => {
     await window.deployerx.createBackupJob({
       name: els.backupJobName.value.trim(),
@@ -14403,6 +15260,7 @@ function openBackupLocalRepositoryModal() {
 
 function closeBackupLocalRepositoryModal() {
   els.backupLocalRepositoryModal.classList.add('hidden');
+  resumeBackupJobFromDependency('local-repository').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
 }
 
 async function selectBackupLocalRepositoryFolder() {
@@ -14470,6 +15328,7 @@ async function openBackupSftpRepositoryModal() {
 
 function closeBackupSftpRepositoryModal() {
   els.backupSftpRepositoryModal.classList.add('hidden');
+  resumeBackupJobFromDependency('sftp-repository').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
 }
 
 async function createBackupSftpRepository(event) {
@@ -14528,6 +15387,7 @@ function openBackupS3RepositoryModal() {
 function closeBackupS3RepositoryModal() {
   resetSecretVisibility(els.backupS3RepositoryModal);
   els.backupS3RepositoryModal.classList.add('hidden');
+  resumeBackupJobFromDependency('s3-repository').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
 }
 
 async function createBackupS3Repository(event) {
@@ -15031,6 +15891,7 @@ function closeBackupBrowser() {
   backupBrowserRequestId += 1;
   els.backupBrowserModal.classList.add('hidden');
   state.backupBrowser = blankBackupBrowser();
+  resumeBackupJobFromDependency('file-source').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
 }
 
 function renderBackupConnections() {
@@ -15213,6 +16074,7 @@ function closeBackupSshModal() {
   els.backupSshPrivateKey.value = '';
   els.backupSshPassphrase.value = '';
   state.backupSshScan = null;
+  resumeBackupJobFromDependency('ssh-file-source').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
 }
 
 async function scanBackupSshHostKey() {
@@ -15266,7 +16128,7 @@ async function saveBackupSshConnection(event) {
   pendingActions.add(action);
   setButtonLoading(els.backupSshSaveButton, true);
   try {
-    await window.deployerx.createBackupSshConnection({
+    const connection = await window.deployerx.createBackupSshConnection({
       name: els.backupSshName.value,
       host: els.backupSshHost.value,
       port: Number(els.backupSshPort.value),
@@ -15278,8 +16140,11 @@ async function saveBackupSshConnection(event) {
       credential,
       passphrase: usesKey ? els.backupSshPassphrase.value : ''
     });
+    const continueToFileSource = state.backupJobWizard.dependency === 'ssh-file-source';
+    if (continueToFileSource) state.backupJobWizard.dependency = 'file-source';
     closeBackupSshModal();
     await loadBackupConnections();
+    if (continueToFileSource) openBackupBrowser(connection);
     showToast('Linux SSH source connection saved.');
   } catch (error) {
     showAlert(error.message || 'Could not save the SSH connection.');
@@ -15603,6 +16468,7 @@ function closeBackupMysqlModal() {
   state.backupMysqlConnectionId = '';
   state.backupMysqlDatabases = [];
   clearBackupDatabaseObjects();
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupMysql() {
@@ -15861,6 +16727,7 @@ function closeBackupRedisModal() {
   setModalVisible(false, els.backupRedisModal);
   state.backupRedisConnectionId = '';
   state.backupRedisDiscovery = null;
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupRedis() {
@@ -16012,6 +16879,7 @@ function closeBackupNeo4jModal() {
   setModalVisible(false, els.backupNeo4jModal);
   state.backupNeo4jConnectionId = '';
   state.backupNeo4jDiscovery = null;
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupNeo4j() {
@@ -16169,6 +17037,7 @@ function closeBackupClickHouseModal() {
   setModalVisible(false, els.backupClickHouseModal);
   state.backupClickHouseConnectionId = '';
   state.backupClickHouseDiscovery = null;
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupClickHouse() {
@@ -16325,6 +17194,7 @@ function closeBackupInfluxDbModal() {
   state.backupInfluxDbConnectionId = '';
   state.backupInfluxDbDiscovery = null;
   els.backupInfluxDbToken.value = '';
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupInfluxDb() {
@@ -16534,6 +17404,7 @@ function closeBackupInfluxDb3CoreModal() {
   setModalVisible(false, els.backupInfluxDb3CoreModal);
   state.backupInfluxDb3CoreConnectionId = '';
   state.backupInfluxDb3CoreDiscovery = null;
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupInfluxDb3Core() {
@@ -16742,6 +17613,7 @@ function closeBackupInfluxDb3EnterpriseModal() {
   state.backupInfluxDb3EnterpriseConnectionId = '';
   state.backupInfluxDb3EnterpriseDiscovery = null;
   els.backupInfluxDb3EnterpriseToken.value = '';
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupInfluxDb3Enterprise() {
@@ -16926,6 +17798,7 @@ function closeBackupCockroachDbModal() {
   state.backupCockroachDbDiscovery = null;
   state.backupCockroachDbApprovedDestination = '';
   els.backupCockroachDbPassword.value = '';
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupCockroachDb() {
@@ -17457,6 +18330,7 @@ function closeBackupSearchSnapshotModal() {
   setModalVisible(false, els.backupSearchSnapshotModal);
   state.backupSearchSnapshotConnectionId = '';
   state.backupSearchSnapshotDiscovery = null;
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupSearchSnapshot() {
@@ -17646,6 +18520,7 @@ function openBackupScyllaManagerModal(connection = null) {
 
 function closeBackupScyllaManagerModal() {
   setModalVisible(false, els.backupScyllaManagerModal); state.backupScyllaManagerConnectionId = ''; state.backupScyllaManagerDiscovery = null; state.backupScyllaManagerTarget = null;
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupScyllaManager() {
@@ -17730,6 +18605,7 @@ function closeBackupSqliteModal() {
   setModalVisible(false, els.backupSqliteModal);
   state.backupSqliteConnectionId = '';
   state.backupSqliteDiscovery = null;
+  resumeBackupJobSourceCreator();
 }
 
 async function discoverBackupSqlite() {
@@ -18035,16 +18911,22 @@ async function withButtonLoading(actionKey, button, task) {
   }
 }
 
-function closeConfirmModal(confirmed) {
+function closeConfirmModal(confirmed, { restoreFocus = true } = {}) {
   if (!confirmModalResolve) return;
   const resolve = confirmModalResolve;
+  const focusOrigin = confirmModalFocusOrigin;
   confirmModalResolve = null;
+  confirmModalFocusOrigin = null;
   setModalVisible(false, els.confirmModal);
+  els.confirmModal.setAttribute('aria-hidden', 'true');
   resolve(Boolean(confirmed));
+  if (restoreFocus && focusOrigin?.isConnected) {
+    requestAnimationFrame(() => focusOrigin.focus({ preventScroll: true }));
+  }
 }
 
 function confirmDangerousAction(message, detail = '', confirmLabel = 'Confirm') {
-  if (confirmModalResolve) closeConfirmModal(false);
+  if (confirmModalResolve) closeConfirmModal(false, { restoreFocus: false });
 
   const normalizedLabel = confirmLabel.toLowerCase();
   const isLogout = /logout|sign out|signout/.test(normalizedLabel);
@@ -18066,22 +18948,88 @@ function confirmDangerousAction(message, detail = '', confirmLabel = 'Confirm') 
       ? '#icon-unplug'
       : normalizedLabel.includes('delete') || normalizedLabel.includes('prune')
         ? '#icon-trash'
-        : normalizedLabel.includes('stop')
+        : /stop|cancel|close terminal/.test(normalizedLabel)
           ? '#icon-stop'
           : isDangerous
             ? '#icon-alert'
-            : '#icon-check';
+            : '#icon-alert';
   els.confirmModal.dataset.tone = isDangerous ? 'danger' : 'default';
   els.confirmModalIconUse.setAttribute('href', iconHref);
-  els.confirmModalConfirmIconUse.setAttribute('href', iconHref);
+  els.confirmModalConfirmIconUse.setAttribute('href', isDangerous ? iconHref : '#icon-check');
   els.confirmModalConfirmButton.classList.toggle('danger', isDangerous);
   els.confirmModalConfirmButton.classList.toggle('solid-danger', isDangerous);
   els.confirmModalConfirmButton.classList.toggle('solid', !isDangerous);
+  confirmModalFocusOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   setModalVisible(true, els.confirmModal);
+  els.confirmModal.setAttribute('aria-hidden', 'false');
   (isDangerous ? els.confirmModalCancelButton : els.confirmModalConfirmButton).focus();
 
   return new Promise((resolve) => {
     confirmModalResolve = resolve;
+  });
+}
+
+function closeTerminalUserPrompt(result = null, { restoreFocus = true } = {}) {
+  const resolve = terminalUserPromptResolve;
+  const focusOrigin = terminalUserPromptFocusOrigin;
+  terminalUserPromptResolve = null;
+  terminalUserPromptFocusOrigin = null;
+  state.terminalUserPrompt = null;
+  setModalVisible(false, els.terminalUserPromptModal);
+  els.terminalUserPromptList.replaceChildren();
+  els.terminalUserPromptModal.setAttribute('aria-hidden', 'true');
+  if (resolve) resolve(result);
+  if (restoreFocus && focusOrigin?.isConnected) {
+    requestAnimationFrame(() => focusOrigin.focus({ preventScroll: true }));
+  }
+}
+
+function readTerminalUserPromptSelection() {
+  const selected = els.terminalUserPromptList.querySelector('input[name="terminal-user"]:checked');
+  return selected?.value || '';
+}
+
+function submitTerminalUserPrompt(event) {
+  event?.preventDefault?.();
+  const selectedId = readTerminalUserPromptSelection();
+  if (!selectedId) {
+    els.terminalUserPromptList.querySelector('input[name="terminal-user"]')?.focus();
+    return;
+  }
+  const user = state.terminalUserPrompt?.users?.find((item) => item.id === selectedId);
+  closeTerminalUserPrompt(user ? structuredClone(user) : null);
+}
+
+function promptForTerminalUser(project, terminalSession) {
+  const users = Array.isArray(project?.ssh?.users) ? project.ssh.users.filter((user) => user?.id) : [];
+  if (users.length <= 1) return Promise.resolve(users[0] || null);
+  if (terminalUserPromptResolve) closeTerminalUserPrompt(null, { restoreFocus: false });
+
+  const preferredId = terminalSession?.sshUserId || project.ssh.defaultUserId || users[0].id;
+  state.terminalUserPrompt = { projectId: project.id, users: structuredClone(users) };
+  els.terminalUserPromptTitle.textContent = `Choose SSH user for ${project.name || 'this server'}`;
+  els.terminalUserPromptDetail.textContent = 'This server has multiple saved users. Choose which account to use for this terminal session.';
+  els.terminalUserPromptList.replaceChildren(...users.map((user, index) => {
+    const option = document.createElement('label');
+    option.className = 'terminal-user-option';
+    const authLabel = user.authType === 'key' ? 'SSH key authentication' : 'Password authentication';
+    const defaultLabel = user.id === project.ssh.defaultUserId ? ' · Default' : '';
+    option.innerHTML = `
+      <input type="radio" name="terminal-user" value="${escapeHtml(user.id)}" ${user.id === preferredId ? 'checked' : ''} required />
+      <span class="terminal-user-option-copy">
+        <strong>${escapeHtml(user.username || `User ${index + 1}`)}</strong>
+        <small>${escapeHtml(`${authLabel}${defaultLabel}`)}</small>
+      </span>`;
+    return option;
+  }));
+
+  terminalUserPromptFocusOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  setModalVisible(true, els.terminalUserPromptModal);
+  els.terminalUserPromptModal.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => els.terminalUserPromptList.querySelector('input:checked')?.focus());
+
+  return new Promise((resolve) => {
+    terminalUserPromptResolve = resolve;
   });
 }
 
@@ -19590,6 +20538,8 @@ function setAuthLoading(loading, label = '') {
 function resetWorkspaceData() {
   state.projects = [];
   state.serverGroups = [];
+  state.uptime.monitors = [];
+  state.uptime.groupCatalog = { groups: [] };
   state.sidebarOrder = { groups: [], projects: [] };
   state.templates = [];
   state.activeProject = null;
@@ -19610,6 +20560,7 @@ function resetWorkspaceData() {
   renderTemplateSelect();
   renderProjects();
   renderServerGroupsSettings();
+  renderUptimeGroupSettings();
   renderTemplates();
 }
 
@@ -19625,6 +20576,39 @@ async function enterCloudWorkspace() {
   loadProjects().catch((error) => {
     showToast(error.message || 'Cloud data is temporarily unavailable.');
   });
+}
+
+async function initializeDatabaseAccessWindow() {
+  if (!IS_DATABASE_ACCESS_WINDOW || !state.setup.complete || !state.setup.mode) return;
+  setSetupVisibility(false);
+  showView('database');
+  await Promise.all([
+    loadDatabasePlugins().catch(() => {}),
+    loadDatabaseProfiles()
+  ]);
+
+  const profile = state.databaseManager.profiles.find((item) => item.id === DATABASE_ACCESS_WINDOW_PROFILE_ID);
+  if (!profile) {
+    showAlert('The connected database profile is no longer available.');
+    return;
+  }
+
+  await setDatabaseManagerTab('query');
+  syncDatabaseQueryProfiles(profile.id);
+  const queryTab = activeDatabaseQueryTab();
+  if (queryTab) {
+    window.DatabaseQueryTabs.updateTab(state.databaseManager.queryTabs.session, queryTab.id, { profileId: profile.id });
+    applyActiveDatabaseQueryTab();
+  }
+  els.databaseQueryProfile.value = profile.id;
+  renderDatabaseQueryProfile();
+  els.databaseQueryProfile.disabled = true;
+
+  const heading = els.databaseManagerView.querySelector('.database-manager-view-header h1');
+  const copy = els.databaseManagerView.querySelector('.database-manager-view-header .header-copy');
+  if (heading) heading.textContent = 'DB Access Manager';
+  if (copy) copy.textContent = `${profile.name} connection workspace`;
+  document.title = `${profile.name} - DB Access Manager`;
 }
 
 async function continueCloudStartup() {
@@ -20059,6 +21043,14 @@ async function importLocalToCloud() {
 }
 
 async function initializeApp() {
+  if (IS_DATABASE_ACCESS_WINDOW) {
+    // The access window has a deliberately narrow preload and does not boot the
+    // account, project, or update surfaces used by the main DeployerX window.
+    state.setup.complete = true;
+    state.setup.mode = 'database-access';
+    return;
+  }
+
   try {
     hydrateStartupMetadata();
     refreshAppUpdateState().catch(() => {});
@@ -20974,8 +21966,13 @@ function renderProjects() {
   const renderSidebarProjectItem = (project, { reorderable = false } = {}) => {
     const connectionState = projectConnectionState(project.id);
     const isRdp = project.serverType === 'rdp';
-    const connectionActive = isRdp ? connectionState.rdp : connectionState.ssh;
-    const connectionLabel = `${isRdp ? 'RDP' : 'SSH'} ${connectionActive ? 'connected' : 'disconnected'}`;
+    const connectedServices = isRdp
+      ? (connectionState.rdp ? ['RDP'] : [])
+      : [connectionState.ssh ? 'SSH' : '', connectionState.ftp ? 'FTP' : ''].filter(Boolean);
+    const connectionActive = connectedServices.length > 0;
+    const connectionLabel = connectionActive
+      ? `${connectedServices.join(' and ')} connected`
+      : `${isRdp ? 'RDP' : 'SSH and FTP'} disconnected`;
     const isActiveProject = (state.currentView === 'project' && state.activeProject?.id === project.id)
       || (state.currentView === 'server-monitoring' && state.serverMonitoring.selectedProjectId === String(project.id));
     const projectName = project.name || 'Untitled Server';
@@ -21203,9 +22200,13 @@ function renderProjects() {
     els.projectGrid.appendChild(serverInventory);
   }
 
+  const sidebarGroupElements = [];
   const pinnedSidebarProjects = sidebarProjects
     .filter((project) => project.pinned)
-    .sort((first, second) => (first.name || '').localeCompare(second.name || ''));
+    .sort((first, second) => (
+      Number(serverPrimaryConnectionActive(second)) - Number(serverPrimaryConnectionActive(first))
+      || (first.name || '').localeCompare(second.name || '')
+    ));
   if (pinnedSidebarProjects.length) {
     const pinnedGroup = document.createElement('section');
     pinnedGroup.className = 'sidebar-server-group sidebar-pinned-group';
@@ -21215,7 +22216,11 @@ function renderProjects() {
       </div>
     `;
     for (const project of pinnedSidebarProjects) pinnedGroup.appendChild(renderSidebarProjectItem(project));
-    els.projectList.appendChild(pinnedGroup);
+    sidebarGroupElements.push({
+      element: pinnedGroup,
+      connected: pinnedSidebarProjects.some(serverPrimaryConnectionActive),
+      pinned: true
+    });
   }
 
   for (const group of groups) {
@@ -21227,7 +22232,9 @@ function renderProjects() {
     `;
     if (els.dashboardGroupSummary) els.dashboardGroupSummary.appendChild(summary);
 
-    const sidebarItems = group.items.filter((project) => sidebarProjectIds.has(project.id));
+    const sidebarItems = group.items
+      .filter((project) => sidebarProjectIds.has(project.id))
+      .sort((first, second) => Number(serverPrimaryConnectionActive(second)) - Number(serverPrimaryConnectionActive(first)));
     const serverItems = sortServerProjects(
       group.items.filter((project) => visibleServerIds.has(project.id)),
       serverFilters.sort
@@ -21256,9 +22263,10 @@ function renderProjects() {
     `;
     const dashboardGrid = dashboardSection.querySelector('.server-group-grid');
 
+    for (const project of sidebarItems) {
+      sidebarGroup.appendChild(renderSidebarProjectItem(project, { reorderable: !sidebarQuery }));
+    }
     for (const project of group.items) {
-      if (sidebarProjectIds.has(project.id)) sidebarGroup.appendChild(renderSidebarProjectItem(project, { reorderable: !sidebarQuery }));
-
       dashboardGrid.appendChild(renderServerCard(project));
     }
     if (serverItems.length && serverInventoryBody) {
@@ -21272,9 +22280,22 @@ function renderProjects() {
       for (const project of serverItems) serverInventoryBody.appendChild(renderServerInventoryRow(project));
     }
 
-    if (sidebarItems.length) els.projectList.appendChild(sidebarGroup);
+    if (sidebarItems.length) {
+      sidebarGroupElements.push({
+        element: sidebarGroup,
+        connected: sidebarItems.some(serverPrimaryConnectionActive),
+        pinned: false
+      });
+    }
     if (els.dashboardServerSections) els.dashboardServerSections.appendChild(dashboardSection);
   }
+
+  sidebarGroupElements
+    .sort((first, second) => (
+      Number(second.connected) - Number(first.connected)
+      || Number(second.pinned) - Number(first.pinned)
+    ))
+    .forEach(({ element }) => els.projectList.appendChild(element));
 
   if (!visibleServerProjects.length) {
     const emptyFilters = document.createElement('div');
@@ -23352,7 +24373,7 @@ async function ensureTerminal(terminalSession, project) {
   terminalSession.status = 'Connecting...';
   terminalSession.output = 'Ready.\r\n';
   terminalSession.pendingInput = startupDirectory
-    ? `cd -- ${quoteShellPath(startupDirectory)}; stty echo echonl\r`
+    ? `printf '\\r\\033[2K'; cd -- ${quoteShellPath(startupDirectory)}; stty echo echonl\r`
     : '';
   terminalSession.outputBuffer = '';
   terminalSession.rawBuffer = '';
@@ -23445,7 +24466,17 @@ async function connectTerminal() {
   const terminalSession = getTerminalSession(project?.id, true);
   if (!project || !terminalSession || terminalSession.sessionId || terminalSession.connected) return;
   try {
-    await ensureTerminal(terminalSession, project);
+    const selectedUser = await promptForTerminalUser(project, terminalSession);
+    if (!selectedUser) return;
+    terminalSession.sshUserId = selectedUser.id;
+    terminalSession.sshUsername = selectedUser.username;
+    const connectionProject = structuredClone(project);
+    connectionProject.ssh = {
+      ...connectionProject.ssh,
+      ...selectedUser,
+      defaultUserId: selectedUser.id
+    };
+    await ensureTerminal(terminalSession, connectionProject);
   } catch (error) {
     removeTerminalSessionRegistration(terminalSession.sessionId);
     terminalSession.sessionId = null;
@@ -23666,6 +24697,22 @@ els.serverGroupList.addEventListener('click', (event) => {
       .catch((error) => showAlert(error.message || 'Could not delete the server group.'));
   }
 });
+const handleUptimeGroupSettingsClick = (event) => {
+  const editButton = event.target.closest('[data-edit-uptime-group]');
+  const deleteButton = event.target.closest('[data-delete-uptime-group]');
+  if (editButton) {
+    openUptimeGroupModal(editButton.dataset.editUptimeGroup);
+    return;
+  }
+  if (deleteButton) {
+    deleteUptimeGroup(
+      deleteButton.dataset.deleteUptimeGroup,
+      deleteButton
+    ).catch((error) => showAlert(error.message || 'Could not delete the monitor group.'));
+  }
+};
+els.uptimeMonitorGroupCreateButton.addEventListener('click', () => openUptimeGroupModal());
+els.uptimeMonitorGroupList.addEventListener('click', handleUptimeGroupSettingsClick);
 document.querySelectorAll('[data-open-notification-settings]').forEach((button) => button.addEventListener('click', () => {
   setSettingsTab('notifications');
   showView('team');
@@ -24272,6 +25319,7 @@ els.databaseProfileList.addEventListener('click', (event) => {
   const bindButton = event.target.closest('[data-database-profile-bind]');
   const backupButton = event.target.closest('[data-database-profile-backup]');
   const connectionButton = event.target.closest('[data-database-profile-connection]');
+  const accessButton = event.target.closest('[data-database-profile-access]');
   const testButton = event.target.closest('[data-database-profile-test]');
   const editButton = event.target.closest('[data-database-profile-edit]');
   const deleteButton = event.target.closest('[data-database-profile-delete]');
@@ -24294,6 +25342,10 @@ els.databaseProfileList.addEventListener('click', (event) => {
   if (connectionButton) {
     const profile = state.databaseManager.profiles.find((item) => item.id === connectionButton.dataset.databaseProfileConnection);
     if (profile) toggleDatabaseConnection(profile, connectionButton).catch((error) => showAlert(error.message || 'Could not change the database connection.'));
+  }
+  if (accessButton) {
+    const profile = state.databaseManager.profiles.find((item) => item.id === accessButton.dataset.databaseProfileAccess);
+    if (profile) openDatabaseAccess(profile).catch((error) => showAlert(error.message || 'Could not open DB Access Manager.'));
   }
   if (testButton) {
     const profile = state.databaseManager.profiles.find((item) => item.id === testButton.dataset.databaseProfileTest);
@@ -24629,15 +25681,51 @@ els.backupJobCloseButton.addEventListener('click', closeBackupJobModal);
 els.backupJobCancelButton.addEventListener('click', closeBackupJobModal);
 els.backupJobModal.querySelector('[data-backup-job-close]').addEventListener('click', closeBackupJobModal);
 els.backupJobNextButton.addEventListener('click', advanceBackupJobStep);
+els.backupJobBackButton.addEventListener('click', () => setBackupJobStep(0));
+els.backupJobAddSourceButton.addEventListener('click', () => {
+  if (els.backupJobAddSourceButton.getAttribute('aria-expanded') === 'true') closeBackupSourceAddMenu({ focusTrigger: true });
+  else openBackupJobSourceTypes();
+});
+els.backupJobAddSourceButton.addEventListener('keydown', (event) => {
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+  event.preventDefault();
+  openBackupSourceAddMenu({
+    focusLast: event.key === 'ArrowUp',
+    trigger: els.backupJobAddSourceButton,
+    host: els.backupJobAddSourceDropdown,
+    context: 'backup-job'
+  });
+});
+els.backupJobCreateLocalRepositoryButton.addEventListener('click', () => {
+  suspendBackupJobForDependency('local-repository');
+  openBackupLocalRepositoryModal();
+});
+els.backupJobCreateSftpRepositoryButton.addEventListener('click', () => {
+  suspendBackupJobForDependency('sftp-repository');
+  openBackupSftpRepositoryModal().catch((error) => {
+    showAlert(error.message || 'Could not prepare the SFTP repository.');
+    resumeBackupJobFromDependency('sftp-repository').catch(() => {});
+  });
+});
+els.backupJobCreateS3RepositoryButton.addEventListener('click', () => {
+  suspendBackupJobForDependency('s3-repository');
+  openBackupS3RepositoryModal();
+});
+els.backupJobCreateNotificationRouteButton.addEventListener('click', () => {
+  suspendBackupJobForDependency('notification-route');
+  openBackupNotificationRouteModal();
+});
+els.backupJobSources.addEventListener('change', () => {
+  syncBackupJobDraftSelections();
+  syncBackupJobModeForSource();
+});
+els.backupJobRepositories.addEventListener('change', syncBackupJobDraftSelections);
+els.backupJobNotificationRoutes.addEventListener('change', syncBackupJobDraftSelections);
 els.backupJobScheduleType.addEventListener('change', syncBackupJobScheduleFields);
 els.backupJobTimezone.addEventListener('change', syncBackupJobScheduleFields);
 els.backupJobMaintenanceEnabled.addEventListener('change', syncBackupJobScheduleFields);
 els.backupJobBlackoutEnabled.addEventListener('change', syncBackupJobScheduleFields);
 els.backupJobBandwidthWindowEnabled.addEventListener('change', syncBackupJobScheduleFields);
-els.backupJobBackButton.addEventListener('click', () => {
-  state.backupJobWizard.step = Math.max(0, state.backupJobWizard.step - 1);
-  renderBackupJobStep();
-});
 els.backupJobForm.addEventListener('submit', (event) => createBackupJob(event).catch((error) => {
   els.backupJobError.textContent = error.message || 'Could not create the backup job.';
   els.backupJobError.classList.remove('hidden');
@@ -24655,7 +25743,8 @@ els.backupSourceAddButton.addEventListener('keydown', (event) => {
   openBackupSourceAddMenu({ focusLast: event.key === 'ArrowUp' });
 });
 els.backupSourceAddMenu.addEventListener('click', (event) => {
-  if (event.target.closest('[role="menuitem"]')) closeBackupSourceAddMenu();
+  const option = event.target.closest('[role="menuitem"]');
+  if (option) openBackupSourceCreator(option);
 });
 els.backupSourceAddMenu.addEventListener('keydown', (event) => {
   const options = backupSourceAddMenuOptions();
@@ -24678,27 +25767,9 @@ els.backupSourceAddMenu.addEventListener('keydown', (event) => {
   options[nextIndex]?.focus();
 });
 document.addEventListener('click', (event) => {
-  if (!els.backupSourceAddDropdown.contains(event.target)) closeBackupSourceAddMenu();
+  if (!backupSourceAddMenuHost.contains(event.target)) closeBackupSourceAddMenu();
 });
 window.addEventListener('resize', positionBackupSourceAddMenu);
-els.backupAddLocalConnectionButton.addEventListener('click', ensureBackupLocalConnection);
-els.backupAddSshConnectionButton.addEventListener('click', openBackupSshModal);
-els.backupAddMysqlConnectionButton.addEventListener('click', () => openBackupMysqlModal());
-els.backupAddMariadbConnectionButton.addEventListener('click', () => openBackupMysqlModal(null, 'mariadb'));
-els.backupAddPostgresqlConnectionButton.addEventListener('click', () => openBackupMysqlModal(null, 'postgresql'));
-els.backupAddSqlServerConnectionButton.addEventListener('click', () => openBackupMysqlModal(null, 'sqlserver'));
-els.backupAddOracleConnectionButton.addEventListener('click', () => openBackupMysqlModal(null, 'oracle'));
-els.backupAddMongoDbConnectionButton.addEventListener('click', () => openBackupMysqlModal(null, 'mongodb'));
-els.backupAddNeo4jConnectionButton.addEventListener('click', () => openBackupNeo4jModal());
-els.backupAddClickHouseConnectionButton.addEventListener('click', () => openBackupClickHouseModal());
-els.backupAddInfluxDbConnectionButton.addEventListener('click', () => openBackupInfluxDbModal());
-els.backupAddInfluxDb3CoreConnectionButton.addEventListener('click', () => openBackupInfluxDb3CoreModal());
-els.backupAddInfluxDb3EnterpriseConnectionButton.addEventListener('click', () => openBackupInfluxDb3EnterpriseModal());
-els.backupAddCockroachDbConnectionButton.addEventListener('click', () => openBackupCockroachDbModal());
-els.backupAddRedisConnectionButton.addEventListener('click', () => openBackupRedisModal());
-els.backupAddSearchSnapshotConnectionButton.addEventListener('click', () => openBackupSearchSnapshotModal());
-els.backupAddScyllaManagerConnectionButton.addEventListener('click', () => openBackupScyllaManagerModal());
-els.backupAddSqliteConnectionButton.addEventListener('click', () => openBackupSqliteModal());
 els.backupNeo4jCloseButton.addEventListener('click', closeBackupNeo4jModal);
 els.backupNeo4jCancelButton.addEventListener('click', closeBackupNeo4jModal);
 els.backupNeo4jModal.querySelector('[data-backup-neo4j-close]').addEventListener('click', closeBackupNeo4jModal);
@@ -25036,7 +26107,8 @@ els.uptimeSearchInput.addEventListener('input', renderUptimeMonitorTable);
 els.uptimeMonitorFilterButton.addEventListener('click', () => setUptimeMonitorFilterPanel(els.uptimeMonitorFilterButton.getAttribute('aria-expanded') !== 'true'));
 els.uptimeIncidentSearchInput.addEventListener('input', renderUptimeIncidents);
 els.uptimeIncidentFilterButton.addEventListener('click', () => setUptimeIncidentFilterPanel(els.uptimeIncidentFilterButton.getAttribute('aria-expanded') !== 'true'));
-for (const config of uptimeTableFilterDropdowns()) {
+els.uptimeReportFilterButton.addEventListener('click', () => setUptimeReportFilterPanel(els.uptimeReportFilterButton.getAttribute('aria-expanded') !== 'true'));
+for (const config of uptimeFilterDropdowns()) {
   config.button.addEventListener('click', () => {
     if (config.button.getAttribute('aria-expanded') === 'true') closeUptimeMonitorFilterMenu(config);
     else openUptimeMonitorFilterMenu(config);
@@ -25089,12 +26161,18 @@ document.addEventListener('click', (event) => {
   setUptimeIncidentFilterPanel(false);
 });
 document.addEventListener('click', (event) => {
-  for (const config of uptimeTableFilterDropdowns()) {
+  if (els.uptimeReportFilterButton.getAttribute('aria-expanded') !== 'true') return;
+  if (els.uptimeReportFilterButton.contains(event.target) || els.uptimeReportFilterPanel.contains(event.target)) return;
+  setUptimeReportFilterPanel(false);
+});
+document.addEventListener('click', (event) => {
+  for (const config of uptimeFilterDropdowns()) {
     if (!config.dropdown.contains(event.target)) closeUptimeMonitorFilterMenu(config);
   }
 });
 els.uptimeClearFiltersButton.addEventListener('click', () => {
   els.uptimeStateFilter.value = '';
+  els.uptimeGroupFilter.value = '';
   els.uptimeTypeFilter.value = '';
   els.uptimeSortFilter.value = 'name';
   renderUptimeMonitorTable();
@@ -25115,7 +26193,14 @@ els.uptimeIncidentFilterPanel.addEventListener('keydown', (event) => {
   setUptimeIncidentFilterPanel(false);
   els.uptimeIncidentFilterButton.focus();
 });
+els.uptimeReportFilterPanel.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  setUptimeReportFilterPanel(false);
+  els.uptimeReportFilterButton.focus();
+});
 els.uptimeStateFilter.addEventListener('change', renderUptimeMonitorTable);
+els.uptimeGroupFilter.addEventListener('change', renderUptimeMonitorTable);
 els.uptimeTypeFilter.addEventListener('change', renderUptimeMonitorTable);
 els.uptimeSortFilter.addEventListener('change', renderUptimeMonitorTable);
 els.uptimeIncidentStateFilter.addEventListener('change', renderUptimeIncidents);
@@ -25190,6 +26275,14 @@ els.uptimeEditMonitorButton.addEventListener('click', () => {
 els.uptimeDeleteMonitorButton.addEventListener('click', () => {
   deleteSelectedUptimeMonitor().catch((error) => showAlert(error.message || 'Could not delete monitor.'));
 });
+els.uptimeBackToMonitorsButton.addEventListener('click', () => {
+  state.uptime.selectedMonitorId = '';
+  state.uptime.selectedMonitorHistory = [];
+  state.uptime.selectedMonitorIncidents = [];
+  state.uptime.selectedMonitorDeliveries = [];
+  renderUptimeMonitorTable();
+  els.uptimeSearchInput.focus();
+});
 els.uptimeRunSelectedButton.addEventListener('click', async () => {
   try { await Promise.all([...state.uptime.selectedMonitorIds].map((id) => window.deployerx.runUptimeMonitorNow(id))); showToast('Selected monitor runs queued'); }
   catch (error) { showAlert(error.message || 'Could not queue selected monitors.'); }
@@ -25221,12 +26314,32 @@ els.uptimeDeleteSelectedButton.addEventListener('click', async () => {
     showToast('Selected monitors deleted');
   } catch (error) { showAlert(error.message || 'Could not delete selected monitors.'); }
 });
-els.uptimeReportRange.addEventListener('change', () => {
-  const custom = els.uptimeReportRange.value === 'custom';
-  els.uptimeReportFromField.classList.toggle('hidden', !custom);
-  els.uptimeReportToField.classList.toggle('hidden', !custom);
+for (const config of uptimeReportFilterDropdowns()) {
+  config.select.addEventListener('change', () => {
+    renderUptimeMonitorFilterDropdown(config);
+    syncUptimeReportRangeFields();
+    updateUptimeReportFilterCount();
+  });
+}
+els.uptimeClearReportFiltersButton.addEventListener('click', () => {
+  els.uptimeReportRange.value = '24h';
+  els.uptimeReportGroup.value = '';
+  els.uptimeReportProject.value = '';
+  els.uptimeReportMonitor.value = '';
+  els.uptimeReportFrom.value = '';
+  els.uptimeReportTo.value = '';
+  renderUptimeReportFilterDropdowns();
+  syncUptimeReportRangeFields();
+  updateUptimeReportFilterCount();
 });
-els.uptimeApplyReportButton.addEventListener('click', () => loadUptimeReport().catch((error) => showAlert(error.message || 'Could not load report.')));
+els.uptimeApplyReportButton.addEventListener('click', async () => {
+  try {
+    await loadUptimeReport();
+    setUptimeReportFilterPanel(false);
+  } catch (error) {
+    showAlert(error.message || 'Could not load report.');
+  }
+});
 els.uptimeExportCsvButton.addEventListener('click', async () => {
   try { const result = await window.deployerx.exportUptimeCsv({ ...uptimeReportOptions(), dataset: els.uptimeCsvDataset.value }); if (!result.canceled) showToast('CSV report exported'); }
   catch (error) { showAlert(error.message || 'Could not export CSV.'); }
@@ -25767,7 +26880,50 @@ els.uptimeMonitorModal.addEventListener('click', (event) => {
     setModalVisible(false, els.uptimeMonitorModal);
   }
 });
-els.uptimeMonitorType.addEventListener('change', updateUptimeMonitorTypeFields);
+els.uptimeMonitorTypeButton.addEventListener('click', () => {
+  if (els.uptimeMonitorTypeButton.getAttribute('aria-expanded') === 'true') closeUptimeMonitorTypeMenu();
+  else openUptimeMonitorTypeMenu();
+});
+els.uptimeMonitorTypeButton.addEventListener('keydown', (event) => {
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+  event.preventDefault();
+  openUptimeMonitorTypeMenu();
+});
+els.uptimeMonitorTypeMenu.addEventListener('click', (event) => {
+  const option = event.target.closest('[data-uptime-monitor-type]');
+  if (!option) return;
+  els.uptimeMonitorType.value = option.dataset.uptimeMonitorType;
+  els.uptimeMonitorType.dispatchEvent(new Event('change', { bubbles: true }));
+  els.uptimeMonitorTypeButton.focus();
+});
+els.uptimeMonitorTypeMenu.addEventListener('keydown', (event) => {
+  const options = Array.from(els.uptimeMonitorTypeMenu.querySelectorAll('.workspace-switcher-option'));
+  if (!options.length) return;
+  const currentIndex = options.indexOf(document.activeElement);
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % options.length;
+  else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + options.length) % options.length;
+  else if (event.key === 'Home') nextIndex = 0;
+  else if (event.key === 'End') nextIndex = options.length - 1;
+  else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    document.activeElement?.click();
+    return;
+  } else if (event.key === 'Escape' || event.key === 'Tab') {
+    if (event.key === 'Escape') event.preventDefault();
+    closeUptimeMonitorTypeMenu({ focusTrigger: event.key === 'Escape' });
+    return;
+  } else return;
+  event.preventDefault();
+  options[nextIndex]?.focus();
+});
+document.addEventListener('click', (event) => {
+  if (!els.uptimeMonitorTypeDropdown.contains(event.target)) closeUptimeMonitorTypeMenu();
+});
+els.uptimeMonitorType.addEventListener('change', () => {
+  renderUptimeMonitorTypeDropdown();
+  updateUptimeMonitorTypeFields();
+});
 els.uptimeMaintenanceCloseButton.addEventListener('click', () => setModalVisible(false, els.uptimeMaintenanceModal));
 els.uptimeMaintenanceCancelButton.addEventListener('click', () => setModalVisible(false, els.uptimeMaintenanceModal));
 els.uptimeMaintenanceModal.addEventListener('click', (event) => {
@@ -25791,6 +26947,33 @@ els.variablePromptCancelButton.addEventListener('click', () => closeVariableProm
 els.variablePromptModal.addEventListener('click', (event) => {
   if (event.target === els.variablePromptModal || event.target.classList.contains('modal-backdrop')) closeVariablePrompt(null);
 });
+els.terminalUserPromptForm.addEventListener('submit', submitTerminalUserPrompt);
+els.terminalUserPromptCloseButton.addEventListener('click', () => closeTerminalUserPrompt(null));
+els.terminalUserPromptCancelButton.addEventListener('click', () => closeTerminalUserPrompt(null));
+els.terminalUserPromptModal.addEventListener('click', (event) => {
+  if (event.target === els.terminalUserPromptModal || event.target.classList.contains('modal-backdrop')) closeTerminalUserPrompt(null);
+});
+els.terminalUserPromptModal.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeTerminalUserPrompt(null);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [
+    ...els.terminalUserPromptModal.querySelectorAll('button:not(:disabled), input:not(:disabled)')
+  ].filter((element) => element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 els.uploadModalCloseButton.addEventListener('click', () => setModalVisible(false, els.uploadModal));
 els.uploadModalCancelButton.addEventListener('click', () => setModalVisible(false, els.uploadModal));
 els.exportPickerCloseButton.addEventListener('click', closeExportPicker);
@@ -25802,6 +26985,25 @@ els.confirmModalConfirmButton.addEventListener('click', () => closeConfirmModal(
 els.confirmModal.addEventListener('click', (event) => {
   if (event.target === els.confirmModal || event.target.classList.contains('modal-backdrop')) closeConfirmModal(false);
 });
+els.confirmModal.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeConfirmModal(false);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [els.confirmModalCancelButton, els.confirmModalConfirmButton].filter((button) => !button.disabled);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 els.serverGroupForm.addEventListener('submit', (event) => {
   saveServerGroupFromModal(event).catch((error) => showAlert(error.message || 'Could not save the server group.'));
 });
@@ -25810,6 +27012,15 @@ els.serverGroupCloseButton.addEventListener('click', closeServerGroupModal);
 els.serverGroupCancelButton.addEventListener('click', closeServerGroupModal);
 els.serverGroupModal.addEventListener('click', (event) => {
   if (event.target === els.serverGroupModal || event.target.classList.contains('modal-backdrop')) closeServerGroupModal();
+});
+els.uptimeGroupForm.addEventListener('submit', (event) => {
+  saveUptimeGroupFromModal(event).catch((error) => showAlert(error.message || 'Could not save the monitor group.'));
+});
+els.uptimeGroupName.addEventListener('input', () => els.uptimeGroupName.setCustomValidity(''));
+els.uptimeGroupCloseButton.addEventListener('click', closeUptimeGroupModal);
+els.uptimeGroupCancelButton.addEventListener('click', closeUptimeGroupModal);
+els.uptimeGroupModal.addEventListener('click', (event) => {
+  if (event.target === els.uptimeGroupModal || event.target.classList.contains('modal-backdrop')) closeUptimeGroupModal();
 });
 els.modalSshUserTabs.addEventListener('click', (event) => {
   const button = event.target.closest('[data-ssh-user-id]');
@@ -25936,7 +27147,7 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
 
   if (event.type === 'connected') {
     terminalSession.connected = true;
-    setTerminalSessionStatus(terminalSession, 'Connected', true);
+    setTerminalSessionStatus(terminalSession, terminalSession.sshUsername ? `Connected as ${terminalSession.sshUsername}` : 'Connected', true);
     ensureTerminalHomeDirectory(event.sessionId).catch(() => {});
     if (terminalSession.pendingInput) {
       trackTerminalInputChunk(terminalSession.pendingInput, event.sessionId);
@@ -26165,6 +27376,7 @@ new ResizeObserver(() => syncRdpSize()).observe(els.rdpViewport);
 window.deployerx?.onDatabaseManagerEvent?.(handleDatabaseManagerEvent);
 
 initializeSecretVisibilityToggles();
+initializeProjectDropdowns();
 applyTheme(activeThemeId, { persist: false, announce: false });
 initializeDatabaseQueryMonaco();
 initializeSshEditorMonaco();
@@ -26172,7 +27384,7 @@ renderTemplateCategories();
 updateUptimeMonitorTypeFields();
 renderUptimeWorkspace();
 showView('dashboard');
-initializeApp().catch((error) => {
+initializeApp().then(() => initializeDatabaseAccessWindow()).catch((error) => {
   showAlert(error.message || 'Could not initialize DeployerX.');
   setSetupVisibility(true);
   showAuthPanel();

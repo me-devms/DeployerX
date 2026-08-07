@@ -17,8 +17,14 @@
     "database-native:licenses": "node src/database-manager/native-license-inventory.js",
     "database-native:review-request": "node src/database-manager/native-license-review-request.js --write",
     "database-windows:accept": "node src/database-manager/windows-artifact-acceptance.js",
-    "prepackage:win": "node --test src/database-manager/direct-driver-runtime.test.js",
-    "package:win": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --win nsis portable"
+    "database-access:prepare": "node scripts/prepare-db-access-manager.js --build",
+    "database-access:validate": "node scripts/prepare-db-access-manager.js --validate-only",
+    "database-access:licenses": "node scripts/db-access-manager-license-inventory.js",
+    "database-access:license-review-request": "node scripts/db-access-manager-license-review-request.js --write",
+    "database-access:license-check": "node scripts/db-access-manager-license-compliance.js --require-ready",
+    "database-access:test": "node --test scripts/db-access-manager-license-compliance.test.js scripts/prepare-db-access-manager.test.js",
+    "prepackage:win": "node --test src/database-manager/direct-driver-runtime.test.js scripts/prepare-db-access-manager.test.js",
+    "package:win": "npm run database-access:prepare && npm run database-access:validate && npm exec --yes --package electron-builder@24.13.3 -- electron-builder --win nsis portable"
   },
   "build": {
     "appId": "com.everythingx.deployerx",
@@ -42,6 +48,13 @@
       {
         "from": "firebase.config.json",
         "to": "firebase.config.json"
+      },
+      {
+        "from": "native/dist/deployerx-db-access-manager/win32-x64",
+        "to": "db-access-manager",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "publish": [
@@ -110,7 +123,8 @@
   },
   "devDependencies": {
     "@electron/asar": "3.2.17",
-    "electron": "43.3.0"
+    "electron": "43.3.0",
+    "js-yaml": "4.3.0"
   },
   "overrides": {
     "uuid": "11.1.1",

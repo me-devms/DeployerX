@@ -681,8 +681,7 @@
         <section id="serverMonitoringView" class="view hidden server-monitoring-view">
           <header class="view-header server-monitoring-header">
             <div>
-              <span class="server-monitoring-kicker"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-activity"></use></svg> Live infrastructure</span>
-              <h1>Real-time server monitoring</h1>
+              <h1>Real-time Monitor</h1>
               <p class="header-copy">CPU, memory, storage, network, and process health for the selected server.</p>
             </div>
             <div class="header-actions server-monitoring-actions">
@@ -767,7 +766,6 @@
             </section>
 
             <section class="uptime-panel" data-uptime-panel="monitors">
-              <div class="uptime-panel-heading"><div><h2>Monitors</h2><p id="uptimeMonitorListMeta">Track endpoint availability and response performance</p></div></div>
               <div id="uptimeMonitorTableCard" class="uptime-table-card">
                 <div class="uptime-table-toolbar">
                   <label class="uptime-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="uptimeSearchInput" type="search" placeholder="Search monitors, targets, groups, or tags" /></label>
@@ -776,6 +774,7 @@
                     <button id="uptimeMonitorFilterButton" class="button outline compact uptime-filter-button" type="button" aria-expanded="false" aria-controls="uptimeMonitorFilterPanel"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-filter"></use></svg>Filters<span id="uptimeMonitorFilterCount" class="uptime-filter-count hidden">0</span></button>
                     <div id="uptimeMonitorFilterPanel" class="uptime-table-filter-panel hidden">
                       <div class="field"><span>State</span><div id="uptimeStateFilterDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeStateFilter" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All States</option><option value="enabled">Enabled</option><option value="paused">Paused</option><option value="disabled">Disabled</option></select><button id="uptimeStateFilterButton" class="workspace-switcher-trigger" type="button" aria-label="State: All States" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeStateFilterMenu"><span id="uptimeStateFilterLabel" class="workspace-switcher-label">All States</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeStateFilterMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose monitor state"></div></div></div>
+                      <div class="field"><span>Group</span><div id="uptimeGroupFilterDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeGroupFilter" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All Groups</option></select><button id="uptimeGroupFilterButton" class="workspace-switcher-trigger" type="button" aria-label="Group: All Groups" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeGroupFilterMenu"><span id="uptimeGroupFilterLabel" class="workspace-switcher-label">All Groups</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeGroupFilterMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose monitor group"></div></div></div>
                       <div class="field"><span>Type</span><div id="uptimeTypeFilterDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeTypeFilter" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All Types</option><option value="http">HTTP / API</option><option value="tcp">TCP</option><option value="tls">TLS</option></select><button id="uptimeTypeFilterButton" class="workspace-switcher-trigger" type="button" aria-label="Type: All Types" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeTypeFilterMenu"><span id="uptimeTypeFilterLabel" class="workspace-switcher-label">All Types</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeTypeFilterMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose monitor type"></div></div></div>
                       <div class="field"><span>Sort By</span><div id="uptimeSortFilterDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeSortFilter" class="hidden" tabindex="-1" aria-hidden="true"><option value="name">Name</option><option value="status">Status</option><option value="latency">Latency</option><option value="lastCheck">Last Check</option></select><button id="uptimeSortFilterButton" class="workspace-switcher-trigger" type="button" aria-label="Sort By: Name" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeSortFilterMenu"><span id="uptimeSortFilterLabel" class="workspace-switcher-label">Name</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeSortFilterMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose monitor sort order"></div></div></div>
                       <button id="uptimeClearFiltersButton" class="button outline compact" type="button">Clear Filters</button>
@@ -787,11 +786,10 @@
                   <div id="uptimeMonitorsEmpty" class="uptime-empty-state hidden"><strong>No Monitors Found</strong><span id="uptimeMonitorsEmptyCopy">Create a monitor or change the current filters.</span></div>
                 </div>
               </div>
-              <section id="uptimeMonitorDetail" class="uptime-monitor-detail hidden"><header class="uptime-detail-header"><div><span id="uptimeSelectedMonitorStatus" class="uptime-status-pill">Unknown</span><h2 id="uptimeSelectedMonitorName">Monitor</h2><p id="uptimeSelectedMonitorMeta" class="settings-muted"></p></div><div class="uptime-monitor-actions"><button id="uptimeRunMonitorButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg>Run Now</button><button id="uptimeToggleMonitorButton" class="button outline compact" type="button">Pause</button><button id="uptimeEditMonitorButton" class="button outline compact icon-only" type="button" title="Edit" aria-label="Edit Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button><button id="uptimeDeleteMonitorButton" class="button plain danger compact icon-only" type="button" title="Delete" aria-label="Delete Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-trash"></use></svg></button></div></header><div class="uptime-detail-grid"><div class="uptime-detail-chart-panel"><div class="uptime-detail-chart-heading"><h3>Response Time</h3><span id="uptimeSelectedMonitorP95">P95 --</span></div><div id="uptimeLatencyChart" class="uptime-latency-chart" role="img" aria-label="Recent Monitor Response Times"></div></div><div><h3>Configuration</h3><dl id="uptimeConfigList" class="uptime-kv-list"></dl></div><div><h3>Recent Checks</h3><div id="uptimeHistoryList" class="uptime-history-list"></div></div><div><h3>Incident History</h3><div id="uptimeMonitorIncidentList" class="uptime-history-list"></div></div><div><h3>Notification Delivery</h3><div id="uptimeMonitorDeliveryList" class="uptime-history-list"></div></div></div></section>
+              <section id="uptimeMonitorDetail" class="uptime-monitor-detail hidden"><header class="uptime-detail-header"><button id="uptimeBackToMonitorsButton" class="button outline compact icon-only" type="button" title="Back to Monitors" aria-label="Back to Monitors"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-arrow-left"></use></svg></button><div class="uptime-detail-heading"><span id="uptimeSelectedMonitorStatus" class="uptime-status-pill">Unknown</span><h2 id="uptimeSelectedMonitorName">Monitor</h2><p id="uptimeSelectedMonitorMeta" class="settings-muted"></p></div><div class="uptime-monitor-actions"><button id="uptimeRunMonitorButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg>Run Now</button><button id="uptimeToggleMonitorButton" class="button outline compact" type="button">Pause</button><button id="uptimeEditMonitorButton" class="button outline compact icon-only" type="button" title="Edit" aria-label="Edit Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button><button id="uptimeDeleteMonitorButton" class="button outline danger compact icon-only" type="button" title="Delete" aria-label="Delete Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-trash"></use></svg></button></div></header><div class="uptime-detail-grid"><div class="uptime-detail-chart-panel"><div class="uptime-detail-chart-heading"><h3>Response Time</h3><span id="uptimeSelectedMonitorP95">P95 --</span></div><div id="uptimeLatencyChart" class="uptime-latency-chart" role="img" aria-label="Recent Monitor Response Times"></div></div><div><h3>Configuration</h3><dl id="uptimeConfigList" class="uptime-kv-list"></dl></div><div><h3>Recent Checks</h3><div id="uptimeHistoryList" class="uptime-history-list"></div></div><div><h3>Incident History</h3><div id="uptimeMonitorIncidentList" class="uptime-history-list"></div></div><div><h3>Notification Delivery</h3><div id="uptimeMonitorDeliveryList" class="uptime-history-list"></div></div></div></section>
             </section>
 
             <section class="uptime-panel" data-uptime-panel="incidents">
-              <div class="uptime-panel-heading"><div><h2>Incidents</h2><p>Acknowledge active events and review recovery history</p></div></div>
               <div id="uptimeIncidentTableCard" class="uptime-table-card">
                 <div class="uptime-table-toolbar">
                   <label class="uptime-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="uptimeIncidentSearchInput" type="search" placeholder="Search incidents, monitors, or summaries" /></label>
@@ -810,9 +808,31 @@
               </div>
             </section>
 
-            <section class="uptime-panel" data-uptime-panel="reports"><div class="uptime-panel-heading"><div><h2>Availability Report</h2><p>Availability and monitoring coverage use separate denominators</p></div><div class="uptime-panel-actions"><button id="uptimeExportPdfButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-export"></use></svg>PDF</button><select id="uptimeCsvDataset" aria-label="CSV dataset"><option value="summary">Monitor Summary CSV</option><option value="checks">Checks CSV</option><option value="incidents">Incidents CSV</option><option value="daily">Daily Trend CSV</option></select><button id="uptimeExportCsvButton" class="button solid compact" type="button">Export CSV</button></div></div><div class="uptime-report-filters"><select id="uptimeReportRange"><option value="24h">Last 24 Hours</option><option value="7d">Last 7 Days</option><option value="30d">Last 30 Days</option><option value="custom">Custom Range</option></select><label id="uptimeReportFromField" class="field hidden"><span>From</span><input id="uptimeReportFrom" type="datetime-local" /></label><label id="uptimeReportToField" class="field hidden"><span>To</span><input id="uptimeReportTo" type="datetime-local" /></label><select id="uptimeReportGroup"><option value="">All Groups</option></select><select id="uptimeReportProject"><option value="">All Linked Servers</option></select><select id="uptimeReportMonitor"><option value="">All Monitors</option></select><button id="uptimeApplyReportButton" class="button outline" type="button">Apply</button></div><div class="uptime-report-kpis"><div><span>Availability</span><strong id="uptimeReportAvailability">--</strong></div><div><span>Coverage</span><strong id="uptimeReportCoverage">--</strong></div><div><span>Downtime</span><strong id="uptimeReportDowntime">--</strong></div><div><span>P95 Latency</span><strong id="uptimeReportP95">--</strong></div></div><section class="uptime-surface"><div class="uptime-panel-heading"><div><h3>Daily Trend</h3><p id="uptimeReportPeriod">Select a reporting period</p></div></div><div id="uptimeReportChart" class="uptime-report-chart"></div></section><section class="uptime-surface"><div class="uptime-panel-heading"><div><h3>Monitor Comparison</h3><p>Availability, coverage, incidents, and latency</p></div></div><div id="uptimeReportMonitorTable" class="uptime-report-monitor-table"></div></section><p id="uptimeReportMethodology" class="uptime-methodology"></p></section>
+            <section class="uptime-panel" data-uptime-panel="reports">
+              <div class="uptime-panel-heading uptime-report-heading">
+                <div class="uptime-report-kpis"><div><span>Availability</span><strong id="uptimeReportAvailability">--</strong></div><div><span>Coverage</span><strong id="uptimeReportCoverage">--</strong></div><div><span>Downtime</span><strong id="uptimeReportDowntime">--</strong></div><div><span>P95 Latency</span><strong id="uptimeReportP95">--</strong></div></div>
+                <div class="uptime-panel-actions uptime-report-actions">
+                  <button id="uptimeReportFilterButton" class="button outline compact uptime-filter-button" type="button" aria-expanded="false" aria-controls="uptimeReportFilterPanel"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-filter"></use></svg>Filters<span id="uptimeReportFilterCount" class="uptime-filter-count hidden">0</span></button>
+                  <div id="uptimeReportFilterPanel" class="uptime-table-filter-panel uptime-report-filter-panel hidden">
+                    <div class="field"><span>Period</span><div id="uptimeReportRangeDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeReportRange" class="hidden" tabindex="-1" aria-hidden="true"><option value="24h">Last 24 Hours</option><option value="7d">Last 7 Days</option><option value="30d">Last 30 Days</option><option value="custom">Custom Range</option></select><button id="uptimeReportRangeButton" class="workspace-switcher-trigger" type="button" aria-label="Period: Last 24 Hours" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeReportRangeMenu"><span id="uptimeReportRangeLabel" class="workspace-switcher-label">Last 24 Hours</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeReportRangeMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose report period"></div></div></div>
+                    <label id="uptimeReportFromField" class="field hidden"><span>From</span><input id="uptimeReportFrom" type="datetime-local" /></label>
+                    <label id="uptimeReportToField" class="field hidden"><span>To</span><input id="uptimeReportTo" type="datetime-local" /></label>
+                    <div class="field"><span>Group</span><div id="uptimeReportGroupDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeReportGroup" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All Groups</option></select><button id="uptimeReportGroupButton" class="workspace-switcher-trigger" type="button" aria-label="Group: All Groups" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeReportGroupMenu"><span id="uptimeReportGroupLabel" class="workspace-switcher-label">All Groups</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeReportGroupMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose report group"></div></div></div>
+                    <div class="field"><span>Linked server</span><div id="uptimeReportProjectDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeReportProject" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All Linked Servers</option></select><button id="uptimeReportProjectButton" class="workspace-switcher-trigger" type="button" aria-label="Linked server: All Linked Servers" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeReportProjectMenu"><span id="uptimeReportProjectLabel" class="workspace-switcher-label">All Linked Servers</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeReportProjectMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose linked server"></div></div></div>
+                    <div class="field"><span>Monitor</span><div id="uptimeReportMonitorDropdown" class="top-workspace-switcher uptime-filter-select"><select id="uptimeReportMonitor" class="hidden" tabindex="-1" aria-hidden="true"><option value="">All Monitors</option></select><button id="uptimeReportMonitorButton" class="workspace-switcher-trigger" type="button" aria-label="Monitor: All Monitors" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeReportMonitorMenu"><span id="uptimeReportMonitorLabel" class="workspace-switcher-label">All Monitors</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button><div id="uptimeReportMonitorMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose report monitor"></div></div></div>
+                    <div class="uptime-report-filter-actions"><button id="uptimeClearReportFiltersButton" class="button outline compact" type="button">Clear</button><button id="uptimeApplyReportButton" class="button solid compact" type="button">Apply</button></div>
+                  </div>
+                  <button id="uptimeExportPdfButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-export"></use></svg>PDF</button>
+                  <select id="uptimeCsvDataset" aria-label="CSV dataset"><option value="summary">Monitor Summary CSV</option><option value="checks">Checks CSV</option><option value="incidents">Incidents CSV</option><option value="daily">Daily Trend CSV</option></select>
+                  <button id="uptimeExportCsvButton" class="button solid compact" type="button">Export CSV</button>
+                </div>
+              </div>
+              <section class="uptime-surface"><div class="uptime-panel-heading"><div><h3>Daily Trend</h3><p id="uptimeReportPeriod">Select a reporting period</p></div></div><div id="uptimeReportChart" class="uptime-report-chart"></div></section>
+              <section class="uptime-surface"><div class="uptime-panel-heading"><div><h3>Monitor Comparison</h3><p>Availability, coverage, incidents, and latency</p></div></div><div id="uptimeReportMonitorTable" class="uptime-report-monitor-table"></div></section>
+              <p id="uptimeReportMethodology" class="uptime-methodology"></p>
+            </section>
 
-            <section class="uptime-panel" data-uptime-panel="maintenance"><div class="uptime-panel-heading"><div><h2>Maintenance</h2><p>Checks continue, while incident transitions and notifications are suppressed</p></div><button id="uptimeAddMaintenanceButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg>Schedule Maintenance</button></div><div class="uptime-table-card uptime-maintenance-card"><div id="uptimeMaintenanceList" class="uptime-maintenance-list"></div><div id="uptimeMaintenanceEmpty" class="uptime-empty-state hidden"><strong>No Maintenance Windows</strong><span>Schedule planned work to protect availability calculations.</span></div></div></section>
+            <section class="uptime-panel" data-uptime-panel="maintenance"><div class="uptime-panel-heading uptime-panel-heading-actions-only"><button id="uptimeAddMaintenanceButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg>Schedule Maintenance</button></div><div class="uptime-table-card uptime-maintenance-card"><div id="uptimeMaintenanceList" class="uptime-maintenance-list"></div><div id="uptimeMaintenanceEmpty" class="uptime-empty-state hidden"><strong>No Maintenance Windows</strong><span>Schedule planned work to protect availability calculations.</span></div></div></section>
           </div>
         </section>
 
@@ -927,14 +947,13 @@
               </section>
 
               <section id="backupPanelJobs" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabJobs" data-backup-panel="jobs">
-                <div class="backup-panel-heading"><div><h2>Backup jobs</h2><p>Scheduled and on-demand workload protection.</p></div><div id="backupWorkerStatus" class="backup-worker-status" role="status">Background worker status unavailable</div></div>
+                <div class="backup-panel-heading backup-panel-heading-actions-only"><div id="backupWorkerStatus" class="backup-worker-status" role="status">Background worker status unavailable</div></div>
                 <div id="backupJobList" class="backup-source-connections hidden" aria-live="polite"></div>
                 <div id="backupJobsEmpty" class="backup-manager-empty"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-save"></use></svg></span><strong>No backup jobs</strong></div>
               </section>
 
               <section id="backupPanelSources" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabSources" data-backup-panel="sources">
-                <div class="backup-panel-heading">
-                  <div><h2>Source connections</h2><p>Computers and servers available for backup jobs.</p></div>
+                <div class="backup-panel-heading backup-panel-heading-actions-only">
                   <div class="backup-panel-actions">
                     <div id="backupSourceAddDropdown" class="backup-source-add-dropdown">
                       <button id="backupSourceAddButton" class="button outline compact backup-source-add-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="backupSourceAddMenu">
@@ -986,8 +1005,7 @@
               </section>
 
               <section id="backupPanelRepositories" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabRepositories" data-backup-panel="repositories">
-                <div class="backup-panel-heading">
-                  <div><h2>Repositories</h2><p>Backup storage, capacity, and health.</p></div>
+                <div class="backup-panel-heading backup-panel-heading-actions-only">
                   <div class="backup-panel-actions">
                     <button id="backupAddS3RepositoryButton" class="button outline" type="button">
                       <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-cloud"></use></svg>
@@ -1008,8 +1026,7 @@
               </section>
 
               <section id="backupPanelRecovery" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabRecovery" data-backup-panel="recovery">
-                <div class="backup-panel-heading">
-                  <div><h2>Recovery</h2><p>Browse protected files and their versions.</p></div>
+                <div class="backup-panel-heading backup-panel-heading-actions-only">
                   <button id="backupRecoveryRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh recovery points" title="Refresh recovery points">
                     <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
                   </button>
@@ -1067,8 +1084,7 @@
               </section>
 
               <section id="backupPanelActivity" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabActivity" data-backup-panel="activity">
-                <div class="backup-panel-heading">
-                  <div><h2>Activity</h2><p>Backup, verification, maintenance, and restore runs.</p></div>
+                <div class="backup-panel-heading backup-panel-heading-actions-only">
                   <div class="backup-panel-actions">
                     <select id="backupActivityFilter" aria-label="Filter activity"><option value="all">All activity</option><option value="backup">Backups</option><option value="restore">Restores</option><option value="verification">Verifications</option></select>
                     <button id="backupActivityRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh activity" title="Refresh activity"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg></button>
@@ -1080,15 +1096,14 @@
               </section>
 
               <section id="backupPanelPolicies" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabPolicies" data-backup-panel="policies">
-                <div class="backup-panel-heading">
-                  <div><h2>Policies</h2><p>Backup jobs assign destinations managed at the application level.</p></div>
+                <div class="backup-panel-heading backup-panel-heading-actions-only">
                   <button class="button outline compact" type="button" data-open-notification-settings><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-bell"></use></svg>Notification settings</button>
                 </div>
                 <div class="backup-manager-empty compact"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-bell"></use></svg></span><strong>Routes moved to Settings</strong><p>Destinations can be shared by Backup Manager and Uptime Monitor.</p></div>
               </section>
 
               <section id="backupPanelTests" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabTests" data-backup-panel="tests">
-                <div class="backup-panel-heading"><div><h2>Recovery tests</h2><p>Restore verification and measured recovery readiness.</p></div><button id="backupTestsRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh recovery tests" title="Refresh recovery tests"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg></button></div>
+                <div class="backup-panel-heading backup-panel-heading-actions-only"><button id="backupTestsRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh recovery tests" title="Refresh recovery tests"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg></button></div>
                 <div id="backupTestList" class="backup-activity-list hidden" aria-live="polite"></div>
                 <div id="backupTestsEmpty" class="backup-manager-empty"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-check"></use></svg></span><strong>No recovery tests</strong></div>
               </section>
@@ -1832,7 +1847,7 @@
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-folder-open"></use>
                 </svg>
-                Server groups
+                Groups
               </button>
               <button class="settings-nav-item" type="button" data-settings-tab="members">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -1958,6 +1973,16 @@
                       <strong>No server groups</strong>
                       <small>Create a group to make it available in the server popup.</small>
                     </div>
+                  </div>
+                  <div class="monitor-groups-settings-grid">
+                    <section class="settings-card monitor-groups-card">
+                      <header class="monitor-groups-card-header">
+                        <div><h2>Monitor groups</h2><p>Subgroups used beneath linked servers.</p></div>
+                        <button id="uptimeMonitorGroupCreateButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Create group</button>
+                      </header>
+                      <div id="uptimeMonitorGroupList" class="monitor-group-settings-list" aria-live="polite"></div>
+                      <div id="uptimeMonitorGroupsEmpty" class="server-groups-empty hidden"><span aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-folder-open"></use></svg></span><strong>No monitor groups</strong><small>Create subgroups for monitors linked to your servers.</small></div>
+                    </section>
                   </div>
                 </div>
               </section>
@@ -4490,7 +4515,7 @@ tool_timeout_sec = 300</pre>
         <header class="modal-header">
           <div>
             <h2 id="backupJobModalTitle">Create backup job</h2>
-            <p id="backupJobStepLabel">Step 1 of 5 - Basics</p>
+            <p id="backupJobStepLabel">Step 1 of 2 - Setup</p>
           </div>
           <button id="backupJobCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
@@ -4498,7 +4523,7 @@ tool_timeout_sec = 300</pre>
         </header>
         <div class="modal-body backup-job-modal-body">
           <ol id="backupJobSteps" class="backup-job-steps" aria-label="Backup job setup progress">
-            <li class="active">Basics</li><li>Source</li><li>Destinations</li><li>Protection</li><li>Review</li>
+            <li class="active">Setup</li><li>Protection</li>
           </ol>
           <p id="backupJobError" class="inline-error hidden" role="alert"></p>
           <section class="backup-job-step" data-backup-job-step="0">
@@ -4507,18 +4532,38 @@ tool_timeout_sec = 300</pre>
               <span>Job name</span>
               <input id="backupJobName" type="text" maxlength="200" placeholder="Production application files" autocomplete="off" required />
             </label>
+            <div class="backup-job-resource-grid">
+              <section class="backup-job-resource-section">
+                <div class="backup-job-step-heading"><h3>Choose one source</h3><p>The saved file paths or database selection are captured with this job.</p></div>
+                <div id="backupJobSources" class="backup-job-choice-list"></div>
+                <div id="backupJobSourcesEmpty" class="backup-job-inline-empty hidden">
+                  <span>Create and test a file or database source before continuing.</span>
+                  <div class="backup-job-inline-actions">
+                    <div id="backupJobAddSourceDropdown" class="backup-source-add-dropdown backup-job-source-add-dropdown">
+                      <button id="backupJobAddSourceButton" class="button solid compact backup-source-add-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="backupSourceAddMenu">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>
+                        Add source
+                        <span class="backup-source-add-chevron" aria-hidden="true"></span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="backup-job-resource-section">
+                <div class="backup-job-step-heading"><h3>Choose backup destinations</h3><p>The first selected repository is primary; additional destinations receive copies.</p></div>
+                <div id="backupJobRepositories" class="backup-job-choice-list"></div>
+                <div id="backupJobRepositoriesEmpty" class="backup-job-inline-empty hidden">
+                  <span>Add and test a repository before continuing.</span>
+                  <div class="backup-job-inline-actions">
+                    <button id="backupJobCreateLocalRepositoryButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Local folder</button>
+                    <button id="backupJobCreateSftpRepositoryButton" class="button outline compact" type="button">SFTP server</button>
+                    <button id="backupJobCreateS3RepositoryButton" class="button outline compact" type="button">S3 storage</button>
+                  </div>
+                </div>
+              </section>
+            </div>
           </section>
           <section class="backup-job-step hidden" data-backup-job-step="1">
-            <div class="backup-job-step-heading"><h3>Choose one source</h3><p>The saved file paths or database selection are captured with this job.</p></div>
-            <div id="backupJobSources" class="backup-job-choice-list"></div>
-            <div id="backupJobSourcesEmpty" class="backup-job-inline-empty hidden">Create and test a file or database source before continuing.</div>
-          </section>
-          <section class="backup-job-step hidden" data-backup-job-step="2">
-            <div class="backup-job-step-heading"><h3>Choose backup destinations</h3><p>The first selected repository is primary; additional destinations receive copies.</p></div>
-            <div id="backupJobRepositories" class="backup-job-choice-list"></div>
-            <div id="backupJobRepositoriesEmpty" class="backup-job-inline-empty hidden">Add and test a repository before continuing.</div>
-          </section>
-          <section class="backup-job-step hidden" data-backup-job-step="3">
             <div class="backup-job-step-heading"><h3>Set protection behavior</h3><p>Choose backup, retention, and UTC schedule settings.</p></div>
             <fieldset class="backup-job-options">
               <legend>Backup mode</legend>
@@ -4552,7 +4597,10 @@ tool_timeout_sec = 300</pre>
             <fieldset class="backup-job-options">
               <legend>Notification routes</legend>
               <div id="backupJobNotificationRoutes" class="backup-job-choice-list compact"></div>
-              <div id="backupJobNotificationRoutesEmpty" class="backup-job-inline-empty hidden">No enabled routes are configured. Add one from Policies.</div>
+              <div id="backupJobNotificationRoutesEmpty" class="backup-job-inline-empty hidden">
+                <span>No enabled notification routes are configured.</span>
+                <div class="backup-job-inline-actions"><button id="backupJobCreateNotificationRouteButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Add notification route</button></div>
+              </div>
             </fieldset>
             <fieldset class="backup-job-options">
               <legend>Calendar retention</legend>
@@ -4695,19 +4743,11 @@ tool_timeout_sec = 300</pre>
             </div>
             <label class="backup-job-check"><input id="backupJobVerify" type="checkbox" checked /><span><strong>Verify checksums after backup</strong><small>Confirm committed objects match their recorded checksums.</small></span></label>
           </section>
-          <section class="backup-job-step hidden" data-backup-job-step="4">
-            <div class="backup-job-step-heading"><h3>Review and create</h3><p>Creation saves and enables the protection policy. No backup starts immediately.</p></div>
-            <div id="backupJobReview" class="backup-job-review"></div>
-            <div id="backupJobReadiness" class="backup-job-readiness" role="status"></div>
-          </section>
         </div>
         <footer class="modal-footer backup-job-footer">
           <button id="backupJobCancelButton" class="button outline" type="button">Cancel</button>
           <span class="backup-job-footer-spacer"></span>
-          <button id="backupJobBackButton" class="button outline hidden" type="button">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-arrow-left"></use></svg>
-            Back
-          </button>
+          <button id="backupJobBackButton" class="button outline hidden" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Back</button>
           <button id="backupJobNextButton" class="button solid" type="button">Next</button>
           <button id="backupJobCreateButton" class="button solid hidden" type="submit">Create job</button>
         </footer>
@@ -5801,40 +5841,47 @@ tool_timeout_sec = 300</pre>
         <div class="uptime-wizard-progress"><button class="active" type="button" data-uptime-monitor-step-button="1"><span>1</span>Target</button><button type="button" data-uptime-monitor-step-button="2"><span>2</span>Conditions</button><button type="button" data-uptime-monitor-step-button="3"><span>3</span>Schedule &amp; Alerts</button></div>
         <div class="modal-body uptime-monitor-modal-body">
           <section class="form-section" data-uptime-monitor-step="1">
-            <div class="section-heading compact"><h3>Monitor Target</h3><p>Choose a probe type and destination.</p></div>
             <div class="field-grid modal-columns">
               <label class="field span-2">
                 <span>Monitor Name</span>
                 <input id="uptimeMonitorName" type="text" maxlength="200" placeholder="Production API health" required />
               </label>
-              <label class="field">
+              <div class="field">
                 <span>Type</span>
-                <select id="uptimeMonitorType">
-                  <option value="http">HTTP / API</option>
-                  <option value="tcp">TCP Port</option>
-                  <option value="tls">TLS Certificate</option>
-                </select>
-              </label>
+                <div id="uptimeMonitorTypeDropdown" class="top-workspace-switcher modal-template-switcher">
+                  <select id="uptimeMonitorType" class="hidden" tabindex="-1" aria-hidden="true">
+                    <option value="http">HTTP / API</option>
+                    <option value="tcp">TCP Port</option>
+                    <option value="tls">TLS Certificate</option>
+                  </select>
+                  <button id="uptimeMonitorTypeButton" class="workspace-switcher-trigger" type="button" aria-label="Type: HTTP / API" aria-haspopup="listbox" aria-expanded="false" aria-controls="uptimeMonitorTypeMenu">
+                    <span class="workspace-switcher-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-activity"></use></svg></span>
+                    <span id="uptimeMonitorTypeLabel" class="workspace-switcher-label">HTTP / API</span>
+                    <span class="workspace-switcher-chevron" aria-hidden="true"></span>
+                  </button>
+                  <div id="uptimeMonitorTypeMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose monitor type"></div>
+                </div>
+              </div>
               <label class="field">
                 <span>Server Link</span>
                 <select id="uptimeMonitorProject"><option value="">Standalone Monitor</option></select>
               </label>
-              <label class="field">
-                <span>Group</span>
-                <input id="uptimeMonitorGroup" type="text" maxlength="200" placeholder="Production" />
+              <label class="field span-2">
+                <span>Monitor Group</span>
+                <input id="uptimeMonitorGroup" type="text" maxlength="200" placeholder="Enter monitor subgroup" />
               </label>
-              <label class="field">
+              <label class="field span-2">
                 <span>Tags</span>
                 <input id="uptimeMonitorTags" type="text" placeholder="api, critical" />
               </label>
             </div>
             <div id="uptimeHttpFields" class="uptime-target-fields">
-            <div class="field-grid modal-columns">
-              <label class="field span-2">
+            <div class="field-grid uptime-http-request-grid">
+              <label class="field uptime-http-url-field">
                 <span>URL</span>
                 <input id="uptimeHttpUrl" type="url" maxlength="4096" placeholder="https://example.com/health" />
               </label>
-              <label class="field">
+              <label class="field uptime-http-method-field">
                 <span>Method</span>
                 <select id="uptimeHttpMethod">
                   <option value="GET">GET</option>
@@ -5842,7 +5889,7 @@ tool_timeout_sec = 300</pre>
                   <option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH</option><option value="DELETE">DELETE</option>
                 </select>
               </label>
-              <label class="field">
+              <label class="field uptime-http-redirects-field">
                 <span>Redirects</span><select id="uptimeHttpRedirects"><option value="true">Follow redirects</option><option value="false">Do not follow</option></select>
               </label>
             </div>
@@ -6071,6 +6118,53 @@ tool_timeout_sec = 300</pre>
       </form>
     </div>
 
+    <div
+      id="terminalUserPromptModal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="terminalUserPromptTitle"
+      aria-describedby="terminalUserPromptDetail"
+      aria-hidden="true"
+    >
+      <div class="modal-backdrop"></div>
+      <form class="modal-card small terminal-user-prompt-card" id="terminalUserPromptForm">
+        <header class="modal-header">
+          <div>
+            <h2 id="terminalUserPromptTitle">Choose SSH user</h2>
+            <p id="terminalUserPromptDetail">This server has multiple saved users. Choose the account for this terminal.</p>
+          </div>
+          <button id="terminalUserPromptCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+          </button>
+        </header>
+
+        <div class="modal-body">
+          <fieldset class="terminal-user-options">
+            <legend class="sr-only">SSH user</legend>
+            <div id="terminalUserPromptList"></div>
+          </fieldset>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="terminalUserPromptCancelButton" class="button outline" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-x"></use>
+            </svg>
+            Cancel
+          </button>
+          <button id="terminalUserPromptConnectButton" class="button solid" type="submit">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-play"></use>
+            </svg>
+            Connect
+          </button>
+        </footer>
+      </form>
+    </div>
+
     <div id="serverGroupModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="serverGroupModalTitle">
       <div class="modal-backdrop"></div>
       <form id="serverGroupForm" class="modal-card small">
@@ -6102,7 +6196,19 @@ tool_timeout_sec = 300</pre>
       </form>
     </div>
 
-    <div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-describedby="confirmModalDetail">
+    <div id="uptimeGroupModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="uptimeGroupModalTitle">
+      <div class="modal-backdrop"></div>
+      <form id="uptimeGroupForm" class="modal-card small">
+        <header class="modal-header">
+          <div><h2 id="uptimeGroupModalTitle">Create group</h2><p id="uptimeGroupModalSubtitle">Add a group for Uptime Monitor.</p></div>
+          <button id="uptimeGroupCloseButton" class="icon-button" type="button" aria-label="Close"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg></button>
+        </header>
+        <div class="modal-body"><label class="field"><span id="uptimeGroupNameLabel">Group name</span><input id="uptimeGroupName" type="text" maxlength="200" placeholder="Enter group name" autocomplete="off" required /></label></div>
+        <footer class="modal-footer"><button id="uptimeGroupCancelButton" class="button outline" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-x"></use></svg>Cancel</button><button id="uptimeGroupSaveButton" class="button solid" type="submit"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-save"></use></svg><span id="uptimeGroupSaveLabel">Create group</span></button></footer>
+      </form>
+    </div>
+
+    <div id="confirmModal" class="modal confirm-dialog hidden" data-component="confirm-dialog" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="confirmModalTitle" aria-describedby="confirmModalDetail">
       <div class="modal-backdrop"></div>
       <section class="modal-card confirm-card">
         <header class="modal-header confirm-header">

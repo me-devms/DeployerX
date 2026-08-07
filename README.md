@@ -27,7 +27,7 @@ The app is designed for developers, system administrators, agencies, and small t
 
 - New **Uptime Monitor** workspace for HTTP/API, TCP, and TLS checks, incidents, maintenance windows, shared alerts, and PDF/CSV reports.
 - New **Backup Manager** for scheduled and manual file/database protection, encrypted repositories, retention, verification, and guided recovery.
-- New **Database Manager handoff** that downloads, verifies, caches, and launches the reviewed Tabularis portable release on Windows x64.
+- New **Database Manager Access workspace** that opens connected PostgreSQL, MySQL/MariaDB, and SQLite profiles in the bundled DeployerX DB Access Manager window.
 - Embedded **Windows Remote Desktop** sessions alongside SSH and SFTP server tools.
 - New authenticated **DeployerX MCP** server for scoped SSH command and SFTP access from compatible local AI clients.
 - Shared notification routes for desktop, email, generic webhooks, Slack, and Microsoft Teams.
@@ -45,7 +45,7 @@ See the full [v0.1.4 release notes](documentation/releases/v0.1.4.md).
 | **Remote Desktop** | Windows server control | Embedded RDP canvas, credential prompt, full-view session |
 | **Uptime Monitor** | Availability and incident operations | HTTP/API, TCP, TLS, worker scheduling, incidents, maintenance, reports |
 | **Backup Manager** | Backup, retention, and recovery | Sources, jobs, repositories, recovery points, activity, policies, tests |
-| **Database Manager** | Database development and administration | Verified Tabularis portable-app handoff; native DeployerX database foundations remain in development |
+| **Database Manager** | Database development and administration | DeployerX-owned profiles and connections with a bundled, separate SQL access workspace |
 | **Templates** | Reusable deployment commands | Categorized templates, variables, import/export |
 | **Cloud Workspaces** | Optional collaboration and sync | Firebase authentication, teams, invites, encrypted shared secrets |
 | **MCP Integration** | Local AI tool access | Authenticated SSH execution and bounded SFTP operations by saved server ID |
@@ -138,9 +138,11 @@ Code and research for additional engines may exist in the repository, but an eng
 
 ## Database Manager
 
-The top-level Database Manager action launches the pinned Tabularis `0.18.0` Windows x64 portable release. DeployerX downloads the official GitHub asset on first use, verifies its exact size and SHA-256 digest, caches the reviewed executable under the current user's app data, and starts it as a separate desktop application.
+DeployerX owns database profiles, credentials, connection testing, tunnels, and connection lifecycle. After a supported PostgreSQL, MySQL/MariaDB, or SQLite profile is connected, its **Access** action opens a separate **DeployerX DB Access Manager** window directly in the database workspace. The companion is bundled inside the normal DeployerX installer; it is not downloaded or installed as a second product.
 
-The repository also contains an in-progress native DeployerX database module with:
+The Access window receives one ephemeral connection through a randomized, bounded Windows named pipe. Secrets are not placed in renderer IPC, process arguments, environment variables, logs, or temporary handoff files. The companion does not expose connection creation, saved connection management, onboarding, settings, AI, plugin marketplace, updater, or community surfaces, and read-only profiles are enforced in its backend.
+
+The DeployerX database module includes:
 
 - Workspace-scoped connection profiles with test, connect, disconnect, and device-local resource binding.
 - Built-in PostgreSQL, MySQL/MariaDB, and SQLite driver boundaries.
@@ -152,7 +154,7 @@ The repository also contains an in-progress native DeployerX database module wit
 - Signed plugin catalog, integrity checks, health status, quarantine, and isolated plugin processes.
 - Shared connection handoff to Backup Manager.
 
-This native module is not the primary v0.1.4 Database Manager navigation path and is still completing packaged Windows, live-driver, tunnel, plugin, and assistive-technology acceptance. See its [progress and compatibility notes](documentation/database-manager/PROGRESS.md) before evaluating or contributing to it.
+The access workspace is a modified, rebranded adaptation of the Apache-2.0 licensed [Tabularis](https://github.com/TabularisDB/tabularis) database workspace. DeployerX preserves the upstream credit and license in [third-party notices](THIRD_PARTY_NOTICES.md) while presenting only DeployerX product branding in the installed application. See the [integration ledger](documentation/database-manager/DEPLOYERX-DB-ACCESS-MANAGER.md) and [database compatibility notes](documentation/database-manager/PROGRESS.md) for current acceptance status.
 
 ## MCP Integration
 

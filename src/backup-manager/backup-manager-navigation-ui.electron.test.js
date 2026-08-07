@@ -35,6 +35,8 @@ async function inspectNavigation(window) {
       navActive: document.getElementById('topBackupsButton').classList.contains('active'),
       heading: document.querySelector('#backupManagerView h1')?.textContent.trim(),
       selectedTab: document.querySelector('[data-backup-tab].active')?.dataset.backupTab,
+      repeatedPanelHeadings: [...managerView.querySelectorAll('.backup-manager-panel:not([data-backup-panel="overview"]) > .backup-panel-heading h2, .backup-manager-panel:not([data-backup-panel="overview"]) > .backup-panel-heading p')].map((element) => element.textContent.trim()),
+      retainedPanelControls: ['backupWorkerStatus', 'backupSourceAddButton', 'backupAddLocalRepositoryButton', 'backupRecoveryRefreshButton', 'backupActivityFilter', 'backupTestsRefreshButton'].every((id) => Boolean(document.getElementById(id))),
       settingsPanelStillPresent: Boolean(document.getElementById('settingsBackupPanel')),
       viewport: { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight },
       viewBounds: { left: managerBounds.left, right: managerBounds.right },
@@ -106,6 +108,8 @@ app.whenReady().then(async () => {
       && result.managerAfterClick.navActive
       && result.managerAfterClick.heading === 'Backup Manager'
       && result.managerAfterClick.selectedTab === 'overview'
+      && result.managerAfterClick.repeatedPanelHeadings.length === 0
+      && result.managerAfterClick.retainedPanelControls
       && result.managerAfterClick.settingsPanelStillPresent
       && contained(result.managerAfterClick.viewBounds, result.managerAfterClick.viewport)
       && contained(result.managerAfterClick.shellBounds, result.managerAfterClick.viewport)

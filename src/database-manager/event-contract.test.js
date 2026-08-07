@@ -30,6 +30,28 @@ test('whitelists event fields so sensitive and unbounded values are dropped', ()
   assert.equal(encoded.includes('unbounded message'), false);
 });
 
+test('normalizes DB Access Manager window lifecycle events', () => {
+  const event = createDatabaseManagerEvent('access-manager-state', 'workspace-a', {
+    profileId: 'profile-a',
+    state: 'active',
+    reason: 'embedded-fallback',
+    executablePath: 'C:\\private\\deployerx-db-access-manager.exe'
+  }, { sequence: 2 });
+
+  assert.deepEqual(event.payload, {
+    profileId: 'profile-a',
+    state: 'active',
+    reason: 'embedded-fallback'
+  });
+  assert.equal(JSON.stringify(event).includes('private'), false);
+  assert.throws(
+    () => createDatabaseManagerEvent('access-manager-state', 'workspace-a', {
+      profileId: 'profile-a', state: 'unknown'
+    }, { sequence: 3 }),
+    (error) => error.code === 'DATABASE_MANAGER_EVENT_INVALID'
+  );
+});
+
 test('normalizes task and plugin events and rejects malformed state', () => {
   const task = createDatabaseManagerEvent('task-state', 'local', {
     taskId: 'task-a', profileId: 'profile-a', state: 'running', phase: 'copying', percent: 42.5

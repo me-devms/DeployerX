@@ -108,6 +108,42 @@ app.whenReady().then(async () => {
     const desktopPath = path.join(captureRoot, 'sources-desktop.png');
     await fs.writeFile(desktopPath, (await window.webContents.capturePage()).toPNG());
 
+    const jobPicker = await window.webContents.executeJavaScript(`(async () => {
+      closeBackupSourceAddMenu();
+      document.querySelectorAll('.modal').forEach((modal) => modal.classList.add('hidden'));
+      state.backupJobWizard = { ...blankBackupJobWizard(), draftActive: true };
+      document.getElementById('backupJobSourcesEmpty').classList.remove('hidden');
+      document.getElementById('backupJobModal').classList.remove('hidden');
+      document.getElementById('backupJobAddSourceButton').click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const card = document.querySelector('#backupJobModal .modal-card').getBoundingClientRect();
+      const menu = document.getElementById('backupSourceAddMenu').getBoundingClientRect();
+      return {
+        card: { left: card.left, right: card.right, top: card.top, bottom: card.bottom },
+        menu: { left: menu.left, right: menu.right, top: menu.top, bottom: menu.bottom },
+        menuOpen: !document.getElementById('backupSourceAddMenu').classList.contains('hidden'),
+        menuInsideJob: document.getElementById('backupSourceAddMenu').parentElement === document.getElementById('backupJobAddSourceDropdown'),
+        triggerExpanded: document.getElementById('backupJobAddSourceButton').getAttribute('aria-expanded') === 'true',
+        localSourceAvailable: !document.getElementById('backupAddLocalConnectionButton').disabled,
+        oldActionsRemoved: !document.getElementById('backupJobCreateFileSourceButton') && !document.getElementById('backupJobCreateOtherSourceButton')
+      };
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const jobPickerPath = path.join(captureRoot, 'backup-job-source-picker.png');
+    await fs.writeFile(jobPickerPath, (await window.webContents.capturePage()).toPNG());
+    const jobPickerAction = await window.webContents.executeJavaScript(`(() => {
+      document.getElementById('backupAddMysqlConnectionButton').click();
+      const result = {
+        menuClosed: document.getElementById('backupSourceAddMenu').classList.contains('hidden'),
+        jobSuspended: document.getElementById('backupJobModal').classList.contains('hidden'),
+        dependency: state.backupJobWizard.dependency,
+        mysqlModalOpen: !document.getElementById('backupMysqlModal').classList.contains('hidden')
+      };
+      document.getElementById('backupMysqlModal').classList.add('hidden');
+      state.backupJobWizard = blankBackupJobWizard();
+      return result;
+    })()`);
+
     window.setSize(390, 844);
     await new Promise((resolve) => setTimeout(resolve, 100));
     const mobile = await measure(window);
@@ -217,13 +253,17 @@ app.whenReady().then(async () => {
       && result.brandLogoCount === 8 && result.brandLogosLoaded && result.visibleDatabaseOptionsBranded
       && result.menuOptions.every((option) => option.left >= result.menu.left && option.right <= result.menu.right + 1)
       && result.rows.length === 3 && result.rows.every((row) => row.left >= result.panel.left && row.right <= result.panel.right + 1 && row.height >= 60))
+      && jobPicker.menuOpen && jobPicker.menuInsideJob && jobPicker.triggerExpanded && jobPicker.localSourceAvailable && jobPicker.oldActionsRemoved
+      && jobPicker.menu.left >= jobPicker.card.left && jobPicker.menu.right <= jobPicker.card.right + 1
+      && jobPicker.menu.top >= jobPicker.card.top && jobPicker.menu.bottom <= jobPicker.card.bottom + 1
+      && jobPickerAction.menuClosed && jobPickerAction.jobSuspended && jobPickerAction.dependency === 'source-creator' && jobPickerAction.mysqlModalOpen
       && addSourceAction.menuClosed && addSourceAction.triggerCollapsed && addSourceAction.sshModalOpen
       && diagnostics.hasGuidance && diagnostics.hasCode && !diagnostics.horizontalOverflow
       && diagnostics.card.left >= 0 && diagnostics.card.right <= mobile.viewport.width
       && browser.rowCount === 2 && browser.hasPath && browser.hasPagination && browser.hasSelection && browser.hasProfile && browser.hasPatterns && browser.hasMetadataPolicy && browser.hiddenFiltered && !browser.horizontalOverflow
       && browser.card.left >= 0 && browser.card.right <= mobile.viewport.width
       && mysql.databaseCount === 2 && mysql.connectionFieldsHidden && !mysql.horizontalOverflow && mysql.card.left >= 0 && mysql.card.right <= mobile.viewport.width;
-    process.stdout.write(`${JSON.stringify({ ok: valid, desktop, mobile, addSourceAction, diagnostics, browser, mysql, screenshots: { desktopPath, mobilePath, diagnosticsPath, browserPath, modalPath, mysqlPath } })}\n`);
+    process.stdout.write(`${JSON.stringify({ ok: valid, desktop, mobile, jobPicker, jobPickerAction, addSourceAction, diagnostics, browser, mysql, screenshots: { desktopPath, mobilePath, jobPickerPath, diagnosticsPath, browserPath, modalPath, mysqlPath } })}\n`);
     if (!valid) process.exitCode = 1;
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);

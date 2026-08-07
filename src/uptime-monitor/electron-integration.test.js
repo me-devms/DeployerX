@@ -59,6 +59,9 @@ test('registers the workspace Uptime IPC and isolated preload surface', async ()
   assert.equal(preloadSource.includes('unwrapUptimeIpc(await ipcRenderer.invoke(channel, ...args))'), true, 'preload coded error reconstruction');
   assert.equal(preloadSource.includes("require('./uptime-monitor/ipc-contract')"), false, 'sandboxed preload has no local module import');
   assert.equal(preloadSource.includes("ipcRenderer.on('uptime:navigate'"), true);
+  assert.equal(mainSource.includes('async function applyUptimeServerLinkHierarchy(payload, current = null)'), true, 'main process derives monitor hierarchy from Server Link');
+  assert.equal(mainSource.includes("payload.parentGroup = String(project.name || '').trim() || 'Untitled Server';"), true, 'linked server name replaces manual parent metadata');
+  assert.equal(mainSource.includes('await applyUptimeServerLinkHierarchy(payload, current);'), true, 'server hierarchy is enforced before monitor persistence');
 });
 
 test('starts the durable worker control plane and routes notification clicks to Uptime', async () => {
@@ -73,4 +76,12 @@ test('starts the durable worker control plane and routes notification clicks to 
   assert.equal(mainSource.includes('tray.displayBalloon('), false);
   assert.equal(mainSource.includes('const child = execFile(process.execPath, buildWorkerArgs()'), true);
   assert.equal(mainSource.includes('child.unref()'), true);
+});
+
+test('keeps one interactive desktop instance and restores it on repeated launches', async () => {
+  const mainSource = await fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert.equal(mainSource.includes('!isWorkerMode() && !isDatabaseManagerPackagedSmokeMode()'), true, 'background worker is exempt from the desktop lock');
+  assert.equal(mainSource.includes('app.requestSingleInstanceLock()'), true, 'interactive app acquires an Electron instance lock');
+  assert.equal(mainSource.includes("app.on('second-instance'"), true, 'repeated launches are routed to the primary process');
+  assert.equal(mainSource.includes('openExistingMainWindow(argv)'), true, 'existing window is restored for repeated launches');
 });

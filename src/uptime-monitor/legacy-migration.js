@@ -65,6 +65,7 @@ async function normalizeLegacyMonitor(project, monitor, importSecret) {
     id: String(monitor.id || '').trim() || undefined,
     name: String(monitor.name || '').trim() || `${type.toUpperCase()} monitor`,
     projectId: String(project.id || '').trim() || null,
+    parentGroup: String(project.name || '').trim(),
     group: String(project.group || '').trim(),
     tags: ['legacy-import'],
     type,

@@ -55,10 +55,19 @@ test('wires the responsive SSH user editor and validation controls', async () =>
     assert.match(html, new RegExp(`id="${id}"`));
     assert.match(renderer, new RegExp(`${id}: document\\.getElementById`));
   }
+  for (const id of ['terminalUserPromptModal', 'terminalUserPromptForm', 'terminalUserPromptList', 'terminalUserPromptConnectButton']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+    assert.match(renderer, new RegExp(`${id}: document\\.getElementById`));
+  }
   assert.match(renderer, /function validateModalSshUsers\(\)/);
   assert.match(renderer, /Each SSH user must have a unique username/);
   assert.match(renderer, /state\.modalDraft\.ssh\.defaultUserId = user\.id/);
+  assert.match(renderer, /function promptForTerminalUser\(project, terminalSession\)/);
+  assert.match(renderer, /if \(users\.length <= 1\) return Promise\.resolve\(users\[0\] \|\| null\)/);
+  assert.match(renderer, /terminalSession\.sshUserId = selectedUser\.id/);
+  assert.match(renderer, /connectionProject\.ssh = \{/);
   assert.match(styles, /\.ssh-user-tabs\s*\{/);
+  assert.match(styles, /\.terminal-user-option\s*\{/);
   assert.match(styles, /@media \(max-width: 560px\)[\s\S]*\.ssh-user-editor-heading/);
   assert.match(main, /if \(defaultUser\) defaultUser\[field\] = ssh\[field\]/);
 });

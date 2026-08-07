@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('deployerx', {
   testDatabaseProfile: (id) => invokeDatabaseManager('database-manager:connections:test', { id }),
   openDatabaseConnection: (id) => invokeDatabaseManager('database-manager:connections:open', { id }),
   closeDatabaseConnection: (id) => invokeDatabaseManager('database-manager:connections:close', { id }),
+  openDatabaseAccess: (profileId) => invokeDatabaseManager('database-manager:access:open', { profileId }),
   getDatabaseConnectionStatus: (id) => invokeDatabaseManager('database-manager:connections:status', { id }),
   listDatabaseConnectionStatuses: () => invokeDatabaseManager('database-manager:connections:list-status'),
   bindDatabaseProfileLocalResource: (id) => invokeDatabaseManager('database-manager:local-resources:bind', { id }),

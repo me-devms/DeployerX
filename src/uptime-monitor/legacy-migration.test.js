@@ -41,6 +41,7 @@ test('imports legacy monitors, full NDJSON history, incidents, and sensitive hea
   assert.equal(secrets[0].value, 'Bearer legacy-secret');
   const stored = await database.getMonitor('local', 'legacy-monitor-1');
   assert.equal(stored.projectId, 'project-1');
+  assert.equal(stored.parentGroup, 'API Server');
   assert.equal(stored.config.headers.accept, 'application/json');
   assert.equal(stored.config.secretHeaderRefs.authorization, 'sec-imported-authorization');
   assert.equal(JSON.stringify(stored).includes('legacy-secret'), false);

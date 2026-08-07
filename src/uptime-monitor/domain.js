@@ -211,6 +211,7 @@ function normalizeMonitorInput(input = {}) {
   return {
     name: requiredText(input.name, 'Monitor name', 200),
     projectId: optionalText(input.projectId, 200) || null,
+    parentGroup: optionalText(input.parentGroup, 200),
     group: optionalText(input.group, 200),
     tags: uniqueTextList(input.tags, { maximumItems: 50, maximumLength: 100, lowerCase: true, label: 'Tags' }),
     type,

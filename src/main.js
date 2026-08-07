@@ -119,7 +119,13 @@ const { ADAPTER_ID: S3_REPOSITORY_ADAPTER_ID, S3RepositoryService } = require('.
 const { BackupSecretStore } = require('./backup-manager/secrets');
 const { ADAPTER_ID: SFTP_REPOSITORY_ADAPTER_ID, SftpRepositoryService } = require('./backup-manager/sftp-repository');
 const { SshConnectionService } = require('./backup-manager/ssh-connection');
+const {
+  DatabaseAccessCompanionService,
+  SUPPORTED_ACCESS_DRIVERS,
+  resolveDatabaseAccessCompanionExecutablePath
+} = require('./database-manager/access-companion-service');
 const { DatabaseBackupHandoffService } = require('./database-manager/backup-handoff');
+const { releaseRuntimeConnection, resolveRuntimeConnection } = require('./database-manager/connection-context');
 const { DatabaseConnectionService } = require('./database-manager/connection-service');
 const { DirectDatabaseDriverRuntime } = require('./database-manager/direct-driver-runtime');
 const { DatabaseDriverRuntimeRegistry, SidecarDriverRuntime, createInstalledPluginRuntime, resolveDatabaseDriverHostPath } = require('./database-manager/driver-runtime');
@@ -175,11 +181,13 @@ const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const GITHUB_API_BASE_URL = 'https://api.github.com';
 const WINDOWS_UPDATE_MANIFEST = 'latest.yml';
 let mainWindow;
+const databaseAccessFallbackWindows = new Map();
 let databaseManagerPackagedSmokePublished = false;
 let rdpSessionManager;
 let rdpRestoreBounds = null;
 let tray;
 let isAppQuitting = false;
+let pendingSecondInstanceArguments = null;
 let mcpServer;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
@@ -201,6 +209,12 @@ const UPTIME_RUNTIME_FILE = 'runtime.json';
 const SESSION_DATA_PATH = path.join(os.tmpdir(), `DeployerX-session-${process.pid}`);
 app.setPath('sessionData', SESSION_DATA_PATH);
 if (process.platform === 'win32') app.setAppUserModelId('com.everythingx.deployerx');
+const requiresSingleInstanceLock = !isWorkerMode() && !isDatabaseManagerPackagedSmokeMode();
+const hasSingleInstanceLock = !requiresSingleInstanceLock || app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
+if (requiresSingleInstanceLock && hasSingleInstanceLock) {
+  app.on('second-instance', (_event, argv) => openExistingMainWindow(argv));
+}
 let settingsCache = null;
 let firebaseConfigCache = null;
 let authRefreshPromise = null;
@@ -242,6 +256,9 @@ let backupControlDatabaseError = null;
 let databaseProfileService = null;
 let databaseConnectionImportService = null;
 let databaseBackupHandoffService = null;
+let databaseAccessCompanionService = null;
+let databaseAccessContextGeneration = 0;
+let databaseAccessContextTransitions = 0;
 let databaseConnectionService = null;
 let databaseDriverRuntimeRegistry = null;
 let databaseLocalResourceStore = null;
@@ -1430,6 +1447,35 @@ async function initializeBackupControlDatabase() {
       localResourceResolver: (input) => databaseLocalResourceStore.resolve(input),
       tunnelProvider: databaseTunnelService
     });
+    databaseAccessCompanionService = new DatabaseAccessCompanionService({
+      executablePath: resolveDatabaseAccessCompanionExecutablePath({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath()
+      }),
+      prepareConnection: async ({ workspaceId, actorId, profileId }) => {
+        const context = Object.freeze({ workspaceId, actorId });
+        const profile = await requireReadyDatabaseAccessProfile(context, profileId);
+        const connection = await resolveRuntimeConnection({
+          workspaceId: context.workspaceId,
+          profile,
+          secretStore: getBackupSecretStore(),
+          localResourceResolver: (input) => databaseLocalResourceStore.resolve(input),
+          tunnelProvider: databaseTunnelService
+        });
+        return {
+          profileName: profile.name,
+          driverId: profile.driverId,
+          readOnly: profile.accessMode === 'read-only',
+          themeId: readThemePreferenceSync(),
+          connection
+        };
+      },
+      cleanupConnection: async (prepared) => releaseRuntimeConnection(prepared.connection),
+      onStateChange: ({ workspaceId, profileId, state, reason }) => {
+        sendDatabaseManagerEvent(workspaceId, 'access-manager-state', { profileId, state, reason });
+      }
+    });
     databaseQueryWorkspaceStore = new DatabaseQueryWorkspaceStore({ controlDatabase });
     databaseTaskService = new DatabaseTaskService({
       store: new DatabaseTaskStore({ controlDatabase }),
@@ -1889,6 +1935,9 @@ async function initializeBackupControlDatabase() {
   } catch (error) {
     if (databaseCloudSyncTimer) clearInterval(databaseCloudSyncTimer);
     databaseCloudSyncTimer = null;
+    await databaseAccessCompanionService?.dispose().catch(() => {});
+    disposeDatabaseAccessFallbackWindows();
+    databaseAccessCompanionService = null;
     await controlDatabase.close().catch(() => {});
     backupControlDatabase = null;
     databaseProfileService = null;
@@ -2012,6 +2061,89 @@ function getDatabaseBackupHandoffService() {
   getBackupControlDatabase();
   if (!databaseBackupHandoffService) throw new Error('Database Manager backup handoff is not initialized.');
   return databaseBackupHandoffService;
+}
+
+function getDatabaseAccessCompanionService() {
+  getBackupControlDatabase();
+  if (!databaseAccessCompanionService) {
+    throw Object.assign(new Error('DB Access Manager is not initialized.'), {
+      code: 'DATABASE_ACCESS_NOT_INITIALIZED',
+      safeMessage: 'DB Access Manager is not available on this device.',
+      category: 'database-manager',
+      retryable: true
+    });
+  }
+  return databaseAccessCompanionService;
+}
+
+function databaseAccessContextChangedError() {
+  return Object.assign(new Error('The database workspace changed while DB Access Manager was opening.'), {
+    code: 'DATABASE_ACCESS_CONTEXT_CHANGED',
+    safeMessage: 'The database workspace changed. Try Access again.',
+    category: 'database-manager',
+    retryable: true
+  });
+}
+
+async function withDatabaseAccessContextTransition(action) {
+  if (typeof action !== 'function') throw new TypeError('Database access context transition requires an action.');
+  databaseAccessContextGeneration += 1;
+  databaseAccessContextTransitions += 1;
+  try {
+    await databaseAccessCompanionService?.dispose().catch(() => {});
+    disposeDatabaseAccessFallbackWindows();
+    return await action();
+  } finally {
+    databaseAccessContextGeneration += 1;
+    databaseAccessContextTransitions -= 1;
+  }
+}
+
+async function requireReadyDatabaseAccessProfile(context, profileId) {
+  const id = String(profileId || '').trim();
+  if (!id || id.length > 200 || id.includes('\0')) {
+    throw Object.assign(new Error('The database profile is invalid.'), {
+      code: 'DATABASE_ACCESS_PROFILE_INVALID',
+      safeMessage: 'The database profile is invalid.',
+      category: 'database-manager',
+      retryable: false
+    });
+  }
+  const profile = await getDatabaseProfileService().get(context.workspaceId, id);
+  if (!profile) {
+    throw Object.assign(new Error('Database profile was not found.'), {
+      code: 'DATABASE_ACCESS_PROFILE_NOT_FOUND',
+      safeMessage: 'Database profile was not found.',
+      category: 'database-manager',
+      retryable: false
+    });
+  }
+  if (!SUPPORTED_ACCESS_DRIVERS.includes(profile.driverId)) {
+    throw Object.assign(new Error('DB Access Manager does not support this database driver yet.'), {
+      code: 'DATABASE_ACCESS_DRIVER_UNSUPPORTED',
+      safeMessage: 'DB Access Manager does not support this database driver yet.',
+      category: 'database-manager',
+      retryable: false
+    });
+  }
+  if (profile.ssl?.clientCertificateRequired) {
+    throw Object.assign(new Error('DB Access Manager does not support client-certificate database profiles yet.'), {
+      code: 'DATABASE_ACCESS_CLIENT_CERTIFICATE_UNSUPPORTED',
+      safeMessage: 'DB Access Manager does not support client-certificate database profiles yet.',
+      category: 'database-manager',
+      retryable: false
+    });
+  }
+  const status = await getDatabaseConnectionService().status(context.workspaceId, context.actorId, id);
+  if (status.state !== 'ready') {
+    throw Object.assign(new Error('Connect this database profile before opening DB Access Manager.'), {
+      code: 'DATABASE_ACCESS_CONNECTION_REQUIRED',
+      safeMessage: 'Connect this database profile before opening DB Access Manager.',
+      category: 'database-manager',
+      retryable: true
+    });
+  }
+  return profile;
 }
 
 function getDatabaseConnectionService() {
@@ -2612,14 +2744,184 @@ async function databaseManagerContext() {
   };
 }
 
+function databaseAccessFallbackWindowKey(context, profileId) {
+  return JSON.stringify([
+    String(context?.workspaceId || ''),
+    String(context?.actorId || ''),
+    String(profileId || '')
+  ]);
+}
+
+async function openDatabaseAccessFallbackWindow(context, profile) {
+  const profileId = String(profile?.id || '').trim();
+  const key = databaseAccessFallbackWindowKey(context, profileId);
+  const existing = databaseAccessFallbackWindows.get(key);
+  if (existing) {
+    try {
+      await existing.readyPromise;
+      if (existing.window && !existing.window.isDestroyed()) {
+        existing.window.show();
+        existing.window.focus();
+        return { profileId, state: 'focused' };
+      }
+    } catch {
+      // The stale entry is replaced below so Access remains retryable.
+    }
+    databaseAccessFallbackWindows.delete(key);
+  }
+
+  const accessWindow = new BrowserWindow({
+    width: 1360,
+    height: 900,
+    minWidth: 1050,
+    minHeight: 700,
+    title: `${String(profile?.name || 'Database')} - DB Access Manager`,
+    icon: APP_ICON,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#f6f7fb',
+    webPreferences: {
+      preload: path.join(__dirname, 'database-manager', 'access-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false
+    }
+  });
+  const entry = {
+    window: accessWindow,
+    workspaceId: String(context?.workspaceId || ''),
+    actorId: String(context?.actorId || ''),
+    profileId,
+    requestIds: new Set(),
+    readyPromise: null
+  };
+  databaseAccessFallbackWindows.set(key, entry);
+  accessWindow.setMenu(null);
+  accessWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  accessWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  accessWindow.webContents.on('console-message', (event) => {
+    if (!['warning', 'error'].includes(event.level)) return;
+    console.error(`[database-access-renderer] ${event.message} (${event.sourceId}:${event.lineNumber})`);
+  });
+  accessWindow.on('closed', () => {
+    if (databaseAccessFallbackWindows.get(key) === entry) databaseAccessFallbackWindows.delete(key);
+    sendDatabaseManagerEvent(context.workspaceId, 'access-manager-state', {
+      profileId,
+      state: 'closed',
+      reason: 'window-closed'
+    });
+  });
+
+  entry.readyPromise = accessWindow.loadFile(
+    path.join(__dirname, 'renderer', 'index.html'),
+    {
+      query: {
+        databaseAccessProfileId: profileId,
+        databaseAccessWorkspaceId: String(context?.workspaceId || '')
+      }
+    }
+  );
+  try {
+    await entry.readyPromise;
+    if (accessWindow.isDestroyed()) throw new Error('DB Access Manager window closed during startup.');
+    accessWindow.show();
+    accessWindow.focus();
+    sendDatabaseManagerEvent(context.workspaceId, 'access-manager-state', { profileId, state: 'active', reason: 'embedded-fallback' });
+    return { profileId, state: 'active' };
+  } catch {
+    if (databaseAccessFallbackWindows.get(key) === entry) databaseAccessFallbackWindows.delete(key);
+    if (!accessWindow.isDestroyed()) accessWindow.destroy();
+    throw Object.assign(new Error('DB Access Manager could not be opened.'), {
+      code: 'DATABASE_ACCESS_FALLBACK_FAILED',
+      safeMessage: 'DB Access Manager could not be opened.',
+      category: 'database-manager',
+      retryable: true
+    });
+  }
+}
+
+function closeDatabaseAccessFallbackWindow(context, profileId) {
+  const key = databaseAccessFallbackWindowKey(context, profileId);
+  const entry = databaseAccessFallbackWindows.get(key);
+  if (!entry) return;
+  databaseAccessFallbackWindows.delete(key);
+  if (entry.window && !entry.window.isDestroyed()) entry.window.close();
+}
+
+function disposeDatabaseAccessFallbackWindows() {
+  for (const entry of databaseAccessFallbackWindows.values()) {
+    if (entry.window && !entry.window.isDestroyed()) entry.window.close();
+  }
+  databaseAccessFallbackWindows.clear();
+}
+
+function databaseAccessFallbackEntryForSender(event) {
+  const sender = event?.sender;
+  if (!sender) return null;
+  return [...databaseAccessFallbackWindows.values()].find((entry) => (
+    entry.window && !entry.window.isDestroyed() && entry.window.webContents === sender
+  )) || null;
+}
+
+function requireDatabaseAccessFallbackProfile(event, context, profileId) {
+  const entry = databaseAccessFallbackEntryForSender(event);
+  if (!entry) return null;
+  const currentWorkspaceId = String(context?.workspaceId || '');
+  const currentActorId = String(context?.actorId || '');
+  const requestedProfileId = String(profileId || '');
+  if (entry.workspaceId !== currentWorkspaceId || entry.actorId !== currentActorId) {
+    throw Object.assign(new Error('The database workspace changed.'), {
+      code: 'DATABASE_ACCESS_CONTEXT_CHANGED',
+      safeMessage: 'The database workspace changed. Close DB Access Manager and open it again.',
+      category: 'database-manager',
+      retryable: true
+    });
+  }
+  if (requestedProfileId !== entry.profileId) {
+    throw Object.assign(new Error('DB Access Manager cannot use a different profile.'), {
+      code: 'DATABASE_ACCESS_PROFILE_SCOPE_VIOLATION',
+      safeMessage: 'DB Access Manager is limited to the database profile that opened this window.',
+      category: 'database-manager',
+      retryable: false
+    });
+  }
+  return entry;
+}
+
+function requireDatabaseAccessFallbackRequest(event, context, requestId) {
+  const entry = databaseAccessFallbackEntryForSender(event);
+  if (!entry) return null;
+  requireDatabaseAccessFallbackProfile(event, context, entry.profileId);
+  if (!entry.requestIds.has(String(requestId || ''))) {
+    throw Object.assign(new Error('DB Access Manager cannot control this request.'), {
+      code: 'DATABASE_ACCESS_REQUEST_SCOPE_VIOLATION',
+      safeMessage: 'DB Access Manager can only control operations started by this window.',
+      category: 'database-manager',
+      retryable: false
+    });
+  }
+  return entry;
+}
+
 function sendDatabaseManagerEvent(workspaceId, type, payload) {
   recordDatabaseOperationalEvidence(workspaceId, type, payload);
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents?.isDestroyed()) return null;
+  const eventProfileId = String(payload?.profileId || '');
+  const targets = [
+    mainWindow,
+    ...[...databaseAccessFallbackWindows.values()]
+      .filter((entry) => entry.workspaceId === String(workspaceId || '')
+        && (!eventProfileId || entry.profileId === eventProfileId))
+      .map((entry) => entry.window)
+  ].filter((window, index, windows) => (
+    window && !window.isDestroyed() && !window.webContents?.isDestroyed() && windows.indexOf(window) === index
+  ));
+  if (!targets.length) return null;
   try {
     if (databaseManagerEventSequence >= Number.MAX_SAFE_INTEGER) databaseManagerEventSequence = 0;
     const event = createDatabaseManagerEvent(type, workspaceId, payload, { sequence: databaseManagerEventSequence + 1 });
     databaseManagerEventSequence = event.sequence;
-    mainWindow.webContents.send('database-manager:event', event);
+    for (const target of targets) target.webContents.send('database-manager:event', event);
     return event;
   } catch {
     return null;
@@ -2879,10 +3181,36 @@ function splitUptimeMonitorSecrets(input = {}, current = null) {
   return { payload, secretHeaders, hasSecretHeaders };
 }
 
+async function applyUptimeServerLinkHierarchy(payload, current = null) {
+  const projectId = String(payload.projectId ?? current?.projectId ?? '').trim();
+  payload.projectId = projectId || null;
+  if (!projectId) {
+    payload.parentGroup = '';
+    return;
+  }
+
+  const store = await readCurrentStore();
+  const project = (store.projects || []).find((item) => String(item.id) === projectId);
+  if (project) {
+    payload.parentGroup = String(project.name || '').trim() || 'Untitled Server';
+    return;
+  }
+
+  if (current && String(current.projectId || '').trim() === projectId) {
+    payload.parentGroup = String(current.parentGroup || '').trim();
+    return;
+  }
+
+  throw Object.assign(new Error('The selected server link is no longer available.'), {
+    code: 'UPTIME_MONITOR_PROJECT_NOT_FOUND'
+  });
+}
+
 async function prepareUptimeMonitorForSave(context, input, current = null) {
   const { payload, secretHeaders, hasSecretHeaders } = splitUptimeMonitorSecrets(input, current);
   const createdSecretRefIds = [];
   try {
+    await applyUptimeServerLinkHierarchy(payload, current);
     if (hasSecretHeaders) {
       for (const [rawHeaderName, rawValue] of Object.entries(secretHeaders)) {
         const headerName = String(rawHeaderName || '').trim().toLowerCase();
@@ -4007,6 +4335,22 @@ function showMainWindow() {
   }
   if (process.platform === 'darwin') app.dock?.show();
   focusMainWindow();
+}
+
+function openExistingMainWindow(argv = []) {
+  if (!app.isReady() || !mainWindow || mainWindow.isDestroyed()) {
+    pendingSecondInstanceArguments = argv;
+    return;
+  }
+
+  showMainWindow();
+  const uptimeTarget = parseUptimeNavigationArgument(argv);
+  if (!uptimeTarget) return;
+  const navigate = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('uptime:navigate', uptimeTarget);
+  };
+  if (mainWindow.webContents.isLoadingMainFrame()) mainWindow.webContents.once('did-finish-load', navigate);
+  else navigate();
 }
 
 function createTray() {
@@ -5854,11 +6198,13 @@ async function teamSnapshot(options = {}) {
   if (activeTeamId && !teams.some((team) => team.id === activeTeamId)) activeTeamId = '';
   if (!activeTeamId && teams.length) activeTeamId = teams[0].id;
   if (activeTeamId !== settings.activeTeamId) {
-    await writeSettings({
-      ...settings,
-      activeTeamId,
-      activeTeamName: teams.find((team) => team.id === activeTeamId)?.name || '',
-      activeTeamUid: activeTeamId ? auth.uid : ''
+    await withDatabaseAccessContextTransition(async () => {
+      await writeSettings({
+        ...settings,
+        activeTeamId,
+        activeTeamName: teams.find((team) => team.id === activeTeamId)?.name || '',
+        activeTeamUid: activeTeamId ? auth.uid : ''
+      });
     });
   }
 
@@ -5956,6 +6302,8 @@ function cachedTeamSnapshot(settings, auth, cloudError = '') {
 async function cacheTeamSnapshot(auth, snapshot) {
   const latestSettings = await readSettings();
   const activeTeamName = snapshot.teams.find((team) => team.id === snapshot.activeTeamId)?.name || '';
+  const snapshotContextStillCurrent = String(latestSettings.auth?.uid || '') === String(auth.uid || '')
+    && String(latestSettings.activeTeamId || '') === String(snapshot.activeTeamId || '');
   const cloudWorkspaceCache = {
     uid: auth.uid,
     teams: snapshot.teams,
@@ -5964,9 +6312,10 @@ async function cacheTeamSnapshot(auth, snapshot) {
   };
   await writeSettings({
     ...latestSettings,
-    activeTeamId: snapshot.activeTeamId,
-    activeTeamName,
-    activeTeamUid: snapshot.activeTeamId ? auth.uid : '',
+    ...(snapshotContextStillCurrent ? {
+      activeTeamName,
+      activeTeamUid: snapshot.activeTeamId ? auth.uid : ''
+    } : {}),
     cloudWorkspaceCache,
     cloudWorkspaceCaches: {
       ...(latestSettings.cloudWorkspaceCaches || {}),
@@ -5991,24 +6340,40 @@ async function safeTeamSnapshot(options = {}) {
 
 async function finishCloudAuth(auth, profilePatch = {}) {
   auth = await lookupAuthUser(auth);
-  const settings = await writeSettings({ ...(await readSettings()), setupComplete: true, mode: 'cloud', auth });
-  if (needsEmailVerification(auth)) {
-    return { session: publicSession(auth), requiresEmailVerification: true };
-  }
-  try {
-    let profile = await readUserProfile(auth.uid);
-    if (!profile || Object.keys(profilePatch).length) {
-      profile = await writeUserProfile(auth, profilePatch);
+  return withDatabaseAccessContextTransition(async () => {
+    const currentSettings = await readSettings();
+    const savedWorkspaceBelongsToActor = Boolean(currentSettings.activeTeamId)
+      && String(currentSettings.activeTeamUid || '') === String(auth.uid || '');
+    if (!savedWorkspaceBelongsToActor) cloudUnlock = { teamId: '', key: null };
+    const settings = await writeSettings({
+      ...currentSettings,
+      setupComplete: true,
+      mode: 'cloud',
+      auth,
+      ...(savedWorkspaceBelongsToActor ? {} : {
+        activeTeamId: '',
+        activeTeamName: '',
+        activeTeamUid: ''
+      })
+    });
+    if (needsEmailVerification(auth)) {
+      return { session: publicSession(auth), requiresEmailVerification: true };
     }
-    const teams = await teamSnapshot({ auth, settings, profile, lightweight: true });
-    await cacheTeamSnapshot(auth, teams);
-    return { session: publicSession(auth), teams };
-  } catch (error) {
-    if (!isRecoverableCloudDataError(error)) throw error;
-    const latestSettings = await readSettings();
-    const fallbackTeams = cachedTeamSnapshot(latestSettings, auth, error.message);
-    return { session: publicSession(auth), teams: fallbackTeams, cloudError: error.message };
-  }
+    try {
+      let profile = await readUserProfile(auth.uid);
+      if (!profile || Object.keys(profilePatch).length) {
+        profile = await writeUserProfile(auth, profilePatch);
+      }
+      const teams = await teamSnapshot({ auth, settings, profile, lightweight: true });
+      await cacheTeamSnapshot(auth, teams);
+      return { session: publicSession(auth), teams };
+    } catch (error) {
+      if (!isRecoverableCloudDataError(error)) throw error;
+      const latestSettings = await readSettings();
+      const fallbackTeams = cachedTeamSnapshot(latestSettings, auth, error.message);
+      return { session: publicSession(auth), teams: fallbackTeams, cloudError: error.message };
+    }
+  });
 }
 
 function isDatabaseManagerPackagedSmokeMode(argv = process.argv) {
@@ -7413,6 +7778,7 @@ function emergencyStop() {
 }
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
   await ensureStore();
   await ensureUptimeRoot();
 
@@ -7450,6 +7816,11 @@ app.whenReady().then(async () => {
   await initializeBackupControlDatabase();
   await initializeUptimeControlPlane().catch(() => {});
   createWindow();
+  if (pendingSecondInstanceArguments) {
+    const argv = pendingSecondInstanceArguments;
+    pendingSecondInstanceArguments = null;
+    openExistingMainWindow(argv);
+  }
   createTray();
   initializeAutoUpdater();
   await restoreMcpIntegration();
@@ -7474,6 +7845,8 @@ app.on('before-quit', () => {
   databaseDefinitionExecutor?.closeAll();
   databaseTransferService?.closeAll();
   databaseSchemaService?.closeAll();
+  databaseAccessCompanionService?.dispose().catch(() => {});
+  disposeDatabaseAccessFallbackWindows();
   databaseConnectionService?.closeAll().catch(() => {});
   databaseDriverRuntimeRegistry?.stopAll().catch(() => {});
   if (tray && !tray.isDestroyed()) tray.destroy();
@@ -7512,6 +7885,12 @@ ipcMain.handle('app:metadata', async () => ({
 
 ipcMain.handle('database-manager:profiles:list', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  const accessEntry = databaseAccessFallbackEntryForSender(_event);
+  if (accessEntry) {
+    requireDatabaseAccessFallbackProfile(_event, context, accessEntry.profileId);
+    const profile = await getDatabaseProfileService().get(context.workspaceId, accessEntry.profileId);
+    return profile ? [await databaseProfileForRenderer(context.workspaceId, profile)] : [];
+  }
   return listDatabaseProfilesForRenderer(context, { limit: Math.min(1000, Math.max(1, Number(payload.limit) || 500)) });
 }));
 
@@ -7574,6 +7953,8 @@ ipcMain.handle('database-manager:profiles:create', wrapDatabaseManagerIpc(async 
 
 ipcMain.handle('database-manager:profiles:update', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  closeDatabaseAccessFallbackWindow(context, payload.id);
+  await databaseAccessCompanionService?.close({ ...context, profileId: payload.id }).catch(() => {});
   const updated = await getDatabaseProfileService().update(context.workspaceId, context.actorId, payload.id, payload.profile || {}, payload.revision);
   await getDatabaseConnectionService().closeProfile(context.workspaceId, payload.id);
   return syncDatabaseProfileMetadata(context, updated, payload.cloudRevision ?? null);
@@ -7581,6 +7962,8 @@ ipcMain.handle('database-manager:profiles:update', wrapDatabaseManagerIpc(async 
 
 ipcMain.handle('database-manager:profiles:delete', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  closeDatabaseAccessFallbackWindow(context, payload.id);
+  await databaseAccessCompanionService?.close({ ...context, profileId: payload.id }).catch(() => {});
   const existing = await getDatabaseProfileService().get(context.workspaceId, payload.id);
   if (!existing) {
     const sync = await removeDatabaseProfileMetadata(context, payload.id, payload.cloudRevision ?? payload.revision ?? null);
@@ -7620,6 +8003,8 @@ ipcMain.handle('database-manager:connections:open', wrapDatabaseManagerIpc(async
   const context = await databaseManagerContext();
   sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'opening', operation: 'open' });
   try {
+    closeDatabaseAccessFallbackWindow(context, payload.id);
+    await databaseAccessCompanionService?.close({ ...context, profileId: payload.id }).catch(() => {});
     const result = await getDatabaseConnectionService().open(context.workspaceId, context.actorId, payload.id);
     sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: result.state === 'ready' ? 'ready' : 'failed', operation: 'open', code: result.error?.code });
     return result;
@@ -7632,6 +8017,8 @@ ipcMain.handle('database-manager:connections:open', wrapDatabaseManagerIpc(async
 ipcMain.handle('database-manager:connections:close', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
   sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'closing', operation: 'close' });
+  closeDatabaseAccessFallbackWindow(context, payload.id);
+  await databaseAccessCompanionService?.close({ ...context, profileId: payload.id }).catch(() => {});
   const result = await getDatabaseConnectionService().close(context.workspaceId, context.actorId, payload.id);
   sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.id, state: 'closed', operation: 'close' });
   return result;
@@ -7644,9 +8031,43 @@ ipcMain.handle('database-manager:connections:status', wrapDatabaseManagerIpc(asy
   return result;
 }));
 
-ipcMain.handle('database-manager:connections:list-status', wrapDatabaseManagerIpc(async () => {
+ipcMain.handle('database-manager:connections:list-status', wrapDatabaseManagerIpc(async (_event) => {
   const context = await databaseManagerContext();
+  const accessEntry = databaseAccessFallbackEntryForSender(_event);
+  if (accessEntry) {
+    requireDatabaseAccessFallbackProfile(_event, context, accessEntry.profileId);
+    return [await getDatabaseConnectionService().status(context.workspaceId, context.actorId, accessEntry.profileId)];
+  }
   return getDatabaseConnectionService().listStatus(context.workspaceId, context.actorId);
+}));
+
+ipcMain.handle('database-manager:access:open', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
+  if (databaseAccessContextTransitions > 0) throw databaseAccessContextChangedError();
+  const contextGeneration = databaseAccessContextGeneration;
+  const context = await databaseManagerContext();
+  const profile = await requireReadyDatabaseAccessProfile(context, payload.profileId);
+  if (databaseAccessContextTransitions > 0 || contextGeneration !== databaseAccessContextGeneration) {
+    throw databaseAccessContextChangedError();
+  }
+  const companion = getDatabaseAccessCompanionService();
+  if (companion.isAvailable()) {
+    return companion.open({ ...context, profileId: profile.id });
+  }
+  sendDatabaseManagerEvent(context.workspaceId, 'access-manager-state', {
+    profileId: profile.id,
+    state: 'launching',
+    reason: 'embedded-fallback'
+  });
+  try {
+    return await openDatabaseAccessFallbackWindow(context, profile);
+  } catch (error) {
+    sendDatabaseManagerEvent(context.workspaceId, 'access-manager-state', {
+      profileId: profile.id,
+      state: 'failed',
+      reason: error?.code || 'fallback-open-failed'
+    });
+    throw error;
+  }
 }));
 
 ipcMain.handle('database-manager:backup:prepare', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
@@ -7656,6 +8077,8 @@ ipcMain.handle('database-manager:backup:prepare', wrapDatabaseManagerIpc(async (
 
 ipcMain.handle('database-manager:queries:execute', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  const accessEntry = requireDatabaseAccessFallbackProfile(_event, context, payload.profileId);
+  if (accessEntry) accessEntry.requestIds.add(String(payload.requestId || ''));
   sendDatabaseManagerEvent(context.workspaceId, 'query-progress', { requestId: payload.requestId, profileId: payload.profileId, state: 'running' });
   try {
     const execution = await getDatabaseQueryService().execute(context.workspaceId, context.actorId, payload);
@@ -7683,21 +8106,31 @@ ipcMain.handle('database-manager:queries:execute', wrapDatabaseManagerIpc(async 
     }
     if (payload.batch === true) sendDatabaseManagerEvent(context.workspaceId, 'batch-completion', failed);
     throw error;
+  } finally {
+    if (accessEntry) accessEntry.requestIds.delete(String(payload.requestId || ''));
   }
 }));
 
 ipcMain.handle('database-manager:queries:cancel', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  requireDatabaseAccessFallbackRequest(_event, context, payload.requestId);
   return getDatabaseQueryService().cancel(context.workspaceId, context.actorId, payload.requestId);
 }));
 
 ipcMain.handle('database-manager:explain:execute', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
-  return getDatabaseExplainService().execute(context.workspaceId, context.actorId, payload);
+  const accessEntry = requireDatabaseAccessFallbackProfile(_event, context, payload.profileId);
+  if (accessEntry) accessEntry.requestIds.add(String(payload.requestId || ''));
+  try {
+    return await getDatabaseExplainService().execute(context.workspaceId, context.actorId, payload);
+  } finally {
+    if (accessEntry) accessEntry.requestIds.delete(String(payload.requestId || ''));
+  }
 }));
 
 ipcMain.handle('database-manager:explain:cancel', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  requireDatabaseAccessFallbackRequest(_event, context, payload.requestId);
   return getDatabaseExplainService().cancel(context.workspaceId, context.actorId, payload.requestId);
 }));
 
@@ -7708,11 +8141,14 @@ ipcMain.handle('database-manager:transfer:execute', wrapDatabaseManagerIpc(async
 
 ipcMain.handle('database-manager:rows:mutate', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  requireDatabaseAccessFallbackProfile(_event, context, payload.profileId);
   return getDatabaseRowCrudService().execute(context.workspaceId, context.actorId, payload);
 }));
 
 ipcMain.handle('database-manager:schema:load', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  const accessEntry = requireDatabaseAccessFallbackProfile(_event, context, payload.profileId);
+  if (accessEntry) accessEntry.requestIds.add(String(payload.requestId || ''));
   sendDatabaseManagerEvent(context.workspaceId, 'schema-change', { requestId: payload.requestId, profileId: payload.profileId, state: 'loading', operation: 'load' });
   try {
     const schema = await getDatabaseSchemaService().load(context.workspaceId, context.actorId, payload);
@@ -7731,11 +8167,14 @@ ipcMain.handle('database-manager:schema:load', wrapDatabaseManagerIpc(async (_ev
       sendDatabaseManagerEvent(context.workspaceId, 'connection-status', { profileId: payload.profileId, state: 'closed', operation: 'expire' });
     }
     throw error;
+  } finally {
+    if (accessEntry) accessEntry.requestIds.delete(String(payload.requestId || ''));
   }
 }));
 
 ipcMain.handle('database-manager:schema:cancel', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  requireDatabaseAccessFallbackRequest(_event, context, payload.requestId);
   return getDatabaseSchemaService().cancel(context.workspaceId, context.actorId, payload.requestId);
 }));
 
@@ -7895,11 +8334,18 @@ ipcMain.handle('database-manager:results:export', wrapDatabaseManagerIpc(async (
 
 ipcMain.handle('database-manager:results:export-query', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
-  return getDatabaseResultExportService().exportQuery(context.workspaceId, context.actorId, payload);
+  const accessEntry = requireDatabaseAccessFallbackProfile(_event, context, payload.profileId);
+  if (accessEntry) accessEntry.requestIds.add(String(payload.requestId || ''));
+  try {
+    return await getDatabaseResultExportService().exportQuery(context.workspaceId, context.actorId, payload);
+  } finally {
+    if (accessEntry) accessEntry.requestIds.delete(String(payload.requestId || ''));
+  }
 }));
 
 ipcMain.handle('database-manager:results:cancel-export', wrapDatabaseManagerIpc(async (_event, payload = {}) => {
   const context = await databaseManagerContext();
+  requireDatabaseAccessFallbackRequest(_event, context, payload.requestId);
   return getDatabaseResultExportService().cancel(context.workspaceId, context.actorId, payload.requestId);
 }));
 
@@ -10286,22 +10732,24 @@ ipcMain.handle('setup:get', async () => {
 
 ipcMain.handle('setup:setMode', async (_event, mode) => {
   if (!['offline', 'cloud'].includes(mode)) throw new Error('Choose Cloud or Offline mode.');
-  const current = await readSettings();
-  if (mode === 'offline') {
-    cloudUnlock = { teamId: '', key: null };
-    const settings = await writeSettings({
-      ...current,
-      setupComplete: true,
-      mode: 'offline',
-      activeTeamId: '',
-      activeTeamName: '',
-      activeTeamUid: '',
-      auth: null
-    });
+  return withDatabaseAccessContextTransition(async () => {
+    const current = await readSettings();
+    if (mode === 'offline') {
+      cloudUnlock = { teamId: '', key: null };
+      const settings = await writeSettings({
+        ...current,
+        setupComplete: true,
+        mode: 'offline',
+        activeTeamId: '',
+        activeTeamName: '',
+        activeTeamUid: '',
+        auth: null
+      });
+      return { ...settings, firebase: await firebaseConfigStatus() };
+    }
+    const settings = await writeSettings({ ...current, setupComplete: true, mode: 'cloud' });
     return { ...settings, firebase: await firebaseConfigStatus() };
-  }
-  const settings = await writeSettings({ ...current, setupComplete: true, mode: 'cloud' });
-  return { ...settings, firebase: await firebaseConfigStatus() };
+  });
 });
 
 ipcMain.handle('setup:select-firebase-config', async () => {
@@ -10408,10 +10856,12 @@ ipcMain.handle('auth:google', async () => {
 });
 
 ipcMain.handle('auth:logout', async () => {
-  const settings = await readSettings();
-  cloudUnlock = { teamId: '', key: null };
-  await writeSettings({ ...settings, auth: null });
-  return true;
+  return withDatabaseAccessContextTransition(async () => {
+    const settings = await readSettings();
+    cloudUnlock = { teamId: '', key: null };
+    await writeSettings({ ...settings, auth: null });
+    return true;
+  });
 });
 
 ipcMain.handle('mcp-integration:get', async () => {
@@ -10500,10 +10950,12 @@ ipcMain.handle('teams:create', async (_event, payload = {}) => {
   await patchDoc(['teams', teamId, 'members', auth.uid], member);
   await updateUserTeamRef(auth.uid, { teamId, name, role: 'owner' });
 
-  const settings = await readSettings();
-  cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
-  await writeSettings({ ...settings, activeTeamId: teamId, activeTeamName: name, activeTeamUid: auth.uid });
-  return teamSnapshot();
+  return withDatabaseAccessContextTransition(async () => {
+    const settings = await readSettings();
+    cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
+    await writeSettings({ ...settings, activeTeamId: teamId, activeTeamName: name, activeTeamUid: auth.uid });
+    return teamSnapshot();
+  });
 });
 
 ipcMain.handle('teams:switch', async (_event, teamId) => {
@@ -10511,15 +10963,17 @@ ipcMain.handle('teams:switch', async (_event, teamId) => {
   const team = await getDoc(['teams', teamId]);
   const member = team ? await getDoc(['teams', teamId, 'members', auth.uid]) : null;
   if (!team || !member) throw new Error('You do not have access to this team.');
-  const settings = await readSettings();
-  cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
-  await writeSettings({
-    ...settings,
-    activeTeamId: teamId,
-    activeTeamName: team.name || 'Workspace',
-    activeTeamUid: auth.uid
+  return withDatabaseAccessContextTransition(async () => {
+    const settings = await readSettings();
+    cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
+    await writeSettings({
+      ...settings,
+      activeTeamId: teamId,
+      activeTeamName: team.name || 'Workspace',
+      activeTeamUid: auth.uid
+    });
+    return teamSnapshot();
   });
-  return teamSnapshot();
 });
 
 ipcMain.handle('teams:invite', async (_event, payload = {}) => {
@@ -10584,12 +11038,19 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
   await patchDoc(['teams', teamId, 'members', auth.uid], member);
   const team = await getDoc(['teams', teamId]).catch(() => null);
   await updateUserTeamRef(auth.uid, { teamId, name: team?.name || invite.teamName || 'Team', role: member.role });
-  await writeSettings({ ...(await readSettings()), activeTeamId: teamId });
-  if (team) cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
-  const acceptedInvite = { ...invite, status: 'accepted', acceptedBy: auth.uid, updatedAt: acceptedAt };
-  await patchDoc(['teams', teamId, 'invites', inviteId], acceptedInvite).catch(() => {});
-  await deleteInviteInboxDocument(acceptedInvite).catch(() => {});
-  return teamSnapshot();
+  return withDatabaseAccessContextTransition(async () => {
+    await writeSettings({
+      ...(await readSettings()),
+      activeTeamId: teamId,
+      activeTeamName: team?.name || invite.teamName || 'Team',
+      activeTeamUid: auth.uid
+    });
+    if (team) cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
+    const acceptedInvite = { ...invite, status: 'accepted', acceptedBy: auth.uid, updatedAt: acceptedAt };
+    await patchDoc(['teams', teamId, 'invites', inviteId], acceptedInvite).catch(() => {});
+    await deleteInviteInboxDocument(acceptedInvite).catch(() => {});
+    return teamSnapshot();
+  });
 });
 
 ipcMain.handle('teams:removeMember', async (_event, payload = {}) => {
@@ -10617,22 +11078,33 @@ ipcMain.handle('teams:delete', async (_event, payload = {}) => {
     throw new Error('Only the workspace owner can delete this workspace.');
   }
 
-  await deleteCollectionDocuments(['teams', teamId, 'projects']);
-  await deleteCollectionDocuments(['teams', teamId, 'templates']);
-  await deleteCollectionDocuments(['teams', teamId, 'invites']);
-  await deleteTeamMemberDocuments(teamId, auth.uid);
-  await deleteDoc(['teams', teamId]);
-  try {
-    await removeUserTeamRef(auth.uid, teamId);
-  } catch (error) {
-    if (!isRecoverableCloudDataError(error)) throw error;
-  }
+  const deleteTeam = async () => {
+    await deleteCollectionDocuments(['teams', teamId, 'projects']);
+    await deleteCollectionDocuments(['teams', teamId, 'templates']);
+    await deleteCollectionDocuments(['teams', teamId, 'invites']);
+    await deleteTeamMemberDocuments(teamId, auth.uid);
+    await deleteDoc(['teams', teamId]);
+    try {
+      await removeUserTeamRef(auth.uid, teamId);
+    } catch (error) {
+      if (!isRecoverableCloudDataError(error)) throw error;
+    }
 
-  if (settings.activeTeamId === teamId) {
-    cloudUnlock = { teamId: '', key: null };
-    await writeSettings({ ...settings, activeTeamId: '' });
-  }
-  return safeTeamSnapshot();
+    if (settings.activeTeamId === teamId) {
+      cloudUnlock = { teamId: '', key: null };
+      await writeSettings({
+        ...settings,
+        activeTeamId: '',
+        activeTeamName: '',
+        activeTeamUid: ''
+      });
+    }
+    return safeTeamSnapshot();
+  };
+
+  return settings.activeTeamId === teamId
+    ? withDatabaseAccessContextTransition(deleteTeam)
+    : deleteTeam();
 });
 
 ipcMain.handle('cloud:import-local', async () => {

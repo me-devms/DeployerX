@@ -9,7 +9,8 @@ const VIEWPORTS = [
   { name: 'filters', width: 1180, height: 780, panel: 'monitors', filtersOpen: true, filterSelectOpen: true },
   { name: 'filters', width: 1180, height: 780, panel: 'incidents', incidentFiltersOpen: true },
   { name: 'large', width: 1440, height: 900, panel: 'reports' },
-  { name: 'default', width: 1180, height: 780, panel: 'maintenance' }
+  { name: 'default', width: 1180, height: 780, panel: 'maintenance' },
+  { name: 'detail', width: 1440, height: 900, panel: 'monitors', monitorDetail: true }
 ];
 
 async function prepareAcceptanceHtml(outputDirectory) {
@@ -50,12 +51,11 @@ function sampleMarkupScript() {
       ['status-up', 'PostgreSQL gateway', 'db.example.com:5432', '100%', '34 ms']
     ].map((item) => '<button class="uptime-fleet-row"><span class="uptime-health-dot '+item[0]+'"></span><span><strong>'+item[1]+'</strong><small>'+item[2]+'</small></span><span>'+item[3]+'</span><span>'+item[4]+'</span></button>').join('');
     document.getElementById('uptimeRecentIncidentList').innerHTML = '<div class="uptime-timeline-row"><strong>Billing webhook latency</strong><span>Warning threshold exceeded</span><small>8 minutes ago</small></div><div class="uptime-timeline-row"><strong>Customer portal recovered</strong><span>Resolved after 3 minutes</span><small>Yesterday</small></div>';
-    document.getElementById('uptimeMonitorListMeta').textContent = 'Track endpoint availability and response performance';
     document.getElementById('uptimeMonitorTableBody').innerHTML = '';
     document.getElementById('uptimeMonitorTableCard').classList.add('is-empty');
     document.getElementById('uptimeMonitorsEmpty').classList.remove('hidden');
     document.getElementById('uptimeMonitorsEmptyCopy').textContent = 'Create a monitor to begin tracking availability.';
-    for (const name of ['State', 'Type', 'Sort']) {
+    for (const name of ['State', 'Group', 'Type', 'Sort']) {
       const select = document.getElementById('uptime'+name+'Filter');
       const label = document.getElementById('uptime'+name+'FilterLabel');
       const menu = document.getElementById('uptime'+name+'FilterMenu');
@@ -78,14 +78,22 @@ function sampleMarkupScript() {
     document.getElementById('uptimeReportChart').innerHTML = Array.from({ length: 30 }, (_, index) => '<div class="uptime-chart-day"><span style="height:'+(65 + index % 8 * 4)+'%"><i style="height:'+(92 + index % 5)+'%"></i></span><small>'+(index + 1)+'</small></div>').join('');
     document.getElementById('uptimeReportMonitorTable').innerHTML = '<div class="uptime-incident-entry"><span class="uptime-health-dot status-up"></span><span><strong>Public API</strong><small>99.99% availability · 99.8% coverage</small></span><span>142 ms</span><span>0 incidents</span></div><div class="uptime-incident-entry"><span class="uptime-health-dot status-warning"></span><span><strong>Billing webhook</strong><small>99.91% availability · 97.4% coverage</small></span><span>891 ms</span><span>1 incident</span></div>';
     document.getElementById('uptimeReportMethodology').textContent = 'Availability excludes paused, maintenance, and unknown periods. Coverage is reported separately.';
+    document.getElementById('uptimeSelectedMonitorStatus').className = 'uptime-status-pill status-warning';
+    document.getElementById('uptimeSelectedMonitorStatus').textContent = 'Warning';
+    document.getElementById('uptimeSelectedMonitorName').textContent = 'Google';
+    document.getElementById('uptimeSelectedMonitorMeta').textContent = 'HTTP - GET https://google.com/';
+    document.getElementById('uptimeSelectedMonitorP95').textContent = 'P95 530 ms';
+    document.getElementById('uptimeLatencyChart').innerHTML = Array.from({ length: 28 }, (_, index) => '<span class="uptime-latency-bar '+(index === 20 || index === 27 ? 'status-down' : index > 3 ? 'status-warning' : '')+'" style="height:'+(24 + index % 6 * 8)+'%"></span>').join('');
   })()`;
 }
 
 function panelScript(viewport) {
-  const { panel, filtersOpen = false, filterSelectOpen = false, incidentFiltersOpen = false } = viewport;
+  const { panel, filtersOpen = false, filterSelectOpen = false, incidentFiltersOpen = false, monitorDetail = false } = viewport;
   return `(() => {
     document.querySelectorAll('[data-uptime-tab]').forEach((tab) => tab.classList.toggle('active', tab.dataset.uptimeTab === '${panel}'));
     document.querySelectorAll('[data-uptime-panel]').forEach((item) => item.classList.toggle('active', item.dataset.uptimePanel === '${panel}'));
+    document.getElementById('uptimeMonitorTableCard').classList.toggle('hidden', ${monitorDetail});
+    document.getElementById('uptimeMonitorDetail').classList.toggle('hidden', ${!monitorDetail});
     document.getElementById('uptimeMonitorFilterPanel').classList.toggle('hidden', ${!filtersOpen});
     document.getElementById('uptimeMonitorFilterButton').setAttribute('aria-expanded', '${filtersOpen}');
     document.getElementById('uptimeStateFilterMenu').classList.toggle('hidden', ${!filterSelectOpen});
@@ -97,7 +105,7 @@ function panelScript(viewport) {
   })()`;
 }
 
-function measurementScript(panel, filtersOpen = false, filterSelectOpen = false, incidentFiltersOpen = false) {
+function measurementScript(panel, filtersOpen = false, filterSelectOpen = false, incidentFiltersOpen = false, monitorDetail = false) {
   return `(() => {
     const visible = (element) => Boolean(element && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
     const overlaps = (left, right) => {
@@ -113,7 +121,7 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
     const filterBar = document.querySelector('[data-uptime-panel="${panel}"] > .uptime-filter-bar, [data-uptime-panel="${panel}"] > .uptime-report-filters');
     const filterChildren = filterBar ? [...filterBar.children].filter(visible) : [];
     const emptyState = document.querySelector('[data-uptime-panel="${panel}"] .uptime-empty-state:not(.hidden)');
-    const emptyMonitorCount = document.getElementById('uptimeMonitorListMeta');
+    const repeatedPanelTitle = document.querySelector('[data-uptime-panel="${panel}"] > .uptime-panel-heading h2');
     const emptyMonitorTable = document.getElementById('uptimeMonitorTableWrap');
     const emptyMonitorActions = document.getElementById('uptimeMonitorBulkActions');
     const emptyMonitorActionButtons = [...emptyMonitorActions.querySelectorAll('button')];
@@ -127,6 +135,10 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
     const monitorStateFilterDropdown = document.getElementById('uptimeStateFilterDropdown');
     const monitorSelectAll = document.getElementById('uptimeSelectAllMonitors');
     const monitorTableHeader = document.querySelector('#uptimeMonitorTableWrap thead');
+    const monitorDetailActions = [...document.querySelectorAll('#uptimeMonitorDetail .uptime-monitor-actions .button')].filter(visible);
+    const monitorDetailActionHeights = monitorDetailActions.map((button) => Math.round(button.getBoundingClientRect().height * 100) / 100);
+    const monitorDetailIconWidths = monitorDetailActions.filter((button) => button.classList.contains('icon-only')).map((button) => Math.round(button.getBoundingClientRect().width * 100) / 100);
+    const monitorDetailDeleteButton = document.getElementById('uptimeDeleteMonitorButton');
     const incidentTableCard = document.getElementById('uptimeIncidentTableCard');
     const incidentTableWrap = document.getElementById('uptimeIncidentTableWrap');
     const incidentSearch = document.getElementById('uptimeIncidentSearchInput').closest('.uptime-search');
@@ -136,6 +148,8 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
     const incidentStateTrigger = document.getElementById('uptimeIncidentStateFilterButton');
     const incidentTableHeader = document.querySelector('#uptimeIncidentTableWrap thead');
     const maintenanceTableCard = document.querySelector('[data-uptime-panel="maintenance"] .uptime-maintenance-card');
+    const overviewPanel = document.querySelector('[data-uptime-panel="overview"]');
+    const overviewGrid = overviewPanel.querySelector('.uptime-overview-grid');
     const cards = [...document.querySelectorAll('[data-uptime-panel="${panel}"] .uptime-summary-card, [data-uptime-panel="${panel}"] .uptime-report-kpis > div')].filter(visible);
     const cardOverlap = cards.some((card, index) => cards.slice(index + 1).some((other) => overlaps(card, other)));
     const clippedText = [...document.querySelectorAll('[data-uptime-panel="${panel}"] h2, [data-uptime-panel="${panel}"] h3, [data-uptime-panel="${panel}"] .button')]
@@ -144,6 +158,7 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
       .map((element) => element.textContent.trim()).filter(Boolean);
     return {
       panel: '${panel}',
+      monitorDetail: ${monitorDetail},
       viewport: { width: innerWidth, height: innerHeight },
       bodyOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       headerOverlap: overlaps(header?.firstElementChild, header?.querySelector('.header-actions')),
@@ -152,7 +167,7 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
       panelActionOutsideViewport: visible(panelAction) ? panelAction.getBoundingClientRect().right > innerWidth + 1 : false,
       filtersUseMultipleRows: filterChildren.length > 1 && Math.max(...filterChildren.map((item) => item.getBoundingClientRect().bottom)) - Math.min(...filterChildren.map((item) => item.getBoundingClientRect().bottom)) > 3,
       emptyStateTooTall: visible(emptyState) && !emptyState.closest('.uptime-table-area, .uptime-maintenance-card') ? emptyState.getBoundingClientRect().height > 160 : false,
-      monitorDescriptionMissing: '${panel}' === 'monitors' && (!visible(emptyMonitorCount) || emptyMonitorCount.textContent.trim() !== 'Track endpoint availability and response performance'),
+      repeatedPanelTitleVisible: visible(repeatedPanelTitle),
       emptyMonitorTableVisible: '${panel}' === 'monitors' && visible(emptyMonitorTable),
       emptyMonitorActionsVisible: '${panel}' === 'monitors' && visible(emptyMonitorActions),
       emptyMonitorActionsDisabled: '${panel}' !== 'monitors' || emptyMonitorActionButtons.every((button) => button.disabled),
@@ -164,18 +179,23 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
       monitorHeaderNotSticky: '${panel}' === 'monitors' && getComputedStyle(monitorTableHeader).position !== 'sticky',
       monitorFilterPanelStateWrong: '${panel}' === 'monitors' && visible(monitorFilterPanel) !== ${filtersOpen},
       monitorFilterPanelNotOverlay: '${panel}' === 'monitors' && ${filtersOpen} && getComputedStyle(monitorFilterPanel).position !== 'absolute',
-      monitorFilterUsesNativeSelects: '${panel}' === 'monitors' && ${filtersOpen} && (monitorFilterSelects.some(visible) || monitorFilterSelectTriggers.length !== 3 || monitorFilterSelectTriggers.some((trigger) => !visible(trigger))),
+      monitorFilterUsesNativeSelects: '${panel}' === 'monitors' && ${filtersOpen} && (monitorFilterSelects.some(visible) || monitorFilterSelectTriggers.length !== 4 || monitorFilterSelectTriggers.some((trigger) => !visible(trigger))),
       monitorFilterSelectMenuStateWrong: '${panel}' === 'monitors' && visible(monitorStateFilterMenu) !== ${filterSelectOpen},
       monitorFilterSelectStackingWrong: '${panel}' === 'monitors' && ${filterSelectOpen} && Number(getComputedStyle(monitorStateFilterDropdown).zIndex) < 2,
+      monitorDetailActionHeightMismatch: ${monitorDetail} && (monitorDetailActionHeights.length !== 4 || new Set(monitorDetailActionHeights).size !== 1 || monitorDetailActionHeights[0] !== 32),
+      monitorDetailIconWidthMismatch: ${monitorDetail} && (monitorDetailIconWidths.length !== 2 || new Set(monitorDetailIconWidths).size !== 1 || monitorDetailIconWidths[0] !== 32),
+      monitorDetailDeleteNotOutlined: ${monitorDetail} && !monitorDetailDeleteButton.classList.contains('outline'),
       incidentTableVisible: '${panel}' !== 'incidents' || visible(incidentTableWrap),
       incidentToolbarIntegrated: '${panel}' !== 'incidents' || (incidentTableCard.contains(incidentSearch) && incidentTableCard.contains(incidentFilterButton)),
       incidentSearchTooWide: '${panel}' === 'incidents' && incidentSearch.getBoundingClientRect().width > 322,
       incidentTableTooShort: '${panel}' === 'incidents' && incidentTableCard.getBoundingClientRect().height < 360,
+      incidentTableCardHeight: '${panel}' === 'incidents' ? incidentTableCard.getBoundingClientRect().height : 0,
       incidentHeaderNotSticky: '${panel}' === 'incidents' && getComputedStyle(incidentTableHeader).position !== 'sticky',
       incidentFilterPanelStateWrong: '${panel}' === 'incidents' && visible(incidentFilterPanel) !== ${incidentFiltersOpen},
       incidentFilterPanelNotOverlay: '${panel}' === 'incidents' && ${incidentFiltersOpen} && getComputedStyle(incidentFilterPanel).position !== 'absolute',
       incidentFilterUsesNativeSelect: '${panel}' === 'incidents' && ${incidentFiltersOpen} && (visible(incidentStateSelect) || !visible(incidentStateTrigger)),
       maintenanceTableTooShort: '${panel}' === 'maintenance' && maintenanceTableCard.getBoundingClientRect().height < 360,
+      overviewBottomGapTooLarge: '${panel}' === 'overview' && overviewPanel.getBoundingClientRect().bottom - overviewGrid.getBoundingClientRect().bottom > 26,
       cardOverlap,
       clippedText
     };
@@ -198,7 +218,7 @@ async function main() {
       window.setContentSize(viewport.width, viewport.height);
       await window.webContents.executeJavaScript(panelScript(viewport));
       await new Promise((resolve) => setTimeout(resolve, 100));
-      const measurement = await window.webContents.executeJavaScript(measurementScript(viewport.panel, viewport.filtersOpen, viewport.filterSelectOpen, viewport.incidentFiltersOpen));
+      const measurement = await window.webContents.executeJavaScript(measurementScript(viewport.panel, viewport.filtersOpen, viewport.filterSelectOpen, viewport.incidentFiltersOpen, viewport.monitorDetail));
       const outputPath = path.join(outputDirectory, `uptime-${viewport.name}-${viewport.panel}.png`);
       const image = await window.webContents.capturePage();
       await fs.writeFile(outputPath, image.toPNG());
