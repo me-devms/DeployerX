@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { BackupControlDatabase } = require('./control-database');
 const { BackupSecretStore } = require('./secrets');
+const { LocalConnectionService } = require('./local-connection');
 const { MIN_CHUNK_SIZE_BYTES } = require('./repository-engine');
 const {
   ADAPTER_ID,
@@ -230,4 +231,28 @@ test('removes repository configuration while retaining backup data and its recov
   const keyMetadata = await fixture.controlDatabase.repository('secretRef').get('workspace-a', repository.encryptionKeyRefId);
   assert.equal(keyMetadata.secretType, 'encryption-key');
   await assert.rejects(fixture.secretStore.delete({ workspaceId: 'workspace-a', id: repository.encryptionKeyRefId }), /referenced/);
+});
+
+test('links legacy local destinations to the reusable device connection idempotently', async (context) => {
+  const fixture = await serviceFixture(context);
+  const legacy = await fixture.service.create('workspace-a', 'tester', { name: 'Legacy local archive', rootPath: fixture.repositoryPath });
+  assert.equal(legacy.connectionId, null);
+  const connectionService = new LocalConnectionService({ controlDatabase: fixture.controlDatabase, deviceId: 'device-a' });
+  const service = new LocalRepositoryService({
+    controlDatabase: fixture.controlDatabase,
+    secretStore: fixture.secretStore,
+    deviceId: 'device-a',
+    connectionService
+  });
+  const first = await service.migrateLegacyRepositories('workspace-a', 'tester');
+  const second = await service.migrateLegacyRepositories('workspace-a', 'tester');
+  assert.equal(first.migrated.length, 1);
+  assert.equal(second.migrated.length, 0);
+  const destination = await fixture.controlDatabase.repository('repository').get('workspace-a', legacy.id);
+  assert.equal(destination.connectionId, first.connection.id);
+  assert.equal((await connectionService.list('workspace-a')).length, 1);
+  await assert.rejects(
+    fixture.controlDatabase.repository('connection').softDelete('workspace-a', first.connection.id, { expectedRevision: first.connection.revision, actorId: 'tester' }),
+    /referenced by an active repository/
+  );
 });

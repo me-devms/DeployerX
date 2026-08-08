@@ -549,11 +549,12 @@ function secretMetadataInput(ref, actorId) {
 }
 
 class LocalRepositoryService {
-  constructor({ controlDatabase, secretStore, deviceId, adapterFactory = (config) => new LocalFolderRepositoryAdapter(config), clock = () => new Date().toISOString() } = {}) {
+  constructor({ controlDatabase, secretStore, deviceId, connectionService = null, adapterFactory = (config) => new LocalFolderRepositoryAdapter(config), clock = () => new Date().toISOString() } = {}) {
     if (!controlDatabase || !secretStore) throw new TypeError('Control database and SecretRef store are required.');
     this.controlDatabase = controlDatabase;
     this.secretStore = secretStore;
     this.deviceId = requiredText(deviceId, 'Device ID', 200);
+    this.connectionService = connectionService;
     this.adapterFactory = adapterFactory;
     this.clock = clock;
   }
@@ -570,7 +571,14 @@ class LocalRepositoryService {
     const actor = requiredText(actorId, 'Actor ID', 200);
     const name = requiredText(input.name, 'Repository name', 200);
     const config = normalizeLocalRepositoryConfig({ rootPath: input.rootPath });
-    const duplicatePath = (await this.list(tenant)).some((repository) => this.#pathKey(repository.location.path) === this.#pathKey(config.rootPath));
+    let connection = null;
+    if (this.connectionService) {
+      const connections = await this.connectionService.list(tenant);
+      connection = input.connectionId ? connections.find((item) => item.id === input.connectionId) : connections.find((item) => item.currentDevice);
+      if (!connection && !input.connectionId) connection = await this.connectionService.ensure(tenant, actor);
+      if (!connection || !connection.currentDevice && connection.endpoint?.deviceId !== this.deviceId) throw new Error('Choose the local connection for this device.');
+    }
+    const duplicatePath = (await this.list(tenant)).some((repository) => repository.connectionId === (connection?.id || null) && this.#pathKey(repository.location.path) === this.#pathKey(config.rootPath));
     if (duplicatePath) throw new TypeError('This local folder is already configured as a repository in this workspace.');
     const adapter = this.adapterFactory(config);
     await adapter.initialize();
@@ -591,7 +599,7 @@ class LocalRepositoryService {
           workspaceId: tenant,
           actorId: actor,
           name,
-          connectionId: null,
+          connectionId: connection?.id || null,
           adapterId: ADAPTER_ID,
           adapterVersion: ADAPTER_VERSION,
           engineId: ENGINE_ID,
@@ -658,6 +666,23 @@ class LocalRepositoryService {
     if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new TypeError('Repository revision is required for removal.');
     const removed = await this.controlDatabase.repository('repository').softDelete(tenant, id, { expectedRevision, actorId: actor });
     return { repository: removed, dataRetainedAt: repository.location.path, encryptionKeyRetained: true };
+  }
+
+  async migrateLegacyRepositories(workspaceId, actorId = 'system') {
+    if (!this.connectionService) return { migrated: [] };
+    const tenant = requiredText(workspaceId, 'Workspace ID', 200);
+    const actor = requiredText(actorId, 'Actor ID', 200);
+    const repositories = (await this.controlDatabase.repository('repository').list(tenant, { limit: 1000 }))
+      .filter((repository) => repository.adapterId === ADAPTER_ID && !repository.connectionId);
+    if (!repositories.length) return { migrated: [] };
+    const connection = await this.connectionService.ensure(tenant, actor);
+    const migrated = [];
+    for (const repository of repositories) {
+      migrated.push(await this.controlDatabase.repository('repository').update(tenant, repository.id, {
+        connectionId: connection.id
+      }, { expectedRevision: repository.revision, actorId: actor }));
+    }
+    return { connection, migrated };
   }
 
   #pathKey(value) {

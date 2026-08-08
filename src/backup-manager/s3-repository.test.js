@@ -15,6 +15,7 @@ const {
   normalizeS3Credential,
   normalizeS3RepositoryConfig
 } = require('./s3-repository');
+const { S3StorageConnectionService } = require('./s3-storage-connection');
 
 async function bodyBuffer(body) {
   if (Buffer.isBuffer(body) || body instanceof Uint8Array) return Buffer.from(body);
@@ -313,4 +314,48 @@ test('persists device-scoped S3 repositories and removes credentials while retai
   const refs = await secretStore.list('workspace-a');
   assert.equal(refs.some((ref) => ref.id === repository.encryptionKeyRefId), true);
   assert.equal(refs.some((ref) => repository.secretRefIds.includes(ref.id)), false);
+});
+
+test('supports multiple S3 destinations on one reusable connection', async (context) => {
+  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), 'deployerx-shared-s3-connection-test-'));
+  context.after(() => fs.rm(rootPath, { recursive: true, force: true }));
+  const controlDatabase = new BackupControlDatabase({ rootPath: path.join(rootPath, 'control'), clock: () => '2026-08-07T12:00:00.000Z' });
+  await controlDatabase.initialize();
+  context.after(() => controlDatabase.close());
+  const secretStore = new BackupSecretStore({
+    rootPath: path.join(rootPath, 'secrets'), secureStorage: fakeSecureStorage(),
+    isReferenced: async ({ workspaceId, id }) => {
+      const [connections, repositories] = await Promise.all([
+        controlDatabase.repository('connection').list(workspaceId, { includeDeleted: true, limit: 1000 }),
+        controlDatabase.repository('repository').list(workspaceId, { includeDeleted: true, limit: 1000 })
+      ]);
+      return connections.some((record) => !record.deletedAt && record.secretRefIds?.includes(id))
+        || repositories.some((record) => record.encryptionKeyRefId === id || (!record.deletedAt && record.secretRefIds?.includes(id)));
+    }
+  });
+  await secretStore.initialize();
+  const clients = new Map();
+  const adapterFactory = (config) => {
+    const bucket = config.config.bucket;
+    if (!clients.has(bucket)) clients.set(bucket, new MemoryS3Client({ versioning: true }));
+    return new S3CompatibleRepositoryAdapter({ ...config, client: clients.get(bucket) });
+  };
+  const connectionService = new S3StorageConnectionService({ controlDatabase, secretStore, deviceId: 'device-a' });
+  const service = new S3RepositoryService({ controlDatabase, secretStore, deviceId: 'device-a', connectionService, adapterFactory });
+  const connection = await connectionService.create('workspace-a', 'tester', {
+    name: 'Shared object storage', endpoint: 'https://objects.example.com', accessKeyId: 'access', secretAccessKey: 'secret', forcePathStyle: true
+  });
+  const first = await service.create('workspace-a', 'tester', { name: 'Daily archive', connectionId: connection.id, region: 'us-east-1', bucket: 'daily-archive', prefix: 'production' });
+  const second = await service.create('workspace-a', 'tester', { name: 'Monthly archive', connectionId: connection.id, region: 'us-east-1', bucket: 'monthly-archive', prefix: 'production' });
+  assert.equal(first.connectionId, connection.id);
+  assert.equal(second.connectionId, connection.id);
+  assert.deepEqual(first.secretRefIds, []);
+  assert.deepEqual(second.secretRefIds, []);
+  assert.equal((await connectionService.list('workspace-a')).length, 1);
+  assert.equal((await secretStore.list('workspace-a')).length, 3);
+
+  const removed = await service.remove('workspace-a', 'tester', first.id, first.revision);
+  assert.equal(removed.credentialsRemoved, false);
+  assert.equal((await connectionService.list('workspace-a')).length, 1);
+  await assert.rejects(connectionService.remove('workspace-a', 'tester', connection.id, connection.revision), /referenced by an active repository/);
 });

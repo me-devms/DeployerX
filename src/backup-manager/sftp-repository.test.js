@@ -983,11 +983,15 @@ test('persists SFTP repositories against saved SSH connections and retains remot
     adapterFactory: (config) => new SftpRepositoryAdapter({ ...config, sessionFactory: remote.sessionFactory })
   });
   const repository = await service.create('workspace-a', 'tester', { name: 'Remote archive', connectionId: connection.id, rootPath: '/srv/backups' });
+  const secondaryRepository = await service.create('workspace-a', 'tester', { name: 'Weekly archive', connectionId: connection.id, rootPath: '/srv/weekly' });
   assert.equal(repository.adapterId, ADAPTER_ID);
   assert.equal(repository.connectionId, connection.id);
+  assert.equal(secondaryRepository.connectionId, connection.id);
+  assert.notEqual(secondaryRepository.location.path, repository.location.path);
   assert.equal(repository.health.status, 'ready');
   assert.match(repository.encryptionKeyRefId, /^sec_/);
-  assert.equal((await service.list('workspace-a'))[0].connectionName, 'Archive server');
+  assert.equal((await service.list('workspace-a')).length, 2);
+  assert.ok((await service.list('workspace-a')).every((destination) => destination.connectionName === 'Archive server'));
   assert.deepEqual(await service.list('workspace-b'), []);
 
   const opened = await service.open('workspace-a', repository.id);
@@ -1001,6 +1005,8 @@ test('persists SFTP repositories against saved SSH connections and retains remot
   assert.equal(removed.encryptionKeyRetained, true);
   assert.equal(remote.files.size > 0, true);
   assert.equal((await secretStore.list('workspace-a')).some((ref) => ref.id === repository.encryptionKeyRefId), true);
+  assert.equal((await service.list('workspace-a')).length, 1);
+  await service.remove('workspace-a', 'tester', secondaryRepository.id, secondaryRepository.revision);
 });
 
 test('fresh SFTP repository service reconciles aged staging after contention and retries safely', async (context) => {

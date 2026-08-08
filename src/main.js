@@ -26,9 +26,11 @@ const { CassandraScyllaSourceReaderService } = require('./backup-manager/cassand
 const { FileSourceService } = require('./backup-manager/file-selection');
 const { FileSourceReaderService } = require('./backup-manager/file-source-reader');
 const { FileRestoreService, createConnectionRestoreTarget } = require('./backup-manager/file-restore');
+const { createBuiltInStorageBackendRegistry } = require('./backup-manager/built-in-storage-backends');
 const { LocalConnectionService, loadOrCreateBackupDeviceId } = require('./backup-manager/local-connection');
-const { ADAPTER_ID: LOCAL_REPOSITORY_ADAPTER_ID, LocalRepositoryService } = require('./backup-manager/local-repository');
+const { LocalRepositoryService } = require('./backup-manager/local-repository');
 const { ManualBackupService } = require('./backup-manager/manual-backup');
+const { StorageConnectionService, StorageDestinationService } = require('./backup-manager/storage-backend-registry');
 const { ADAPTER_ID: MARIADB_ADAPTER_ID, MariadbConnectionService, MariadbLogicalAdapter } = require('./backup-manager/mariadb-logical');
 const { MariadbRestoreService, RESTORE_CONFIRMATIONS: MARIADB_RESTORE_CONFIRMATIONS } = require('./backup-manager/mariadb-restore');
 const { MariadbSourceReaderService } = require('./backup-manager/mariadb-source-reader');
@@ -115,9 +117,10 @@ const { RepositoryVerificationService } = require('./backup-manager/repository-v
 const { RepositoryPruningService } = require('./backup-manager/repository-pruning');
 const { ScheduledBackupWorkerService, effectiveJobDispatchTime } = require('./backup-manager/scheduled-backup-worker');
 const { SnapshotBrowserService } = require('./backup-manager/snapshot-browser');
-const { ADAPTER_ID: S3_REPOSITORY_ADAPTER_ID, S3RepositoryService } = require('./backup-manager/s3-repository');
+const { S3RepositoryService } = require('./backup-manager/s3-repository');
+const { S3StorageConnectionService } = require('./backup-manager/s3-storage-connection');
 const { BackupSecretStore } = require('./backup-manager/secrets');
-const { ADAPTER_ID: SFTP_REPOSITORY_ADAPTER_ID, SftpRepositoryService } = require('./backup-manager/sftp-repository');
+const { SftpRepositoryService } = require('./backup-manager/sftp-repository');
 const { SshConnectionService } = require('./backup-manager/ssh-connection');
 const {
   DatabaseAccessCompanionService,
@@ -327,6 +330,10 @@ let backupFileSourceService = null;
 let backupLocalRepositoryService = null;
 let backupSftpRepositoryService = null;
 let backupS3RepositoryService = null;
+let backupS3ConnectionService = null;
+let backupStorageBackendRegistry = null;
+let backupStorageConnectionService = null;
+let backupDestinationService = null;
 let backupJobService = null;
 let backupManualBackupService = null;
 let backupScheduledWorkerService = null;
@@ -1603,9 +1610,20 @@ async function initializeBackupControlDatabase() {
       allowedAdapterIds: CORE_DATABASE_ADAPTER_IDS
     });
     backupFileSourceService = new FileSourceService({ controlDatabase });
-    backupLocalRepositoryService = new LocalRepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    backupLocalRepositoryService = new LocalRepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, connectionService: backupLocalConnectionService });
     backupSftpRepositoryService = new SftpRepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
-    backupS3RepositoryService = new S3RepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    backupS3ConnectionService = new S3StorageConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId });
+    backupS3RepositoryService = new S3RepositoryService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, connectionService: backupS3ConnectionService });
+    backupStorageBackendRegistry = createBuiltInStorageBackendRegistry({
+      localService: backupLocalRepositoryService,
+      sftpService: backupSftpRepositoryService,
+      s3Service: backupS3RepositoryService,
+      localConnectionService: backupLocalConnectionService,
+      sshConnectionService: backupSshConnectionService,
+      s3ConnectionService: backupS3ConnectionService
+    });
+    backupStorageConnectionService = new StorageConnectionService({ controlDatabase, secretStore: getBackupSecretStore(), registry: backupStorageBackendRegistry });
+    backupDestinationService = new StorageDestinationService({ controlDatabase, registry: backupStorageBackendRegistry });
     backupJobService = new BackupJobService({ controlDatabase, deviceId: backupDeviceId });
     backupObjectiveStatusService = new BackupObjectiveStatusService({ controlDatabase });
     backupNotificationService = new BackupNotificationService({
@@ -1643,14 +1661,7 @@ async function initializeBackupControlDatabase() {
     const scyllaManagerSourceReader = new ScyllaManagerSourceReaderService({ controlDatabase, secretStore: getBackupSecretStore(), deviceId: backupDeviceId, adapterRegistry: databaseAdapterRegistry, adapter: scyllaManagerAdapter });
     const sourceReader = new BackupSourceReaderRouter({ controlDatabase, fileReader: fileSourceReader, databaseReaders: { [MYSQL_ADAPTER_ID]: mysqlSourceReader, [MARIADB_ADAPTER_ID]: mariadbSourceReader, [POSTGRESQL_ADAPTER_ID]: postgresqlSourceReader, [SQLSERVER_ADAPTER_ID]: sqlServerSourceReader, [ORACLE_ADAPTER_ID]: oracleSourceReader, [MONGODB_ADAPTER_ID]: mongoDbSourceReader, [NEO4J_ADAPTER_ID]: neo4jSourceReader, [CLICKHOUSE_ADAPTER_ID]: clickHouseSourceReader, [COCKROACHDB_ADAPTER_ID]: cockroachDbSourceReader, [INFLUXDB_ADAPTER_ID]: influxDbSourceReader, [INFLUXDB3_CORE_ADAPTER_ID]: influxDb3CoreSourceReader, [INFLUXDB3_ENTERPRISE_ADAPTER_ID]: influxDb3EnterpriseSourceReader, [REDIS_ADAPTER_ID]: redisSourceReader, [SEARCH_SNAPSHOT_ADAPTER_ID]: searchSnapshotSourceReader, [CASSANDRA_SCYLLA_ADAPTER_ID]: cassandraScyllaSourceReader, [SCYLLA_MANAGER_ADAPTER_ID]: scyllaManagerSourceReader, [SQLITE_ADAPTER_ID]: sqliteSourceReader } });
     const checkpointStore = new RunCheckpointStore({ rootPath: path.join(getBackupManagerRootPath(), 'checkpoints') });
-    openRepository = async (workspaceId, repositoryId) => {
-      const repository = await controlDatabase.repository('repository').get(workspaceId, repositoryId);
-      if (!repository) throw new Error('Backup repository was not found.');
-      if (repository.adapterId === LOCAL_REPOSITORY_ADAPTER_ID) return backupLocalRepositoryService.open(workspaceId, repositoryId);
-      if (repository.adapterId === SFTP_REPOSITORY_ADAPTER_ID) return backupSftpRepositoryService.open(workspaceId, repositoryId);
-      if (repository.adapterId === S3_REPOSITORY_ADAPTER_ID) return backupS3RepositoryService.open(workspaceId, repositoryId);
-      throw new Error('This repository adapter cannot run file backups.');
-    };
+    openRepository = (workspaceId, repositoryId) => backupDestinationService.open(workspaceId, repositoryId);
     const cockroachDbRetentionAdapters = createCockroachDbRetentionAdapters({ controlDatabase, openRepository, deviceId: backupDeviceId });
     backupCockroachDbRetentionService = new CockroachDbRetentionService(cockroachDbRetentionAdapters);
     backupManualBackupService = new ManualBackupService({ controlDatabase, sourceReader, checkpointStore, deviceId: backupDeviceId, openRepository, logStore: getBackupLogStore(), notificationService: backupNotificationService });
@@ -1769,6 +1780,14 @@ async function initializeBackupControlDatabase() {
     const settings = await readSettings();
     const activeWorkspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
     if (activeWorkspaceId) {
+      const localStorageMigration = await backupLocalRepositoryService.migrateLegacyRepositories(activeWorkspaceId, String(settings.auth?.uid || 'local-user'));
+      const storageMigration = await backupS3ConnectionService.migrateLegacyRepositories(activeWorkspaceId, String(settings.auth?.uid || 'local-user'));
+      if (localStorageMigration.migrated.length || storageMigration.migrated.length) {
+        await getBackupLogStore().logger({ workspaceId: activeWorkspaceId, component: 'backup-storage-connection' }).info(
+          'Legacy destinations were linked to reusable storage connections.',
+          { destinationIds: [...localStorageMigration.migrated.map((destination) => destination.id), ...storageMigration.migrated.map(({ destination }) => destination.id)] }
+        ).catch(() => {});
+      }
       if (settings.mode === 'cloud') {
         await reconcileDatabaseProfileMetadata(activeWorkspaceId).then(async (summary) => {
           if (!summary.failed?.length) return;
@@ -2011,6 +2030,10 @@ async function initializeBackupControlDatabase() {
     backupLocalRepositoryService = null;
     backupSftpRepositoryService = null;
     backupS3RepositoryService = null;
+    backupS3ConnectionService = null;
+    backupStorageBackendRegistry = null;
+    backupStorageConnectionService = null;
+    backupDestinationService = null;
     backupJobService = null;
     backupManualBackupService = null;
     backupScheduledWorkerService = null;
@@ -2549,6 +2572,24 @@ function getBackupS3RepositoryService() {
   getBackupControlDatabase();
   if (!backupS3RepositoryService) throw new Error('Backup S3 repositories are not initialized.');
   return backupS3RepositoryService;
+}
+
+function getBackupS3ConnectionService() {
+  getBackupControlDatabase();
+  if (!backupS3ConnectionService) throw new Error('Backup S3 storage connections are not initialized.');
+  return backupS3ConnectionService;
+}
+
+function getBackupDestinationService() {
+  getBackupControlDatabase();
+  if (!backupDestinationService) throw new Error('Backup destinations are not initialized.');
+  return backupDestinationService;
+}
+
+function getBackupStorageConnectionService() {
+  getBackupControlDatabase();
+  if (!backupStorageConnectionService) throw new Error('Backup storage connections are not initialized.');
+  return backupStorageConnectionService;
 }
 
 function getBackupJobService() {
@@ -8458,6 +8499,39 @@ ipcMain.handle('backup:audit:verify', async () => {
   return getBackupAuditStore().verify(context.workspaceId);
 });
 
+ipcMain.handle('backup:connections:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.delete', resourceType: 'connection', resourceId: payload.id, component: 'backup-connection' },
+    async () => {
+      const repository = getBackupControlDatabase().repository('connection');
+      const connection = await repository.get(context.workspaceId, payload.id);
+      if (!connection) throw new Error('Backup source connection was not found.');
+      const deleted = await repository.softDelete(context.workspaceId, connection.id, {
+        expectedRevision: payload.revision,
+        actorId: context.actorId
+      });
+      const credentialsNotRemoved = [];
+      for (const secretRefId of connection.secretRefIds || []) {
+        try {
+          await getBackupSecretStore().delete({ workspaceId: context.workspaceId, id: secretRefId });
+          const secretRef = await getBackupControlDatabase().repository('secretRef').get(context.workspaceId, secretRefId);
+          if (secretRef) {
+            await getBackupControlDatabase().repository('secretRef').softDelete(context.workspaceId, secretRefId, {
+              expectedRevision: secretRef.revision,
+              actorId: context.actorId
+            });
+          }
+        } catch {
+          credentialsNotRemoved.push(secretRefId);
+        }
+      }
+      return { connection: deleted, credentialsNotRemoved };
+    }
+  );
+});
+
 ipcMain.handle('backup:connections:local:list', async () => {
   const context = await backupSecretContext();
   return getBackupLocalConnectionService().list(context.workspaceId);
@@ -10570,6 +10644,107 @@ ipcMain.handle('backup:runs:retry', async (_event, payload = {}) => {
 ipcMain.handle('backup:repositories:local:list', async () => {
   const context = await backupSecretContext();
   return getBackupLocalRepositoryService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:storage-connections:s3:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupS3ConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:storage-connections:s3:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'storage-connection.create-s3', resourceType: 'connection', component: 'backup-storage-connection', details: { name: payload.name, endpoint: payload.endpoint } },
+    () => getBackupS3ConnectionService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:storage-connections:s3:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'storage-connection.test-s3', resourceType: 'connection', resourceId: payload.id, component: 'backup-storage-connection' },
+    () => getBackupS3ConnectionService().test(context.workspaceId, context.actorId, payload.id, payload.location)
+  );
+});
+
+ipcMain.handle('backup:storage-connections:s3:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'storage-connection.delete-s3', resourceType: 'connection', resourceId: payload.id, component: 'backup-storage-connection' },
+    () => getBackupS3ConnectionService().remove(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:storage-backends:list', async () => {
+  await backupSecretContext();
+  return getBackupDestinationService().listBackends();
+});
+
+ipcMain.handle('backup:storage-connections:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupStorageConnectionService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:storage-connections:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'storage-connection.create', resourceType: 'connection', component: 'backup-storage-connection', details: { backendId: payload.backendId, name: payload.input?.name } },
+    () => getBackupStorageConnectionService().create(context.workspaceId, context.actorId, payload.backendId, payload.input)
+  );
+});
+
+ipcMain.handle('backup:storage-connections:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'storage-connection.test', resourceType: 'connection', resourceId: payload.id, component: 'backup-storage-connection', details: { backendId: payload.backendId } },
+    () => getBackupStorageConnectionService().test(context.workspaceId, context.actorId, payload.backendId, payload.id, payload.location)
+  );
+});
+
+ipcMain.handle('backup:storage-connections:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'storage-connection.delete', resourceType: 'connection', resourceId: payload.id, component: 'backup-storage-connection', details: { backendId: payload.backendId } },
+    () => getBackupStorageConnectionService().remove(context.workspaceId, context.actorId, payload.backendId, payload.id, payload.revision)
+  );
+});
+
+ipcMain.handle('backup:destinations:list', async () => {
+  const context = await backupSecretContext();
+  return getBackupDestinationService().list(context.workspaceId);
+});
+
+ipcMain.handle('backup:destinations:create', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'destination.create', resourceType: 'repository', component: 'backup-destination', details: { name: payload.name, backendId: payload.backendId } },
+    () => getBackupDestinationService().create(context.workspaceId, context.actorId, payload)
+  );
+});
+
+ipcMain.handle('backup:destinations:test', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'destination.test', resourceType: 'repository', resourceId: payload.id, component: 'backup-destination' },
+    () => getBackupDestinationService().test(context.workspaceId, context.actorId, payload.id)
+  );
+});
+
+ipcMain.handle('backup:destinations:delete', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'destination.delete', resourceType: 'repository', resourceId: payload.id, component: 'backup-destination' },
+    () => getBackupDestinationService().remove(context.workspaceId, context.actorId, payload.id, payload.revision)
+  );
 });
 
 ipcMain.handle('backup:repositories:storage-policy:update', async (_event, payload = {}) => {

@@ -209,8 +209,7 @@ app.whenReady().then(async () => {
         hasSelection: document.querySelectorAll('.backup-browser-entry-select:checked').length === 1,
         hasProfile: document.getElementById('backupBrowserSourceProfile').value === 'src_files',
         hasPatterns: document.getElementById('backupBrowserIncludePatterns').value === '**/*.conf',
-        hasMetadataPolicy: document.getElementById('backupBrowserMetadataPolicy').innerText.includes('Permissions: preserved')
-          && document.getElementById('backupBrowserMetadataPolicy').innerText.includes('Hard links: unavailable'),
+        metadataFieldRemoved: !document.getElementById('backupBrowserMetadataPolicy'),
         hiddenFiltered: !document.body.innerText.includes('.secret'),
         horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
       };
@@ -260,7 +259,7 @@ app.whenReady().then(async () => {
       && addSourceAction.menuClosed && addSourceAction.triggerCollapsed && addSourceAction.sshModalOpen
       && diagnostics.hasGuidance && diagnostics.hasCode && !diagnostics.horizontalOverflow
       && diagnostics.card.left >= 0 && diagnostics.card.right <= mobile.viewport.width
-      && browser.rowCount === 2 && browser.hasPath && browser.hasPagination && browser.hasSelection && browser.hasProfile && browser.hasPatterns && browser.hasMetadataPolicy && browser.hiddenFiltered && !browser.horizontalOverflow
+      && browser.rowCount === 2 && browser.hasPath && browser.hasPagination && browser.hasSelection && browser.hasProfile && browser.hasPatterns && browser.metadataFieldRemoved && browser.hiddenFiltered && !browser.horizontalOverflow
       && browser.card.left >= 0 && browser.card.right <= mobile.viewport.width
       && mysql.databaseCount === 2 && mysql.connectionFieldsHidden && !mysql.horizontalOverflow && mysql.card.left >= 0 && mysql.card.right <= mobile.viewport.width;
     process.stdout.write(`${JSON.stringify({ ok: valid, desktop, mobile, jobPicker, jobPickerAction, addSourceAction, diagnostics, browser, mysql, screenshots: { desktopPath, mobilePath, jobPickerPath, diagnosticsPath, browserPath, modalPath, mysqlPath } })}\n`);

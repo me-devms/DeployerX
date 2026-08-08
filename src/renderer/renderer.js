@@ -19,6 +19,11 @@ const BACKUP_DATABASE_CONNECTION_KINDS = Object.freeze([
   'mysql', 'mariadb', 'postgresql', 'sqlserver', 'oracle', 'mongodb', 'neo4j', 'clickhouse', 'influxdb',
   'influxdb3-core', 'influxdb3-enterprise', 'cockroachdb', 'redis', 'search-snapshot', 'scylla-manager', 'sqlite'
 ]);
+const STORAGE_BACKEND_IDS = Object.freeze({
+  local: 'deployerx.repository.local',
+  sftp: 'deployerx.repository.sftp',
+  s3: 'deployerx.repository.s3-compatible'
+});
 const DEFAULT_THEME_ID = 'deployerx-light';
 const THEMES = {
   'deployerx-light': {
@@ -254,6 +259,14 @@ function blankBackupJobWizard() {
   };
 }
 
+function blankBackupDestinationDraft(overrides = {}) {
+  return {
+    backendId: '', connectionId: '', returnToJob: false, awaitingSsh: false,
+    name: '', connectionValues: {}, locationValues: {},
+    ...overrides
+  };
+}
+
 function blankBackupRecovery() {
   return {
     points: [],
@@ -348,9 +361,11 @@ const state = {
   backupMysqlDatabases: [],
   backupDatabaseObjects: [],
   backupDatabaseObjectsDatabase: '',
-  backupLocalRepositories: [],
-  backupSftpRepositories: [],
-  backupS3Repositories: [],
+  backupStorageBackends: [],
+  backupDestinations: [],
+  backupStorageConnections: [],
+  backupDestinationDraft: blankBackupDestinationDraft(),
+  backupDestinationPanel: 'destinations',
   backupJobs: [],
   backupRuns: [],
   backupNotificationRoutes: [],
@@ -2218,11 +2233,12 @@ const els = {
   backupJobSourcesEmpty: document.getElementById('backupJobSourcesEmpty'),
   backupJobAddSourceDropdown: document.getElementById('backupJobAddSourceDropdown'),
   backupJobAddSourceButton: document.getElementById('backupJobAddSourceButton'),
+  backupJobSourcePicker: document.getElementById('backupJobSourcePicker'),
+  backupJobSourcePickerBody: document.getElementById('backupJobSourcePickerBody'),
+  backupJobSourcePickerCloseButton: document.getElementById('backupJobSourcePickerCloseButton'),
   backupJobRepositories: document.getElementById('backupJobRepositories'),
   backupJobRepositoriesEmpty: document.getElementById('backupJobRepositoriesEmpty'),
-  backupJobCreateLocalRepositoryButton: document.getElementById('backupJobCreateLocalRepositoryButton'),
-  backupJobCreateSftpRepositoryButton: document.getElementById('backupJobCreateSftpRepositoryButton'),
-  backupJobCreateS3RepositoryButton: document.getElementById('backupJobCreateS3RepositoryButton'),
+  backupJobCreateDestinationButton: document.getElementById('backupJobCreateDestinationButton'),
   backupJobKeepLast: document.getElementById('backupJobKeepLast'),
   backupJobKeepHourly: document.getElementById('backupJobKeepHourly'),
   backupJobKeepDaily: document.getElementById('backupJobKeepDaily'),
@@ -2542,42 +2558,26 @@ const els = {
   backupCockroachDbSaveSourceButton: document.getElementById('backupCockroachDbSaveSourceButton'),
   backupSourceConnections: document.getElementById('backupSourceConnections'),
   backupSourcesEmpty: document.getElementById('backupSourcesEmpty'),
-  backupAddLocalRepositoryButton: document.getElementById('backupAddLocalRepositoryButton'),
-  backupAddSftpRepositoryButton: document.getElementById('backupAddSftpRepositoryButton'),
-  backupAddS3RepositoryButton: document.getElementById('backupAddS3RepositoryButton'),
+  backupAddDestinationButton: document.getElementById('backupAddDestinationButton'),
+  backupDestinationsListTab: document.getElementById('backupDestinationsListTab'),
+  backupDestinationConnectionsTab: document.getElementById('backupDestinationConnectionsTab'),
+  backupDestinationsListPanel: document.getElementById('backupDestinationsListPanel'),
+  backupDestinationConnectionsPanel: document.getElementById('backupDestinationConnectionsPanel'),
+  backupDestinationConnectionList: document.getElementById('backupDestinationConnectionList'),
+  backupDestinationConnectionsEmpty: document.getElementById('backupDestinationConnectionsEmpty'),
   backupRepositoryList: document.getElementById('backupRepositoryList'),
   backupRepositoriesEmpty: document.getElementById('backupRepositoriesEmpty'),
-  backupLocalRepositoryModal: document.getElementById('backupLocalRepositoryModal'),
-  backupLocalRepositoryForm: document.getElementById('backupLocalRepositoryForm'),
-  backupLocalRepositoryCloseButton: document.getElementById('backupLocalRepositoryCloseButton'),
-  backupLocalRepositoryCancelButton: document.getElementById('backupLocalRepositoryCancelButton'),
-  backupLocalRepositoryName: document.getElementById('backupLocalRepositoryName'),
-  backupLocalRepositoryPath: document.getElementById('backupLocalRepositoryPath'),
-  backupLocalRepositoryBrowseButton: document.getElementById('backupLocalRepositoryBrowseButton'),
-  backupLocalRepositorySaveButton: document.getElementById('backupLocalRepositorySaveButton'),
-  backupSftpRepositoryModal: document.getElementById('backupSftpRepositoryModal'),
-  backupSftpRepositoryForm: document.getElementById('backupSftpRepositoryForm'),
-  backupSftpRepositoryCloseButton: document.getElementById('backupSftpRepositoryCloseButton'),
-  backupSftpRepositoryCancelButton: document.getElementById('backupSftpRepositoryCancelButton'),
-  backupSftpRepositoryName: document.getElementById('backupSftpRepositoryName'),
-  backupSftpRepositoryConnection: document.getElementById('backupSftpRepositoryConnection'),
-  backupSftpRepositoryPath: document.getElementById('backupSftpRepositoryPath'),
-  backupSftpRepositorySaveButton: document.getElementById('backupSftpRepositorySaveButton'),
-  backupS3RepositoryModal: document.getElementById('backupS3RepositoryModal'),
-  backupS3RepositoryForm: document.getElementById('backupS3RepositoryForm'),
-  backupS3RepositoryCloseButton: document.getElementById('backupS3RepositoryCloseButton'),
-  backupS3RepositoryCancelButton: document.getElementById('backupS3RepositoryCancelButton'),
-  backupS3RepositoryName: document.getElementById('backupS3RepositoryName'),
-  backupS3RepositoryEndpoint: document.getElementById('backupS3RepositoryEndpoint'),
-  backupS3RepositoryRegion: document.getElementById('backupS3RepositoryRegion'),
-  backupS3RepositoryBucket: document.getElementById('backupS3RepositoryBucket'),
-  backupS3RepositoryPrefix: document.getElementById('backupS3RepositoryPrefix'),
-  backupS3RepositoryAccessKey: document.getElementById('backupS3RepositoryAccessKey'),
-  backupS3RepositorySecretKey: document.getElementById('backupS3RepositorySecretKey'),
-  backupS3RepositorySessionToken: document.getElementById('backupS3RepositorySessionToken'),
-  backupS3RepositoryPathStyle: document.getElementById('backupS3RepositoryPathStyle'),
-  backupS3RepositoryAllowHttp: document.getElementById('backupS3RepositoryAllowHttp'),
-  backupS3RepositorySaveButton: document.getElementById('backupS3RepositorySaveButton'),
+  backupDestinationModal: document.getElementById('backupDestinationModal'),
+  backupDestinationForm: document.getElementById('backupDestinationForm'),
+  backupDestinationCloseButton: document.getElementById('backupDestinationCloseButton'),
+  backupDestinationCancelButton: document.getElementById('backupDestinationCancelButton'),
+  backupDestinationBackendOptions: document.getElementById('backupDestinationBackendOptions'),
+  backupDestinationConnectionPicker: document.getElementById('backupDestinationConnectionPicker'),
+  backupDestinationConnectionFields: document.getElementById('backupDestinationConnectionFields'),
+  backupDestinationLocationFields: document.getElementById('backupDestinationLocationFields'),
+  backupDestinationName: document.getElementById('backupDestinationName'),
+  backupDestinationError: document.getElementById('backupDestinationError'),
+  backupDestinationSaveButton: document.getElementById('backupDestinationSaveButton'),
   backupRepositoryPolicyModal: document.getElementById('backupRepositoryPolicyModal'),
   backupRepositoryPolicyForm: document.getElementById('backupRepositoryPolicyForm'),
   backupRepositoryPolicyTitle: document.getElementById('backupRepositoryPolicyTitle'),
@@ -2877,7 +2877,6 @@ const els = {
   backupBrowserExcludePatterns: document.getElementById('backupBrowserExcludePatterns'),
   backupBrowserIncludeHidden: document.getElementById('backupBrowserIncludeHidden'),
   backupBrowserCrossMounts: document.getElementById('backupBrowserCrossMounts'),
-  backupBrowserMetadataPolicy: document.getElementById('backupBrowserMetadataPolicy'),
   backupBrowserSaveSourceButton: document.getElementById('backupBrowserSaveSourceButton'),
   projectView: document.getElementById('projectView'),
   sshFileView: document.getElementById('sshFileView'),
@@ -10588,6 +10587,7 @@ let backupSourceAddMenuContext = 'sources';
 
 function closeBackupSourceAddMenu({ focusTrigger = false } = {}) {
   els.backupSourceAddMenu.classList.add('hidden');
+  els.backupJobSourcePicker.classList.add('hidden');
   backupSourceAddMenuTrigger?.setAttribute('aria-expanded', 'false');
   if (focusTrigger) backupSourceAddMenuTrigger?.focus();
 }
@@ -10601,6 +10601,7 @@ function positionBackupSourceAddMenu() {
   if (els.backupSourceAddMenu.classList.contains('hidden')) return;
   els.backupSourceAddMenu.classList.remove('open-up');
   els.backupSourceAddMenu.style.removeProperty('max-height');
+  if (backupSourceAddMenuContext === 'backup-job') return;
   const trigger = backupSourceAddMenuTrigger.getBoundingClientRect();
   const naturalHeight = els.backupSourceAddMenu.scrollHeight;
   const spaceAbove = Math.max(0, trigger.top - 16);
@@ -10625,6 +10626,7 @@ function openBackupSourceAddMenu({
   const currentConnection = allBackupConnections().find((connection) => connection.connectionKind === 'local' && connection.currentDevice);
   els.backupAddLocalConnectionButton.disabled = context === 'sources' && Boolean(currentConnection);
   els.backupAddLocalConnectionButton.title = context === 'sources' && currentConnection ? 'This computer is already connected' : '';
+  els.backupJobSourcePicker.classList.toggle('hidden', context !== 'backup-job');
   els.backupSourceAddMenu.classList.remove('hidden');
   trigger.setAttribute('aria-expanded', 'true');
   requestAnimationFrame(() => {
@@ -10650,7 +10652,9 @@ function setBackupManagerTab(tab) {
     panel.classList.toggle('hidden', !isActive);
   }
   if (state.backupManagerTab === 'sources') loadBackupConnections().catch((error) => showAlert(error.message));
-  if (state.backupManagerTab === 'repositories') loadBackupRepositories().catch((error) => showAlert(error.message));
+  if (state.backupManagerTab === 'repositories') {
+    Promise.all([loadBackupStorageBackends(), loadBackupRepositories(), loadBackupDestinationConnections()]).catch((error) => showAlert(error.message));
+  }
   if (state.backupManagerTab === 'jobs') loadBackupJobs().catch((error) => showAlert(error.message));
   if (state.backupManagerTab === 'recovery') loadBackupRecoveryPoints().catch((error) => showAlert(error.message));
   if (state.backupManagerTab === 'activity') loadBackupActivity().catch((error) => showAlert(error.message));
@@ -14842,7 +14846,7 @@ function renderBackupJobForm() {
 function backupJobFormError(step = 1) {
   if (!els.backupJobName.value.trim()) return 'Enter a backup job name.';
   if (!els.backupJobSources.querySelector('[data-backup-job-source]:checked:not(:disabled)')) return 'Choose a ready backup source.';
-  if (selectedBackupJobRepositoryIds().length === 0) return 'Choose at least one ready repository.';
+  if (selectedBackupJobRepositoryIds().length === 0) return 'Choose at least one ready destination.';
   if (step === 0) return '';
   const keepLast = Number(els.backupJobKeepLast.value);
   if (!Number.isInteger(keepLast) || keepLast < 1 || keepLast > 10000) return 'Recovery points to keep must be between 1 and 10000.';
@@ -14942,7 +14946,7 @@ async function openBackupJobFileSourceCreator() {
 function openBackupJobSourceTypes() {
   openBackupSourceAddMenu({
     trigger: els.backupJobAddSourceButton,
-    host: els.backupJobAddSourceDropdown,
+    host: els.backupJobSourcePickerBody,
     context: 'backup-job'
   });
 }
@@ -15088,11 +15092,7 @@ async function createBackupJob(event) {
 }
 
 function renderBackupRepositories() {
-  const repositories = [
-    ...state.backupLocalRepositories.map((repository) => ({ ...repository, repositoryKind: 'local' })),
-    ...state.backupSftpRepositories.map((repository) => ({ ...repository, repositoryKind: 'sftp' })),
-    ...state.backupS3Repositories.map((repository) => ({ ...repository, repositoryKind: 's3' }))
-  ];
+  const repositories = state.backupDestinations;
   const hasRepositories = repositories.length > 0;
   els.backupRepositoryList.classList.toggle('hidden', !hasRepositories);
   els.backupRepositoriesEmpty.classList.toggle('hidden', hasRepositories);
@@ -15103,12 +15103,17 @@ function renderBackupRepositories() {
     const busy = repository.health?.lockState?.status === 'contended';
     const capacityAttention = ['blocked', 'critical', 'warning'].includes(capacityState);
     const status = !repository.currentDevice ? 'Another device' : busy ? 'Busy' : capacityState === 'blocked' ? 'Capacity blocked' : capacityState === 'critical' ? 'Critical capacity' : capacityState === 'warning' ? 'Low capacity' : ready ? 'Ready' : attention ? 'Needs attention' : 'Initializing';
-    const repositoryIcon = repository.repositoryKind === 'local' ? '#icon-folder-open' : repository.repositoryKind === 'sftp' ? '#icon-server' : '#icon-cloud';
-    const locationDetail = repository.repositoryKind === 'sftp'
-      ? `${repository.connectionName || 'SSH server'} - ${repository.location?.path || 'Remote folder'}`
-      : repository.repositoryKind === 's3'
-        ? `s3://${repository.location?.bucket || 'bucket'}/${repository.location?.prefix || ''}`
-        : (repository.location?.path || 'Local folder');
+    const backend = repository.backend || state.backupStorageBackends.find((candidate) => candidate.backendId === repository.backendId);
+    const repositoryIcon = `#icon-${backend?.icon || 'cloud'}`;
+    const genericLocation = Object.entries(repository.location || {})
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([, value]) => String(value))
+      .join(' / ');
+    const locationDetail = repository.location?.bucket
+      ? `${repository.connectionName || backend?.displayName || 'Storage connection'} - s3://${repository.location.bucket}/${repository.location.prefix || ''}`
+      : repository.location?.path
+        ? `${repository.connectionName && repository.backendId !== STORAGE_BACKEND_IDS.local ? `${repository.connectionName} - ` : ''}${repository.location.path}`
+        : `${repository.connectionName ? `${repository.connectionName} - ` : ''}${genericLocation || backend?.location?.label || 'Storage location'}`;
     const capacityDetail = repository.capacity?.reporting === 'exact'
       ? `${formatBytes(repository.capacity.freeBytes)} free of ${formatBytes(repository.capacity.totalBytes)}`
       : repository.capacity?.reporting === 'quota-only'
@@ -15130,10 +15135,10 @@ function renderBackupRepositories() {
           <button class="button outline compact icon-only" type="button" data-backup-repository-prune="${escapeHtml(repository.id)}" aria-label="Prune ${escapeHtml(repository.name)}" title="Review expired recovery points" ${repository.currentDevice ? '' : 'disabled'}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-trash"></use></svg>
           </button>
-          <button class="button outline compact icon-only" type="button" data-backup-repository-test="${escapeHtml(repository.id)}" data-backup-repository-kind="${repository.repositoryKind}" aria-label="Test ${escapeHtml(repository.name)}" title="Test repository health, capacity, and locking" ${repository.currentDevice ? '' : 'disabled'}>
+          <button class="button outline compact icon-only" type="button" data-backup-repository-test="${escapeHtml(repository.id)}" aria-label="Test ${escapeHtml(repository.name)}" title="Test destination health, capacity, and locking" ${repository.currentDevice ? '' : 'disabled'}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
           </button>
-          <button class="button outline compact icon-only" type="button" data-backup-repository-delete="${escapeHtml(repository.id)}" data-backup-repository-kind="${repository.repositoryKind}" aria-label="Remove ${escapeHtml(repository.name)}" title="Remove repository configuration" ${repository.currentDevice ? '' : 'disabled'}>
+          <button class="button outline danger compact icon-only" type="button" data-backup-repository-delete="${escapeHtml(repository.id)}" aria-label="Remove ${escapeHtml(repository.name)}" title="Remove destination configuration" ${repository.currentDevice ? '' : 'disabled'}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-trash"></use></svg>
           </button>
         </span>
@@ -15143,7 +15148,7 @@ function renderBackupRepositories() {
 }
 
 function findBackupRepository(repositoryId) {
-  return [...state.backupLocalRepositories, ...state.backupSftpRepositories, ...state.backupS3Repositories].find((repository) => repository.id === repositoryId) || null;
+  return state.backupDestinations.find((repository) => repository.id === repositoryId) || null;
 }
 
 function gibibytes(value) {
@@ -15200,9 +15205,9 @@ async function saveBackupRepositoryPolicy(event) {
     });
     closeBackupRepositoryPolicy();
     await loadBackupRepositories();
-    showToast('Repository storage policy saved.');
+    showToast('Destination storage policy saved.');
   } catch (error) {
-    showAlert(error.message || 'Could not save the repository storage policy.');
+    showAlert(error.message || 'Could not save the destination storage policy.');
   } finally {
     pendingActions.delete(action);
     setButtonLoading(els.backupRepositoryPolicySaveButton, false);
@@ -15223,248 +15228,299 @@ async function pruneBackupRepository(repositoryId, button) {
       const confirmed = await confirmDangerousAction(
         'Prune expired recovery points?',
         `${repository.name}\n${plan.summary.manifestsToDelete} manifests and ${plan.summary.chunksToDelete} unreferenced chunks will be removed. ${protectedCopies} protected ${protectedCopies === 1 ? 'copy' : 'copies'} will remain.`,
-        'Prune repository'
+        'Prune destination'
       );
       if (!confirmed) return;
       const result = await window.deployerx.pruneBackupRepository(repositoryId, plan.planId);
       await Promise.all([loadBackupRepositories(), loadBackupRecoveryPoints()]);
       showToast(`${result.copies.length} recovery point copies pruned.`);
     } catch (error) {
-      showAlert(error.message || 'Could not safely prune the repository.');
+      showAlert(error.message || 'Could not safely prune the destination.');
     }
   });
 }
 
 async function loadBackupRepositories() {
   const action = 'backup:repositories:list';
-  if (!window.deployerx?.listBackupLocalRepositories || !window.deployerx?.listBackupSftpRepositories || !window.deployerx?.listBackupS3Repositories || pendingActions.has(action)) return;
+  if (!window.deployerx?.listBackupDestinations || pendingActions.has(action)) return;
   pendingActions.add(action);
+  els.backupDestinationsListPanel.setAttribute('aria-busy', 'true');
   try {
-    [state.backupLocalRepositories, state.backupSftpRepositories, state.backupS3Repositories] = await Promise.all([
-      window.deployerx.listBackupLocalRepositories(),
-      window.deployerx.listBackupSftpRepositories(),
-      window.deployerx.listBackupS3Repositories()
-    ]);
+    state.backupDestinations = await window.deployerx.listBackupDestinations();
     renderBackupRepositories();
+    renderBackupDestinationConnections();
   } finally {
+    els.backupDestinationsListPanel.setAttribute('aria-busy', 'false');
     pendingActions.delete(action);
   }
 }
 
-function openBackupLocalRepositoryModal() {
-  els.backupLocalRepositoryForm.reset();
-  els.backupLocalRepositoryPath.value = '';
-  els.backupLocalRepositoryModal.classList.remove('hidden');
-  window.setTimeout(() => els.backupLocalRepositoryName.focus(), 0);
+async function loadBackupStorageBackends() {
+  if (!window.deployerx?.listBackupStorageBackends) return [];
+  state.backupStorageBackends = await window.deployerx.listBackupStorageBackends();
+  renderBackupRepositories();
+  renderBackupDestinationConnections();
+  return state.backupStorageBackends;
 }
 
-function closeBackupLocalRepositoryModal() {
-  els.backupLocalRepositoryModal.classList.add('hidden');
-  resumeBackupJobFromDependency('local-repository').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
+function storageConnections() {
+  return state.backupStorageConnections.filter((connection) => connection.currentDevice !== false);
 }
 
-async function selectBackupLocalRepositoryFolder() {
-  const selected = await window.deployerx.selectLocalFolder(els.backupLocalRepositoryPath.value);
-  if (selected) els.backupLocalRepositoryPath.value = selected;
-}
-
-async function createBackupLocalRepository(event) {
-  event.preventDefault();
-  if (!els.backupLocalRepositoryPath.value) {
-    showAlert('Select a local repository folder.');
-    return;
+async function loadBackupDestinationConnections() {
+  els.backupDestinationConnectionsPanel.setAttribute('aria-busy', 'true');
+  try {
+    state.backupStorageConnections = await window.deployerx.listBackupStorageConnections();
+    renderBackupDestinationConnections();
+  } finally {
+    els.backupDestinationConnectionsPanel.setAttribute('aria-busy', 'false');
   }
-  const action = 'backup:repositories:local:create';
+}
+
+function renderBackupDestinationConnections() {
+  if (!els.backupDestinationConnectionList) return;
+  const connections = storageConnections();
+  els.backupDestinationConnectionList.classList.toggle('hidden', connections.length === 0);
+  els.backupDestinationConnectionsEmpty.classList.toggle('hidden', connections.length > 0);
+  els.backupDestinationConnectionList.innerHTML = connections.map((connection) => {
+    const usageCount = state.backupDestinations.filter((destination) => destination.connectionId === connection.id).length;
+    const backend = connection.backend || state.backupStorageBackends.find((candidate) => candidate.backendId === connection.backendId);
+    const backendLabel = backend?.displayName || 'Storage';
+    const detail = connection.backendId === STORAGE_BACKEND_IDS.local
+      ? `${connection.endpoint?.platform || 'Local device'} / ${connection.endpoint?.architecture || 'Current architecture'}`
+      : connection.backendId === STORAGE_BACKEND_IDS.sftp
+        ? `${connection.endpoint?.username || 'User'}@${connection.endpoint?.host || 'SSH server'}:${connection.endpoint?.port || 22}`
+        : connection.endpoint?.endpoint || Object.values(connection.endpoint || {}).filter((value) => value !== null && value !== undefined && value !== '').join(' / ') || 'Configured connection';
+    return `<div class="backup-source-row">
+      <span class="backup-source-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-${escapeHtml(backend?.icon || 'server')}"></use></svg></span>
+      <span class="backup-source-copy"><strong>${escapeHtml(connection.name)}</strong><small>${escapeHtml(`${backendLabel} - ${detail}`)}</small></span>
+      <span class="backup-connection-usage">${usageCount} destination${usageCount === 1 ? '' : 's'}</span>
+      <span class="backup-source-actions">
+        <button class="button outline compact icon-only" type="button" data-storage-connection-test="${escapeHtml(connection.id)}" data-storage-connection-backend="${escapeHtml(connection.backendId)}" aria-label="Test ${escapeHtml(connection.name)}" title="Test connection"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-refresh"></use></svg></button>
+        <button class="button outline danger compact icon-only" type="button" data-storage-connection-delete="${escapeHtml(connection.id)}" data-storage-connection-backend="${escapeHtml(connection.backendId)}" aria-label="Remove ${escapeHtml(connection.name)}" title="Remove connection" ${usageCount ? 'disabled' : ''}><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg></button>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+function setBackupDestinationPanel(panel) {
+  state.backupDestinationPanel = panel === 'connections' ? 'connections' : 'destinations';
+  const connections = state.backupDestinationPanel === 'connections';
+  els.backupDestinationsListTab.classList.toggle('active', !connections);
+  els.backupDestinationsListTab.setAttribute('aria-selected', String(!connections));
+  els.backupDestinationConnectionsTab.classList.toggle('active', connections);
+  els.backupDestinationConnectionsTab.setAttribute('aria-selected', String(connections));
+  els.backupDestinationsListPanel.classList.toggle('hidden', connections);
+  els.backupDestinationConnectionsPanel.classList.toggle('hidden', !connections);
+}
+
+function destinationBackend() {
+  return state.backupStorageBackends.find((backend) => backend.backendId === state.backupDestinationDraft.backendId) || null;
+}
+
+function storageConnectionsForBackend(backendId) {
+  const backend = state.backupStorageBackends.find((candidate) => candidate.backendId === backendId);
+  const adapterIds = new Set(backend?.connection?.adapterIds || []);
+  return storageConnections().filter((connection) => adapterIds.has(connection.adapterId));
+}
+
+function destinationFieldHtml(field, scope) {
+  const id = `backupDestination-${scope}-${field.id}`;
+  const draftValues = scope === 'connection' ? state.backupDestinationDraft.connectionValues : state.backupDestinationDraft.locationValues;
+  const value = Object.prototype.hasOwnProperty.call(draftValues, field.id) ? draftValues[field.id] : field.defaultValue;
+  if (field.type === 'boolean') {
+    return `<label class="backup-browser-option"><input id="${id}" type="checkbox" data-destination-field="${escapeHtml(field.id)}" data-destination-scope="${scope}" ${value ? 'checked' : ''} /><span>${escapeHtml(field.label)}</span></label>`;
+  }
+  if (field.type === 'select') {
+    return `<label class="field"><span>${escapeHtml(field.label)}</span><select id="${id}" data-destination-field="${escapeHtml(field.id)}" data-destination-scope="${scope}" ${field.required ? 'required' : ''}>${field.options.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select></label>`;
+  }
+  const type = field.type === 'secret' ? 'password' : field.type === 'number' ? 'number' : 'text';
+  const input = `<input id="${id}" type="${type}" data-destination-field="${escapeHtml(field.id)}" data-destination-scope="${scope}" value="${escapeHtml(value ?? '')}" placeholder="${escapeHtml(field.placeholder || '')}" ${field.required ? 'required' : ''} autocomplete="${field.type === 'secret' ? 'new-password' : 'off'}" />`;
+  const control = scope === 'location' && destinationBackend()?.backendId === STORAGE_BACKEND_IDS.local && field.id === 'rootPath'
+    ? `<div class="backup-repository-path-field">${input}<button class="button outline icon-only" type="button" data-destination-browse aria-label="Select folder" title="Select folder"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg></button></div>`
+    : input;
+  return `<label class="field"><span>${escapeHtml(field.label)}</span>${control}</label>`;
+}
+
+function renderBackupDestinationForm() {
+  const backend = destinationBackend();
+  els.backupDestinationBackendOptions.innerHTML = state.backupStorageBackends.map((option) => `<label class="backup-destination-backend-option ${option.backendId === backend?.backendId ? 'active' : ''}">
+    <input type="radio" name="backupDestinationBackend" value="${escapeHtml(option.backendId)}" ${option.backendId === backend?.backendId ? 'checked' : ''} />
+    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-${escapeHtml(option.icon)}"></use></svg>
+    <span><strong>${escapeHtml(option.displayName)}</strong><small>${escapeHtml(option.description)}</small></span>
+  </label>`).join('');
+  if (!backend) return;
+  const connections = storageConnectionsForBackend(backend.backendId);
+  const creationMode = backend.connection?.creation?.mode || (backend.connection?.fields?.length ? 'form' : 'automatic');
+  const allowsInlineConnection = creationMode === 'form';
+  const selectedConnectionId = allowsInlineConnection && state.backupDestinationDraft.connectionId === '__new__'
+    ? '__new__'
+    : connections.some((connection) => connection.id === state.backupDestinationDraft.connectionId)
+      ? state.backupDestinationDraft.connectionId
+      : connections[0]?.id || (allowsInlineConnection ? '__new__' : '');
+  state.backupDestinationDraft.connectionId = selectedConnectionId;
+  const options = [
+    ...connections.map((connection) => `<option value="${escapeHtml(connection.id)}">${escapeHtml(connection.name)}</option>`),
+    ...(allowsInlineConnection ? ['<option value="__new__">Create new connection</option>'] : [])
+  ];
+  const emptyLabel = creationMode === 'automatic' ? 'A connection will be created automatically' : 'No reusable connection available';
+  const externalHandler = creationMode === 'external' ? backend.connection.creation.handlerId : '';
+  els.backupDestinationConnectionPicker.innerHTML = `<label class="field"><span>Connection</span><div class="backup-destination-connection-row"><select id="backupDestinationConnectionSelect" ${backend.connection.required && creationMode !== 'automatic' ? 'required' : ''}>${options.length ? options.join('') : `<option value="">${emptyLabel}</option>`}</select>${externalHandler ? `<button class="button outline" type="button" data-destination-new-connection="${escapeHtml(externalHandler)}">New connection</button>` : ''}</div></label>`;
+  els.backupDestinationConnectionPicker.querySelector('select').value = selectedConnectionId;
+  const showConnectionFields = allowsInlineConnection && selectedConnectionId === '__new__';
+  els.backupDestinationConnectionFields.classList.toggle('hidden', !showConnectionFields);
+  els.backupDestinationConnectionFields.innerHTML = showConnectionFields ? backend.connection.fields.map((field) => destinationFieldHtml(field, 'connection')).join('') : '';
+  els.backupDestinationLocationFields.innerHTML = backend.location.fields.map((field) => destinationFieldHtml(field, 'location')).join('');
+  els.backupDestinationName.value = state.backupDestinationDraft.name || '';
+}
+
+function captureBackupDestinationDraft() {
+  state.backupDestinationDraft.name = els.backupDestinationName.value;
+  const connectionSelect = els.backupDestinationConnectionPicker.querySelector('select');
+  if (connectionSelect) state.backupDestinationDraft.connectionId = connectionSelect.value;
+  state.backupDestinationDraft.connectionValues = destinationFieldValues('connection');
+  state.backupDestinationDraft.locationValues = destinationFieldValues('location');
+}
+
+async function openBackupDestinationModal({ returnToJob = false } = {}) {
+  const [backends] = await Promise.all([
+    loadBackupStorageBackends(),
+    loadBackupDestinationConnections()
+  ]);
+  state.backupStorageBackends = backends;
+  state.backupDestinationDraft = blankBackupDestinationDraft({ backendId: backends[0]?.backendId || '', returnToJob });
+  els.backupDestinationForm.reset();
+  els.backupDestinationError.classList.add('hidden');
+  renderBackupDestinationForm();
+  els.backupDestinationModal.classList.remove('hidden');
+  window.setTimeout(() => els.backupDestinationBackendOptions.querySelector('input')?.focus(), 0);
+}
+
+function closeBackupDestinationModal() {
+  if (pendingActions.has('backup:destinations:create')) return;
+  const returnToJob = state.backupDestinationDraft.returnToJob;
+  els.backupDestinationModal.classList.add('hidden');
+  state.backupDestinationDraft = blankBackupDestinationDraft();
+  if (returnToJob) resumeBackupJobFromDependency('destination').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
+}
+
+function destinationFieldValues(scope) {
+  return Object.fromEntries(Array.from(els.backupDestinationForm.querySelectorAll(`[data-destination-scope="${scope}"]`)).map((input) => [
+    input.dataset.destinationField,
+    input.type === 'checkbox' ? input.checked : input.type === 'number' && input.value !== '' ? Number(input.value) : input.value
+  ]));
+}
+
+async function createBackupDestination(event) {
+  event.preventDefault();
+  const backend = destinationBackend();
+  if (!backend) return;
+  const action = 'backup:destinations:create';
   if (pendingActions.has(action)) return;
   pendingActions.add(action);
-  setButtonLoading(els.backupLocalRepositorySaveButton, true);
+  setButtonLoading(els.backupDestinationSaveButton, true);
+  els.backupDestinationForm.setAttribute('aria-busy', 'true');
+  els.backupDestinationCloseButton.disabled = true;
+  els.backupDestinationCancelButton.disabled = true;
+  els.backupDestinationError.classList.add('hidden');
   try {
-    const repository = await window.deployerx.createBackupLocalRepository({
-      name: els.backupLocalRepositoryName.value,
-      rootPath: els.backupLocalRepositoryPath.value
+    captureBackupDestinationDraft();
+    const returnToJob = state.backupDestinationDraft.returnToJob;
+    let connectionId = state.backupDestinationDraft.connectionId;
+    const creationMode = backend.connection?.creation?.mode || (backend.connection?.fields?.length ? 'form' : 'automatic');
+    if (connectionId === '__new__' || (!connectionId && creationMode === 'automatic')) {
+      const connection = await window.deployerx.createBackupStorageConnection(backend.backendId, state.backupDestinationDraft.connectionValues);
+      connectionId = connection.id;
+      state.backupDestinationDraft.connectionId = connection.id;
+    }
+    if (backend.connection?.required && !connectionId) throw new Error('Choose or create a reusable connection.');
+    await window.deployerx.createBackupDestination({
+      backendId: backend.backendId,
+      name: state.backupDestinationDraft.name,
+      connectionId: connectionId && connectionId !== '__new__' ? connectionId : null,
+      location: state.backupDestinationDraft.locationValues
     });
-    closeBackupLocalRepositoryModal();
-    await loadBackupRepositories();
-    showToast(repository.health?.status === 'ready' ? 'Local repository is ready.' : 'Local repository needs attention.');
+    els.backupDestinationModal.classList.add('hidden');
+    state.backupDestinationDraft = blankBackupDestinationDraft();
+    try {
+      await Promise.all([loadBackupRepositories(), loadBackupDestinationConnections()]);
+    } catch (error) {
+      showAlert(error.message || 'The destination was created, but the lists could not be refreshed.');
+    }
+    if (returnToJob) {
+      await resumeBackupJobFromDependency('destination').catch((error) => showAlert(error.message || 'The destination was created, but the backup job form could not be refreshed.'));
+    }
+    showToast('Destination is ready.');
   } catch (error) {
-    showAlert(error.message || 'Could not add the local repository.');
+    if (state.backupDestinationDraft.connectionId && !storageConnections().some((connection) => connection.id === state.backupDestinationDraft.connectionId)) {
+      await loadBackupDestinationConnections().then(renderBackupDestinationForm).catch(() => {});
+    }
+    els.backupDestinationError.textContent = error.message || 'Could not add the destination.';
+    els.backupDestinationError.classList.remove('hidden');
   } finally {
     pendingActions.delete(action);
-    setButtonLoading(els.backupLocalRepositorySaveButton, false);
+    setButtonLoading(els.backupDestinationSaveButton, false);
+    els.backupDestinationForm.setAttribute('aria-busy', 'false');
+    els.backupDestinationCloseButton.disabled = false;
+    els.backupDestinationCancelButton.disabled = false;
   }
 }
 
-async function removeBackupLocalRepository(repositoryId, button) {
-  const repository = state.backupLocalRepositories.find((item) => item.id === repositoryId);
-  if (!repository) return;
-  const confirmed = await confirmDangerousAction(
-    'Remove repository configuration?',
-    `${repository.name}\nBackup data in ${repository.location?.path || 'the selected folder'} will be retained.`,
-    'Remove repository'
-  );
-  if (!confirmed) return;
-  await withButtonLoading(`backup:repository:local:delete:${repositoryId}`, button, async () => {
+async function testStorageConnection(connectionId, backendId, button) {
+  const connection = storageConnections().find((item) => item.id === connectionId && item.backendId === backendId);
+  if (!connection) return;
+  const location = state.backupDestinations.find((destination) => destination.connectionId === connectionId)?.location;
+  await withButtonLoading(`backup:storage-connection:test:${connectionId}`, button, async () => {
     try {
-      await window.deployerx.deleteBackupLocalRepository(repository.id, repository.revision);
-      await loadBackupRepositories();
-      showToast('Repository configuration removed. Backup data and its recovery key were retained.');
+      await window.deployerx.testBackupStorageConnection(backendId, connectionId, location || {});
+      await loadBackupDestinationConnections();
+      showToast('Storage connection test passed.');
     } catch (error) {
-      showAlert(error.message || 'Could not remove the repository configuration.');
+      showAlert(error.message || 'Could not test the storage connection.');
     }
   });
 }
 
-async function openBackupSftpRepositoryModal() {
-  els.backupSftpRepositoryForm.reset();
-  if (window.deployerx?.listBackupSshConnections) state.backupSshConnections = await window.deployerx.listBackupSshConnections();
-  const connections = state.backupSshConnections.filter((connection) => connection.currentDevice !== false);
-  els.backupSftpRepositoryConnection.innerHTML = connections.length
-    ? connections.map((connection) => `<option value="${escapeHtml(connection.id)}">${escapeHtml(connection.name)} - ${escapeHtml(connection.endpoint?.host || 'SSH server')}</option>`).join('')
-    : '<option value="" disabled selected>No SSH connections available</option>';
-  els.backupSftpRepositorySaveButton.disabled = connections.length === 0;
-  els.backupSftpRepositoryModal.classList.remove('hidden');
-  window.setTimeout(() => els.backupSftpRepositoryName.focus(), 0);
-}
-
-function closeBackupSftpRepositoryModal() {
-  els.backupSftpRepositoryModal.classList.add('hidden');
-  resumeBackupJobFromDependency('sftp-repository').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
-}
-
-async function createBackupSftpRepository(event) {
-  event.preventDefault();
-  if (!els.backupSftpRepositoryConnection.value) return showAlert('Choose a saved SSH connection.');
-  if (!els.backupSftpRepositoryPath.value.startsWith('/')) return showAlert('Enter an absolute Linux folder path.');
-  const action = 'backup:repositories:sftp:create';
-  if (pendingActions.has(action)) return;
-  pendingActions.add(action);
-  setButtonLoading(els.backupSftpRepositorySaveButton, true);
-  try {
-    const repository = await window.deployerx.createBackupSftpRepository({
-      name: els.backupSftpRepositoryName.value,
-      connectionId: els.backupSftpRepositoryConnection.value,
-      rootPath: els.backupSftpRepositoryPath.value
-    });
-    closeBackupSftpRepositoryModal();
-    await loadBackupRepositories();
-    showToast(repository.health?.status === 'ready' ? 'SFTP repository is ready.' : 'SFTP repository needs attention.');
-  } catch (error) {
-    showAlert(error.message || 'Could not add the SFTP repository.');
-  } finally {
-    pendingActions.delete(action);
-    setButtonLoading(els.backupSftpRepositorySaveButton, false);
-  }
-}
-
-async function removeBackupSftpRepository(repositoryId, button) {
-  const repository = state.backupSftpRepositories.find((item) => item.id === repositoryId);
-  if (!repository) return;
-  const confirmed = await confirmDangerousAction(
-    'Remove repository configuration?',
-    `${repository.name}\nBackup data in ${repository.location?.path || 'the remote folder'} will be retained.`,
-    'Remove repository'
-  );
+async function removeStorageConnection(connectionId, backendId, button) {
+  const connection = storageConnections().find((item) => item.id === connectionId && item.backendId === backendId);
+  if (!connection) return;
+  const confirmed = await confirmDangerousAction(`Remove ${connection.name}?`, 'This removes the reusable connection and its saved credentials. Connections used by a source or destination cannot be removed.', 'Remove connection');
   if (!confirmed) return;
-  await withButtonLoading(`backup:repository:sftp:delete:${repositoryId}`, button, async () => {
+  await withButtonLoading(`backup:storage-connection:delete:${connectionId}`, button, async () => {
     try {
-      await window.deployerx.deleteBackupSftpRepository(repository.id, repository.revision);
-      await loadBackupRepositories();
-      showToast('Repository configuration removed. Remote backup data and its recovery key were retained.');
+      await window.deployerx.deleteBackupStorageConnection(backendId, connection.id, connection.revision);
+      await loadBackupDestinationConnections();
+      showToast('Storage connection removed.');
     } catch (error) {
-      showAlert(error.message || 'Could not remove the repository configuration.');
+      showAlert(error.message || 'Could not remove the storage connection.');
     }
   });
 }
 
-function openBackupS3RepositoryModal() {
-  els.backupS3RepositoryForm.reset();
-  els.backupS3RepositoryRegion.value = 'us-east-1';
-  resetSecretVisibility(els.backupS3RepositoryModal);
-  els.backupS3RepositoryModal.classList.remove('hidden');
-  window.setTimeout(() => els.backupS3RepositoryName.focus(), 0);
-}
-
-function closeBackupS3RepositoryModal() {
-  resetSecretVisibility(els.backupS3RepositoryModal);
-  els.backupS3RepositoryModal.classList.add('hidden');
-  resumeBackupJobFromDependency('s3-repository').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
-}
-
-async function createBackupS3Repository(event) {
-  event.preventDefault();
-  const action = 'backup:repositories:s3:create';
-  if (pendingActions.has(action)) return;
-  pendingActions.add(action);
-  setButtonLoading(els.backupS3RepositorySaveButton, true);
-  try {
-    const repository = await window.deployerx.createBackupS3Repository({
-      name: els.backupS3RepositoryName.value,
-      endpoint: els.backupS3RepositoryEndpoint.value,
-      region: els.backupS3RepositoryRegion.value,
-      bucket: els.backupS3RepositoryBucket.value,
-      prefix: els.backupS3RepositoryPrefix.value,
-      accessKeyId: els.backupS3RepositoryAccessKey.value,
-      secretAccessKey: els.backupS3RepositorySecretKey.value,
-      sessionToken: els.backupS3RepositorySessionToken.value,
-      forcePathStyle: els.backupS3RepositoryPathStyle.checked,
-      allowInsecureEndpoint: els.backupS3RepositoryAllowHttp.checked
-    });
-    closeBackupS3RepositoryModal();
-    await loadBackupRepositories();
-    showToast(repository.health?.status === 'ready' ? 'S3 repository is ready.' : 'S3 repository needs attention.');
-  } catch (error) {
-    showAlert(error.message || 'Could not add the S3 repository.');
-  } finally {
-    pendingActions.delete(action);
-    setButtonLoading(els.backupS3RepositorySaveButton, false);
-  }
-}
-
-async function removeBackupS3Repository(repositoryId, button) {
-  const repository = state.backupS3Repositories.find((item) => item.id === repositoryId);
-  if (!repository) return;
-  const location = `s3://${repository.location?.bucket || 'bucket'}/${repository.location?.prefix || ''}`;
-  const confirmed = await confirmDangerousAction(
-    'Remove repository configuration?',
-    `${repository.name}\nBackup data in ${location} will be retained.`,
-    'Remove repository'
-  );
-  if (!confirmed) return;
-  await withButtonLoading(`backup:repository:s3:delete:${repositoryId}`, button, async () => {
+async function testBackupDestination(repositoryId, button) {
+  await withButtonLoading(`backup:destination:test:${repositoryId}`, button, async () => {
     try {
-      await window.deployerx.deleteBackupS3Repository(repository.id, repository.revision);
+      await window.deployerx.testBackupDestination(repositoryId);
       await loadBackupRepositories();
-      showToast('Repository configuration removed. S3 backup data and its recovery key were retained.');
+      showToast('Destination health and locking checks passed.');
     } catch (error) {
-      showAlert(error.message || 'Could not remove the repository configuration.');
+      showAlert(error.message || 'Could not test the destination.');
     }
   });
 }
 
-async function testBackupRepository(repositoryId, repositoryKind, button) {
-  const testers = {
-    local: window.deployerx?.testBackupLocalRepository,
-    sftp: window.deployerx?.testBackupSftpRepository,
-    s3: window.deployerx?.testBackupS3Repository
-  };
-  const testRepository = testers[repositoryKind];
-  if (!testRepository) return showAlert('Repository health testing is unavailable.');
-  await withButtonLoading(`backup:repository:${repositoryKind}:test:${repositoryId}`, button, async () => {
+async function removeBackupDestination(repositoryId, button) {
+  const repository = findBackupRepository(repositoryId);
+  if (!repository) return;
+  const confirmed = await confirmDangerousAction('Remove destination configuration?', `${repository.name}\nBackup data, the reusable connection, and the recovery key will be retained.`, 'Remove destination');
+  if (!confirmed) return;
+  await withButtonLoading(`backup:destination:delete:${repositoryId}`, button, async () => {
     try {
-      const result = await testRepository(repositoryId);
-      await loadBackupRepositories();
-      if (result.error) {
-        showAlert(`${result.error.safeMessage || 'The repository needs attention.'}\nCode: ${result.error.code || 'REPOSITORY_HEALTH_CHECK_FAILED'}`);
-        return;
-      }
-      const capacity = result.capacity?.reporting === 'exact'
-        ? ` ${formatBytes(result.capacity.freeBytes)} is available.`
-        : result.capacity?.reporting === 'quota-only'
-          ? ` ${formatBytes(result.capacity.freeBytes)} remains in the configured quota.`
-          : ' Capacity reporting is unavailable for this destination.';
-      showToast(`Repository health and locking checks passed.${capacity}`);
+      await window.deployerx.deleteBackupDestination(repository.id, repository.revision);
+      await Promise.all([loadBackupRepositories(), loadBackupDestinationConnections()]);
+      showToast('Destination configuration removed.');
     } catch (error) {
-      showAlert(error.message || 'Could not test the repository.');
+      showAlert(error.message || 'Could not remove the destination configuration.');
     }
   });
 }
@@ -15692,15 +15748,6 @@ function applyBackupBrowserSource(source) {
   renderBackupBrowser();
 }
 
-function backupBrowserEffectiveMetadataPolicy() {
-  const browser = state.backupBrowser;
-  const selectedSource = browser.sourceProfiles.find((source) => source.id === browser.editingSourceId);
-  const savedPolicy = browser.metadataPolicy || selectedSource?.selector?.metadataPolicy;
-  if (savedPolicy?.preserve) return savedPolicy;
-  const capabilities = browser.connection?.capabilities?.metadata || {};
-  return { preserve: capabilities };
-}
-
 function renderBackupBrowser() {
   const browser = state.backupBrowser;
   const visibleItems = browser.includeHidden ? browser.items : browser.items.filter((entry) => !entry.hidden);
@@ -15721,20 +15768,12 @@ function renderBackupBrowser() {
   ].join('');
   els.backupBrowserSourceProfile.value = browser.editingSourceId || '';
   els.backupBrowserDeleteSourceButton.disabled = !browser.editingSourceId;
+  els.backupBrowserDeleteSourceButton.classList.toggle('hidden', !browser.editingSourceId);
   els.backupBrowserSourceName.value = browser.sourceName;
   els.backupBrowserIncludePatterns.value = browser.includePatternsText;
   els.backupBrowserExcludePatterns.value = browser.excludePatternsText;
   els.backupBrowserIncludeHidden.checked = browser.includeHidden;
   els.backupBrowserCrossMounts.checked = browser.crossMounts;
-  const metadataLabels = {
-    permissions: 'Permissions', ownership: 'Ownership', timestamps: 'Timestamps', acl: 'ACLs',
-    extendedAttributes: 'Extended attributes', symbolicLinks: 'Symbolic links', hardLinks: 'Hard links', sparseFiles: 'Sparse layout'
-  };
-  const metadataPolicy = backupBrowserEffectiveMetadataPolicy();
-  els.backupBrowserMetadataPolicy.innerHTML = Object.entries(metadataLabels).map(([field, label]) => {
-    const preserved = Boolean(metadataPolicy.preserve?.[field]);
-    return `<span class="backup-browser-metadata-item${preserved ? '' : ' unavailable'}">${escapeHtml(label)}: ${preserved ? 'preserved' : 'unavailable'}</span>`;
-  }).join('');
   els.backupBrowserSelectedCount.textContent = String(browser.selectedRoots.length);
   els.backupBrowserSaveSourceButton.disabled = browser.loading || !browser.sourceName.trim() || browser.selectedRoots.length === 0;
   els.backupBrowserSelectedPaths.innerHTML = browser.selectedRoots.length
@@ -15932,6 +15971,9 @@ function renderBackupConnections() {
           <button class="button outline compact icon-only" type="button" data-backup-connection-test="${escapeHtml(connection.id)}" data-backup-connection-kind="${connection.connectionKind}" aria-label="Test ${escapeHtml(connection.name)}" title="Test connection" ${testDisabled ? 'disabled' : ''}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
           </button>
+          <button class="button outline danger compact icon-only" type="button" data-backup-connection-delete="${escapeHtml(connection.id)}" data-backup-connection-kind="${connection.connectionKind}" aria-label="Remove ${escapeHtml(connection.name)}" title="Remove source">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-trash"></use></svg>
+          </button>
         </span>
       </div>
     `;
@@ -16037,6 +16079,31 @@ async function testBackupLocalConnection(connectionId, button) {
   }
 }
 
+async function removeBackupConnection(connectionId, connectionKind, button) {
+  const connection = allBackupConnections().find((item) => item.id === connectionId && item.connectionKind === connectionKind);
+  if (!connection) return;
+  const confirmed = await confirmDangerousAction(
+    `Remove ${connection.name}?`,
+    'This removes the source connection and its saved credentials. Backup data is not deleted. Connections used by a saved source or destination must be detached first.',
+    'Remove source'
+  );
+  if (!confirmed) return;
+  const action = `backup:connections:delete:${connection.id}`;
+  if (pendingActions.has(action)) return;
+  pendingActions.add(action);
+  setButtonLoading(button, true);
+  try {
+    await window.deployerx.deleteBackupConnection(connection.id, connection.revision);
+    await loadBackupConnections();
+    showToast('Source connection removed.');
+  } catch (error) {
+    showAlert(error.message || 'Could not remove the source connection.');
+  } finally {
+    pendingActions.delete(action);
+    setButtonLoading(button, false);
+  }
+}
+
 function invalidateBackupSshScan() {
   state.backupSshScan = null;
   els.backupSshFingerprint.value = '';
@@ -16069,11 +16136,24 @@ function openBackupSshModal() {
 }
 
 function closeBackupSshModal() {
+  const returnToDestination = state.backupDestinationDraft.awaitingSsh === true;
   els.backupSshModal.classList.add('hidden');
   els.backupSshPassword.value = '';
   els.backupSshPrivateKey.value = '';
   els.backupSshPassphrase.value = '';
   state.backupSshScan = null;
+  if (returnToDestination) {
+    state.backupDestinationDraft.awaitingSsh = false;
+    loadBackupDestinationConnections().then(() => {
+      renderBackupDestinationForm();
+      els.backupDestinationModal.classList.remove('hidden');
+      window.setTimeout(() => els.backupDestinationConnectionPicker.querySelector('select')?.focus(), 0);
+    }).catch((error) => {
+      els.backupDestinationModal.classList.remove('hidden');
+      showAlert(error.message || 'Could not refresh the storage connections.');
+    });
+    return;
+  }
   resumeBackupJobFromDependency('ssh-file-source').catch((error) => showAlert(error.message || 'Could not refresh the backup job form.'));
 }
 
@@ -16141,6 +16221,7 @@ async function saveBackupSshConnection(event) {
       passphrase: usesKey ? els.backupSshPassphrase.value : ''
     });
     const continueToFileSource = state.backupJobWizard.dependency === 'ssh-file-source';
+    if (state.backupDestinationDraft.awaitingSsh) state.backupDestinationDraft.connectionId = connection.id;
     if (continueToFileSource) state.backupJobWizard.dependency = 'file-source';
     closeBackupSshModal();
     await loadBackupConnections();
@@ -25692,24 +25773,35 @@ els.backupJobAddSourceButton.addEventListener('keydown', (event) => {
   openBackupSourceAddMenu({
     focusLast: event.key === 'ArrowUp',
     trigger: els.backupJobAddSourceButton,
-    host: els.backupJobAddSourceDropdown,
+    host: els.backupJobSourcePickerBody,
     context: 'backup-job'
   });
 });
-els.backupJobCreateLocalRepositoryButton.addEventListener('click', () => {
-  suspendBackupJobForDependency('local-repository');
-  openBackupLocalRepositoryModal();
+els.backupJobSourcePickerCloseButton.addEventListener('click', () => closeBackupSourceAddMenu({ focusTrigger: true }));
+els.backupJobSourcePicker.querySelector('[data-backup-job-source-picker-close]').addEventListener('click', () => closeBackupSourceAddMenu({ focusTrigger: true }));
+els.backupJobSourcePicker.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeBackupSourceAddMenu({ focusTrigger: true });
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [els.backupJobSourcePickerCloseButton, ...backupSourceAddMenuOptions()];
+  const currentIndex = focusable.indexOf(document.activeElement);
+  if (event.shiftKey && currentIndex <= 0) {
+    event.preventDefault();
+    focusable[focusable.length - 1]?.focus();
+  } else if (!event.shiftKey && currentIndex === focusable.length - 1) {
+    event.preventDefault();
+    focusable[0]?.focus();
+  }
 });
-els.backupJobCreateSftpRepositoryButton.addEventListener('click', () => {
-  suspendBackupJobForDependency('sftp-repository');
-  openBackupSftpRepositoryModal().catch((error) => {
-    showAlert(error.message || 'Could not prepare the SFTP repository.');
-    resumeBackupJobFromDependency('sftp-repository').catch(() => {});
+els.backupJobCreateDestinationButton.addEventListener('click', () => {
+  suspendBackupJobForDependency('destination');
+  openBackupDestinationModal({ returnToJob: true }).catch((error) => {
+    showAlert(error.message || 'Could not prepare the destination form.');
+    resumeBackupJobFromDependency('destination').catch(() => {});
   });
-});
-els.backupJobCreateS3RepositoryButton.addEventListener('click', () => {
-  suspendBackupJobForDependency('s3-repository');
-  openBackupS3RepositoryModal();
 });
 els.backupJobCreateNotificationRouteButton.addEventListener('click', () => {
   suspendBackupJobForDependency('notification-route');
@@ -25758,7 +25850,7 @@ els.backupSourceAddMenu.addEventListener('keydown', (event) => {
     event.preventDefault();
     document.activeElement?.click();
     return;
-  } else if (event.key === 'Escape' || event.key === 'Tab') {
+  } else if (event.key === 'Escape' || (event.key === 'Tab' && backupSourceAddMenuContext !== 'backup-job')) {
     if (event.key === 'Escape') event.preventDefault();
     closeBackupSourceAddMenu({ focusTrigger: event.key === 'Escape' });
     return;
@@ -25767,7 +25859,9 @@ els.backupSourceAddMenu.addEventListener('keydown', (event) => {
   options[nextIndex]?.focus();
 });
 document.addEventListener('click', (event) => {
-  if (!backupSourceAddMenuHost.contains(event.target)) closeBackupSourceAddMenu();
+  const clickedHost = backupSourceAddMenuHost?.contains(event.target);
+  const clickedTrigger = backupSourceAddMenuTrigger?.contains(event.target);
+  if (!clickedHost && !clickedTrigger) closeBackupSourceAddMenu();
 });
 window.addEventListener('resize', positionBackupSourceAddMenu);
 els.backupNeo4jCloseButton.addEventListener('click', closeBackupNeo4jModal);
@@ -25827,22 +25921,91 @@ els.backupInfluxDbBucket.addEventListener('change', syncBackupInfluxDbSelection)
 els.backupInfluxDbSourceName.addEventListener('input', syncBackupInfluxDbSelection);
 els.backupInfluxDbDiscoverButton.addEventListener('click', discoverBackupInfluxDb);
 els.backupInfluxDbForm.addEventListener('submit', saveBackupInfluxDbSource);
-els.backupAddLocalRepositoryButton.addEventListener('click', openBackupLocalRepositoryModal);
-els.backupAddSftpRepositoryButton.addEventListener('click', () => openBackupSftpRepositoryModal().catch((error) => showAlert(error.message || 'Could not load SSH connections.')));
-els.backupAddS3RepositoryButton.addEventListener('click', openBackupS3RepositoryModal);
-els.backupLocalRepositoryCloseButton.addEventListener('click', closeBackupLocalRepositoryModal);
-els.backupLocalRepositoryCancelButton.addEventListener('click', closeBackupLocalRepositoryModal);
-els.backupLocalRepositoryModal.querySelector('[data-backup-local-repository-close]').addEventListener('click', closeBackupLocalRepositoryModal);
-els.backupLocalRepositoryBrowseButton.addEventListener('click', () => selectBackupLocalRepositoryFolder().catch((error) => showAlert(error.message || 'Could not select the repository folder.')));
-els.backupLocalRepositoryForm.addEventListener('submit', createBackupLocalRepository);
-els.backupSftpRepositoryCloseButton.addEventListener('click', closeBackupSftpRepositoryModal);
-els.backupSftpRepositoryCancelButton.addEventListener('click', closeBackupSftpRepositoryModal);
-els.backupSftpRepositoryModal.querySelector('[data-backup-sftp-repository-close]').addEventListener('click', closeBackupSftpRepositoryModal);
-els.backupSftpRepositoryForm.addEventListener('submit', createBackupSftpRepository);
-els.backupS3RepositoryCloseButton.addEventListener('click', closeBackupS3RepositoryModal);
-els.backupS3RepositoryCancelButton.addEventListener('click', closeBackupS3RepositoryModal);
-els.backupS3RepositoryModal.querySelector('[data-backup-s3-repository-close]').addEventListener('click', closeBackupS3RepositoryModal);
-els.backupS3RepositoryForm.addEventListener('submit', createBackupS3Repository);
+els.backupAddDestinationButton.addEventListener('click', () => openBackupDestinationModal().catch((error) => showAlert(error.message || 'Could not prepare the destination form.')));
+els.backupDestinationsListTab.addEventListener('click', () => setBackupDestinationPanel('destinations'));
+els.backupDestinationConnectionsTab.addEventListener('click', () => setBackupDestinationPanel('connections'));
+[els.backupDestinationsListTab, els.backupDestinationConnectionsTab].forEach((tab, index, tabs) => tab.addEventListener('keydown', (event) => {
+  let nextIndex = index;
+  if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+  else if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+  else if (event.key === 'Home') nextIndex = 0;
+  else if (event.key === 'End') nextIndex = tabs.length - 1;
+  else return;
+  event.preventDefault();
+  tabs[nextIndex].click();
+  tabs[nextIndex].focus();
+}));
+els.backupDestinationCloseButton.addEventListener('click', closeBackupDestinationModal);
+els.backupDestinationCancelButton.addEventListener('click', closeBackupDestinationModal);
+els.backupDestinationModal.querySelector('[data-backup-destination-close]').addEventListener('click', closeBackupDestinationModal);
+els.backupDestinationBackendOptions.addEventListener('change', (event) => {
+  const option = event.target.closest('input[name="backupDestinationBackend"]');
+  if (!option) return;
+  captureBackupDestinationDraft();
+  state.backupDestinationDraft.backendId = option.value;
+  state.backupDestinationDraft.connectionId = '';
+  state.backupDestinationDraft.connectionValues = {};
+  state.backupDestinationDraft.locationValues = {};
+  renderBackupDestinationForm();
+});
+els.backupDestinationConnectionPicker.addEventListener('change', (event) => {
+  if (event.target.id !== 'backupDestinationConnectionSelect') return;
+  captureBackupDestinationDraft();
+  state.backupDestinationDraft.connectionId = event.target.value;
+  renderBackupDestinationForm();
+});
+els.backupDestinationConnectionPicker.addEventListener('click', (event) => {
+  const newConnectionButton = event.target.closest('[data-destination-new-connection]');
+  if (!newConnectionButton) return;
+  if (newConnectionButton.dataset.destinationNewConnection !== 'ssh') {
+    showAlert('This storage connection enrollment flow is not available.');
+    return;
+  }
+  captureBackupDestinationDraft();
+  state.backupDestinationDraft.awaitingSsh = true;
+  els.backupDestinationModal.classList.add('hidden');
+  openBackupSshModal();
+});
+els.backupDestinationLocationFields.addEventListener('click', (event) => {
+  const browseButton = event.target.closest('[data-destination-browse]');
+  if (!browseButton) return;
+  const pathInput = els.backupDestinationLocationFields.querySelector('[data-destination-field="rootPath"]');
+  window.deployerx.selectLocalFolder(pathInput?.value || '').then((selected) => {
+    if (selected && pathInput) {
+      pathInput.value = selected;
+      state.backupDestinationDraft.locationValues.rootPath = selected;
+    }
+  }).catch((error) => showAlert(error.message || 'Could not select the destination folder.'));
+});
+els.backupDestinationForm.addEventListener('submit', createBackupDestination);
+els.backupDestinationModal.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeBackupDestinationModal();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = Array.from(els.backupDestinationModal.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled])'))
+    .filter((element) => !element.closest('.hidden'));
+  if (!focusable.length) return;
+  const currentIndex = focusable.indexOf(document.activeElement);
+  if (event.shiftKey && currentIndex <= 0) {
+    event.preventDefault();
+    focusable[focusable.length - 1].focus();
+  } else if (!event.shiftKey && currentIndex === focusable.length - 1) {
+    event.preventDefault();
+    focusable[0].focus();
+  }
+});
+els.backupDestinationConnectionList.addEventListener('click', (event) => {
+  const testButton = event.target.closest('[data-storage-connection-test]');
+  if (testButton) {
+    testStorageConnection(testButton.dataset.storageConnectionTest, testButton.dataset.storageConnectionBackend, testButton);
+    return;
+  }
+  const deleteButton = event.target.closest('[data-storage-connection-delete]');
+  if (deleteButton) removeStorageConnection(deleteButton.dataset.storageConnectionDelete, deleteButton.dataset.storageConnectionBackend, deleteButton);
+});
 els.backupRepositoryPolicyCloseButton.addEventListener('click', closeBackupRepositoryPolicy);
 els.backupRepositoryPolicyCancelButton.addEventListener('click', closeBackupRepositoryPolicy);
 els.backupRepositoryPolicyModal.querySelector('[data-backup-repository-policy-close]').addEventListener('click', closeBackupRepositoryPolicy);
@@ -25860,14 +26023,12 @@ els.backupRepositoryList.addEventListener('click', (event) => {
   }
   const testButton = event.target.closest('[data-backup-repository-test]');
   if (testButton) {
-    testBackupRepository(testButton.dataset.backupRepositoryTest, testButton.dataset.backupRepositoryKind, testButton);
+    testBackupDestination(testButton.dataset.backupRepositoryTest, testButton);
     return;
   }
   const button = event.target.closest('[data-backup-repository-delete]');
   if (!button) return;
-  if (button.dataset.backupRepositoryKind === 'sftp') removeBackupSftpRepository(button.dataset.backupRepositoryDelete, button);
-  else if (button.dataset.backupRepositoryKind === 's3') removeBackupS3Repository(button.dataset.backupRepositoryDelete, button);
-  else removeBackupLocalRepository(button.dataset.backupRepositoryDelete, button);
+  removeBackupDestination(button.dataset.backupRepositoryDelete, button);
 });
 els.backupSourceConnections.addEventListener('click', (event) => {
   const browseButton = event.target.closest('[data-backup-connection-browse]');
@@ -25913,6 +26074,11 @@ els.backupSourceConnections.addEventListener('click', (event) => {
   if (diagnosticsButton) {
     const connection = allBackupConnections().find((item) => item.id === diagnosticsButton.dataset.backupConnectionDiagnostics && item.connectionKind === diagnosticsButton.dataset.backupConnectionKind);
     openBackupDiagnostics(connection);
+    return;
+  }
+  const deleteButton = event.target.closest('[data-backup-connection-delete]');
+  if (deleteButton) {
+    removeBackupConnection(deleteButton.dataset.backupConnectionDelete, deleteButton.dataset.backupConnectionKind, deleteButton);
     return;
   }
   const button = event.target.closest('[data-backup-connection-test]');

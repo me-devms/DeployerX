@@ -88,23 +88,41 @@ function normalizePrefix(value) {
   return segments.join('/');
 }
 
+function normalizeS3ConnectionConfig(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('S3 connection configuration must be an object.');
+  const unknown = Object.keys(input).filter((key) => !['endpoint', 'forcePathStyle', 'allowInsecureEndpoint', 'timeoutMs'].includes(key));
+  if (unknown.length) throw new TypeError(`Unknown S3 connection field: ${unknown[0]}.`);
+  const allowInsecureEndpoint = input.allowInsecureEndpoint === true;
+  const timeoutMs = Number(input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new TypeError('S3 timeout must be between 1 and 120 seconds.');
+  return {
+    endpoint: normalizeEndpoint(input.endpoint, allowInsecureEndpoint),
+    forcePathStyle: input.forcePathStyle === true,
+    allowInsecureEndpoint,
+    timeoutMs
+  };
+}
+
+function normalizeS3LocationConfig(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('S3 storage location must be an object.');
+  const unknown = Object.keys(input).filter((key) => !['region', 'bucket', 'prefix'].includes(key));
+  if (unknown.length) throw new TypeError(`Unknown S3 storage location field: ${unknown[0]}.`);
+  const region = requiredText(input.region || 'us-east-1', 'S3 region', 64).toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(region)) throw new TypeError('S3 region is invalid.');
+  return {
+    region,
+    bucket: normalizeBucket(input.bucket),
+    prefix: normalizePrefix(input.prefix)
+  };
+}
+
 function normalizeS3RepositoryConfig(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('S3 repository configuration must be an object.');
   const unknown = Object.keys(input).filter((key) => !['endpoint', 'region', 'bucket', 'prefix', 'forcePathStyle', 'allowInsecureEndpoint', 'timeoutMs'].includes(key));
   if (unknown.length) throw new TypeError(`Unknown S3 repository field: ${unknown[0]}.`);
-  const allowInsecureEndpoint = input.allowInsecureEndpoint === true;
-  const timeoutMs = Number(input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new TypeError('S3 timeout must be between 1 and 120 seconds.');
-  const region = requiredText(input.region || 'us-east-1', 'S3 region', 64).toLowerCase();
-  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(region)) throw new TypeError('S3 region is invalid.');
   return {
-    endpoint: normalizeEndpoint(input.endpoint, allowInsecureEndpoint),
-    region,
-    bucket: normalizeBucket(input.bucket),
-    prefix: normalizePrefix(input.prefix),
-    forcePathStyle: input.forcePathStyle === true,
-    allowInsecureEndpoint,
-    timeoutMs
+    ...normalizeS3ConnectionConfig({ endpoint: input.endpoint, forcePathStyle: input.forcePathStyle, allowInsecureEndpoint: input.allowInsecureEndpoint, timeoutMs: input.timeoutMs }),
+    ...normalizeS3LocationConfig({ region: input.region, bucket: input.bucket, prefix: input.prefix })
   };
 }
 
@@ -631,20 +649,29 @@ function secretMetadataInput(ref, actorId) {
 }
 
 class S3RepositoryService {
-  constructor({ controlDatabase, secretStore, deviceId, adapterFactory = (config) => new S3CompatibleRepositoryAdapter(config), clock = () => new Date().toISOString() } = {}) {
+  constructor({ controlDatabase, secretStore, deviceId, connectionService = null, adapterFactory = (config) => new S3CompatibleRepositoryAdapter(config), clock = () => new Date().toISOString() } = {}) {
     if (!controlDatabase || !secretStore) throw new TypeError('Control database and SecretRef store are required.');
     this.controlDatabase = controlDatabase;
     this.secretStore = secretStore;
     this.deviceId = requiredText(deviceId, 'Device ID', 200);
+    this.connectionService = connectionService;
     this.adapterFactory = adapterFactory;
     this.clock = clock;
   }
 
   async list(workspaceId) {
     const tenant = requiredText(workspaceId, 'Workspace ID', 200);
-    return (await this.controlDatabase.repository('repository').list(tenant, { limit: 1000 }))
-      .filter((repository) => repository.adapterId === ADAPTER_ID)
-      .map((repository) => ({ ...repository, capabilities: capabilitiesFromProbe(repository.capabilityProbe || {}), currentDevice: (repository.workerAffinity || []).includes(`device:${this.deviceId}`) }));
+    const repositories = (await this.controlDatabase.repository('repository').list(tenant, { limit: 1000 }))
+      .filter((repository) => repository.adapterId === ADAPTER_ID);
+    return Promise.all(repositories.map(async (repository) => {
+      const connection = repository.connectionId ? await this.controlDatabase.repository('connection').get(tenant, repository.connectionId) : null;
+      return {
+        ...repository,
+        capabilities: capabilitiesFromProbe(repository.capabilityProbe || {}),
+        currentDevice: (repository.workerAffinity || []).includes(`device:${this.deviceId}`),
+        connectionName: connection?.name || (repository.connectionId ? 'Unavailable S3 connection' : 'Legacy embedded credentials')
+      };
+    }));
   }
 
   #adapter(workspaceId, repositoryConfig, credentialSecretRefId) {
@@ -655,24 +682,55 @@ class S3RepositoryService {
     const tenant = requiredText(workspaceId, 'Workspace ID', 200);
     const actor = requiredText(actorId, 'Actor ID', 200);
     const name = requiredText(input.name, 'Repository name', 200);
-    const repositoryConfig = normalizeS3RepositoryConfig({
-      endpoint: input.endpoint,
-      region: input.region,
-      bucket: input.bucket,
-      prefix: input.prefix,
-      forcePathStyle: input.forcePathStyle,
-      allowInsecureEndpoint: input.allowInsecureEndpoint,
-      timeoutMs: input.timeoutMs
-    });
-    const credential = normalizeS3Credential(input);
-    const duplicate = (await this.list(tenant)).some((repository) => repository.location.bucket === repositoryConfig.bucket && repository.location.prefix === repositoryConfig.prefix && repository.location.endpoint === repositoryConfig.endpoint);
-    if (duplicate) throw new TypeError('This S3 bucket and prefix are already configured as a repository in this workspace.');
+    let connection = null;
+    let createdConnection = null;
     let credentialRef = null;
     let keyRef = null;
     try {
-      credentialRef = await this.secretStore.create({ workspaceId: tenant, actorId: actor, name: `${name} S3 credentials`, secretType: 'access-key', value: JSON.stringify(credential), scope: 'device' });
+      if (this.connectionService) {
+        if (input.connectionId) {
+          ({ connection } = await this.connectionService.resolve(tenant, input.connectionId));
+        } else {
+          createdConnection = await this.connectionService.create(tenant, actor, {
+            name: input.connectionName || `${name} connection`,
+            endpoint: input.endpoint,
+            accessKeyId: input.accessKeyId,
+            secretAccessKey: input.secretAccessKey,
+            sessionToken: input.sessionToken,
+            forcePathStyle: input.forcePathStyle,
+            allowInsecureEndpoint: input.allowInsecureEndpoint,
+            timeoutMs: input.timeoutMs
+          });
+          ({ connection } = await this.connectionService.resolve(tenant, createdConnection.id));
+        }
+      } else {
+        const credential = normalizeS3Credential(input);
+        credentialRef = await this.secretStore.create({ workspaceId: tenant, actorId: actor, name: `${name} S3 credentials`, secretType: 'access-key', value: JSON.stringify(credential), scope: 'device' });
+      }
+    } catch (error) {
+      if (credentialRef) await this.secretStore.delete({ workspaceId: tenant, id: credentialRef.id }).catch(() => {});
+      if (createdConnection) await this.connectionService.remove(tenant, actor, createdConnection.id, createdConnection.revision).catch(() => {});
+      throw error;
+    }
+    let resolvedConnection;
+    let repositoryConfig;
+    try {
+      resolvedConnection = connection ? await this.connectionService.resolve(tenant, connection.id) : null;
+      repositoryConfig = normalizeS3RepositoryConfig({
+        endpoint: resolvedConnection?.config.endpoint ?? input.endpoint,
+        region: input.region,
+        bucket: input.bucket,
+        prefix: input.prefix,
+        forcePathStyle: resolvedConnection?.config.forcePathStyle ?? input.forcePathStyle,
+        allowInsecureEndpoint: resolvedConnection?.config.allowInsecureEndpoint ?? input.allowInsecureEndpoint,
+        timeoutMs: resolvedConnection?.config.timeoutMs ?? input.timeoutMs
+      });
+      const duplicate = (await this.list(tenant)).some((repository) => repository.connectionId === (connection?.id || null)
+        && repository.location.bucket === repositoryConfig.bucket && repository.location.prefix === repositoryConfig.prefix);
+      if (duplicate) throw new TypeError('This S3 bucket and prefix are already configured for the selected connection.');
       keyRef = await this.secretStore.create({ workspaceId: tenant, actorId: actor, name: `${name} repository encryption key ${crypto.randomUUID().slice(0, 8)}`, secretType: 'encryption-key', value: crypto.randomBytes(32).toString('base64'), scope: 'device' });
     } catch (error) {
+      if (createdConnection) await this.connectionService.remove(tenant, actor, createdConnection.id, createdConnection.revision).catch(() => {});
       if (keyRef) await this.secretStore.delete({ workspaceId: tenant, id: keyRef.id }).catch(() => {});
       if (credentialRef) await this.secretStore.delete({ workspaceId: tenant, id: credentialRef.id }).catch(() => {});
       throw error;
@@ -680,19 +738,20 @@ class S3RepositoryService {
     let adapter;
     let repository;
     try {
-      adapter = this.#adapter(tenant, repositoryConfig, credentialRef.id);
+      adapter = this.#adapter(tenant, repositoryConfig, resolvedConnection?.credentialSecretRefId || credentialRef.id);
       const probe = await adapter.probeCapabilities({});
       if (probe.status !== 'available') {
         throw new S3RepositoryError(probe.connectionTest?.error?.code || 'S3_REPOSITORY_TEST_FAILED', probe.connectionTest?.error?.safeMessage || 'DeployerX could not validate the S3 repository.', { category: probe.connectionTest?.error?.category, retryable: probe.connectionTest?.error?.retryable });
       }
       const immutability = await adapter.validateImmutability({});
       repository = await this.controlDatabase.transaction((transaction) => {
-        transaction.create('secretRef', secretMetadataInput(credentialRef, actor));
+        if (credentialRef) transaction.create('secretRef', secretMetadataInput(credentialRef, actor));
         transaction.create('secretRef', secretMetadataInput(keyRef, actor));
         return transaction.create('repository', {
-          workspaceId: tenant, actorId: actor, name, connectionId: null,
+          workspaceId: tenant, actorId: actor, name, connectionId: connection?.id || null,
           adapterId: ADAPTER_ID, adapterVersion: ADAPTER_VERSION, engineId: ENGINE_ID, engineVersion: ENGINE_VERSION,
-          location: repositoryConfig, secretRefIds: [credentialRef.id], encryptionKeyRefId: keyRef.id,
+          location: connection ? normalizeS3LocationConfig({ region: repositoryConfig.region, bucket: repositoryConfig.bucket, prefix: repositoryConfig.prefix }) : repositoryConfig,
+          secretRefIds: credentialRef ? [credentialRef.id] : [], encryptionKeyRefId: keyRef.id,
           encryption: { algorithm: 'aes-256-gcm', keyVersion: `secret:${keyRef.version}` }, scope: 'device', workerAffinity: [`device:${this.deviceId}`],
           immutability, storagePolicy: normalizeStoragePolicy(input.storagePolicy || {}), capacity: { reporting: 'unavailable', measuredAt: this.clock() }, capabilityProbe: adapter.capabilityProbe,
           health: { status: 'initializing', checkedAt: null, repositoryFormatVersion: null, safeErrorCode: null }
@@ -700,7 +759,8 @@ class S3RepositoryService {
       });
     } catch (error) {
       await this.secretStore.delete({ workspaceId: tenant, id: keyRef.id }).catch(() => {});
-      await this.secretStore.delete({ workspaceId: tenant, id: credentialRef.id }).catch(() => {});
+      if (credentialRef) await this.secretStore.delete({ workspaceId: tenant, id: credentialRef.id }).catch(() => {});
+      if (createdConnection) await this.connectionService.remove(tenant, actor, createdConnection.id, createdConnection.revision).catch(() => {});
       throw error;
     }
     const engine = new FileRepositoryEngine({ adapter, clock: this.clock });
@@ -717,11 +777,16 @@ class S3RepositoryService {
     const repository = await this.controlDatabase.repository('repository').get(tenant, requiredText(repositoryId, 'Repository ID', 200));
     if (!repository || repository.adapterId !== ADAPTER_ID) throw new Error('S3 repository was not found.');
     if (!(repository.workerAffinity || []).includes(`device:${this.deviceId}`)) throw new Error('This S3 repository belongs to another device.');
-    const credentialSecretRefId = repository.secretRefIds?.[0];
+    const resolvedConnection = repository.connectionId && this.connectionService ? await this.connectionService.resolve(tenant, repository.connectionId) : null;
+    const credentialSecretRefId = resolvedConnection?.credentialSecretRefId || repository.secretRefIds?.[0];
+    if (!credentialSecretRefId) throw new S3RepositoryError('S3_REPOSITORY_CREDENTIALS_UNAVAILABLE', 'S3 destination credentials are unavailable.', { category: 'authentication' });
     const encodedKey = await this.secretStore.resolve({ workspaceId: tenant, id: repository.encryptionKeyRefId });
     const masterKey = Buffer.from(encodedKey, 'base64');
     if (masterKey.length !== 32 || masterKey.toString('base64') !== encodedKey) throw new S3RepositoryError('S3_REPOSITORY_KEY_INVALID', 'S3 repository encryption key is invalid.', { category: 'encryption' });
-    const adapter = this.#adapter(tenant, repository.location, credentialSecretRefId);
+    const repositoryConfig = resolvedConnection
+      ? normalizeS3RepositoryConfig({ ...resolvedConnection.config, ...repository.location })
+      : repository.location;
+    const adapter = this.#adapter(tenant, repositoryConfig, credentialSecretRefId);
     return { repository, adapter, engine: new FileRepositoryEngine({ adapter, clock: this.clock }), masterKey, keyVersion: repository.encryption.keyVersion };
   }
 
@@ -746,7 +811,7 @@ class S3RepositoryService {
     if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new TypeError('Repository revision is required for removal.');
     const removed = await this.controlDatabase.repository('repository').softDelete(tenant, repository.id, { expectedRevision, actorId: actor });
     let credentialsRemoved = false;
-    for (const secretRefId of repository.secretRefIds || []) {
+    for (const secretRefId of repository.connectionId ? [] : repository.secretRefIds || []) {
       try {
         await this.secretStore.delete({ workspaceId: tenant, id: secretRefId });
         const metadata = await this.controlDatabase.repository('secretRef').get(tenant, secretRefId);
@@ -770,5 +835,7 @@ module.exports = {
   STORE_DIRECTORY,
   capabilitiesFromProbe,
   normalizeS3Credential,
+  normalizeS3ConnectionConfig,
+  normalizeS3LocationConfig,
   normalizeS3RepositoryConfig
 };

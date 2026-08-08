@@ -866,7 +866,7 @@
               </button>
               <button id="backupTabRepositories" class="backup-manager-tab" type="button" role="tab" aria-selected="false" aria-controls="backupPanelRepositories" data-backup-tab="repositories">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-cloud"></use></svg>
-                Repositories
+                Destinations
               </button>
               <button id="backupTabRecovery" class="backup-manager-tab" type="button" role="tab" aria-selected="false" aria-controls="backupPanelRecovery" data-backup-tab="recovery">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
@@ -1006,23 +1006,25 @@
 
               <section id="backupPanelRepositories" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabRepositories" data-backup-panel="repositories">
                 <div class="backup-panel-heading backup-panel-heading-actions-only">
+                  <div class="backup-destination-tabs" role="tablist" aria-label="Destination configuration views">
+                    <button id="backupDestinationsListTab" class="backup-destination-tab active" type="button" role="tab" aria-selected="true" aria-controls="backupDestinationsListPanel">Destinations</button>
+                    <button id="backupDestinationConnectionsTab" class="backup-destination-tab" type="button" role="tab" aria-selected="false" aria-controls="backupDestinationConnectionsPanel">Connections</button>
+                  </div>
                   <div class="backup-panel-actions">
-                    <button id="backupAddS3RepositoryButton" class="button outline" type="button">
-                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-cloud"></use></svg>
-                      S3 storage
-                    </button>
-                    <button id="backupAddSftpRepositoryButton" class="button outline" type="button">
-                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-server"></use></svg>
-                      SFTP server
-                    </button>
-                    <button id="backupAddLocalRepositoryButton" class="button solid" type="button">
+                    <button id="backupAddDestinationButton" class="button solid" type="button">
                       <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-plus"></use></svg>
-                      Local folder
+                      Add destination
                     </button>
                   </div>
                 </div>
-                <div id="backupRepositoryList" class="backup-source-connections hidden" aria-live="polite"></div>
-                <div id="backupRepositoriesEmpty" class="backup-manager-empty"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-cloud"></use></svg></span><strong>No repositories</strong></div>
+                <div id="backupDestinationsListPanel" role="tabpanel" aria-labelledby="backupDestinationsListTab">
+                  <div id="backupRepositoryList" class="backup-source-connections hidden" aria-live="polite"></div>
+                  <div id="backupRepositoriesEmpty" class="backup-manager-empty"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-cloud"></use></svg></span><strong>No destinations</strong></div>
+                </div>
+                <div id="backupDestinationConnectionsPanel" class="hidden" role="tabpanel" aria-labelledby="backupDestinationConnectionsTab">
+                  <div id="backupDestinationConnectionList" class="backup-source-connections hidden" aria-live="polite"></div>
+                  <div id="backupDestinationConnectionsEmpty" class="backup-manager-empty"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-server"></use></svg></span><strong>No storage connections</strong></div>
+                </div>
               </section>
 
               <section id="backupPanelRecovery" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabRecovery" data-backup-panel="recovery">
@@ -4539,25 +4541,22 @@ tool_timeout_sec = 300</pre>
                 <div id="backupJobSourcesEmpty" class="backup-job-inline-empty hidden">
                   <span>Create and test a file or database source before continuing.</span>
                   <div class="backup-job-inline-actions">
-                    <div id="backupJobAddSourceDropdown" class="backup-source-add-dropdown backup-job-source-add-dropdown">
-                      <button id="backupJobAddSourceButton" class="button solid compact backup-source-add-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="backupSourceAddMenu">
+                    <div id="backupJobAddSourceDropdown" class="backup-job-source-add-trigger">
+                      <button id="backupJobAddSourceButton" class="button solid compact" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="backupJobSourcePicker">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>
                         Add source
-                        <span class="backup-source-add-chevron" aria-hidden="true"></span>
                       </button>
                     </div>
                   </div>
                 </div>
               </section>
               <section class="backup-job-resource-section">
-                <div class="backup-job-step-heading"><h3>Choose backup destinations</h3><p>The first selected repository is primary; additional destinations receive copies.</p></div>
+                <div class="backup-job-step-heading"><h3>Choose backup destinations</h3><p>The first selected destination is primary; additional destinations receive copies.</p></div>
                 <div id="backupJobRepositories" class="backup-job-choice-list"></div>
                 <div id="backupJobRepositoriesEmpty" class="backup-job-inline-empty hidden">
-                  <span>Add and test a repository before continuing.</span>
+                  <span>Add and test a destination before continuing.</span>
                   <div class="backup-job-inline-actions">
-                    <button id="backupJobCreateLocalRepositoryButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Local folder</button>
-                    <button id="backupJobCreateSftpRepositoryButton" class="button outline compact" type="button">SFTP server</button>
-                    <button id="backupJobCreateS3RepositoryButton" class="button outline compact" type="button">S3 storage</button>
+                    <button id="backupJobCreateDestinationButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Add destination</button>
                   </div>
                 </div>
               </section>
@@ -4742,6 +4741,21 @@ tool_timeout_sec = 300</pre>
               </div>
             </div>
             <label class="backup-job-check"><input id="backupJobVerify" type="checkbox" checked /><span><strong>Verify checksums after backup</strong><small>Confirm committed objects match their recorded checksums.</small></span></label>
+          </section>
+        </div>
+        <div id="backupJobSourcePicker" class="backup-job-source-picker hidden" role="dialog" aria-modal="true" aria-labelledby="backupJobSourcePickerTitle">
+          <button class="backup-job-source-picker-backdrop" type="button" aria-label="Close source picker" data-backup-job-source-picker-close></button>
+          <section class="backup-job-source-picker-card">
+            <header class="backup-job-source-picker-header">
+              <div>
+                <h3 id="backupJobSourcePickerTitle">Add backup source</h3>
+                <p>Choose the type of data you want to protect.</p>
+              </div>
+              <button id="backupJobSourcePickerCloseButton" class="icon-button" type="button" aria-label="Close source picker">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
+              </button>
+            </header>
+            <div id="backupJobSourcePickerBody" class="backup-job-source-picker-body"></div>
           </section>
         </div>
         <footer class="modal-footer backup-job-footer">
@@ -5482,154 +5496,45 @@ tool_timeout_sec = 300</pre>
       </form>
     </div>
 
-    <div id="backupLocalRepositoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="backupLocalRepositoryTitle">
-      <div class="modal-backdrop" data-backup-local-repository-close></div>
-      <form id="backupLocalRepositoryForm" class="modal-card small">
+    <div id="backupDestinationModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="backupDestinationTitle">
+      <div class="modal-backdrop" data-backup-destination-close></div>
+      <form id="backupDestinationForm" class="modal-card backup-destination-modal-card">
         <header class="modal-header">
           <div>
-            <h2 id="backupLocalRepositoryTitle">Add local repository</h2>
-            <p>Local folder</p>
+            <h2 id="backupDestinationTitle">Add destination</h2>
+            <p>Choose a backend, reusable connection, and storage location.</p>
           </div>
-          <button id="backupLocalRepositoryCloseButton" class="icon-button" type="button" aria-label="Close">
+          <button id="backupDestinationCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
           </button>
         </header>
-        <div class="modal-body">
-          <div class="field-grid">
-            <label class="field">
-              <span>Repository name</span>
-              <input id="backupLocalRepositoryName" type="text" maxlength="200" placeholder="Local backup archive" required />
-            </label>
-            <label class="field">
-              <span>Folder</span>
-              <div class="backup-repository-path-field">
-                <input id="backupLocalRepositoryPath" type="text" readonly required />
-                <button id="backupLocalRepositoryBrowseButton" class="button outline icon-only" type="button" aria-label="Select repository folder" title="Select folder">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-folder-open"></use></svg>
-                </button>
-              </div>
-            </label>
-          </div>
+        <div class="modal-body backup-destination-modal-body">
+          <fieldset class="backup-destination-section">
+            <legend>1. Backend type</legend>
+            <div id="backupDestinationBackendOptions" class="backup-destination-backends"></div>
+          </fieldset>
+          <fieldset class="backup-destination-section">
+            <legend>2. Reusable connection</legend>
+            <div id="backupDestinationConnectionPicker" class="backup-destination-connection-picker"></div>
+            <div id="backupDestinationConnectionFields" class="backup-destination-fields hidden"></div>
+          </fieldset>
+          <fieldset class="backup-destination-section">
+            <legend>3. Storage location</legend>
+            <div class="backup-destination-fields">
+              <label class="field backup-destination-wide-field">
+                <span>Destination name</span>
+                <input id="backupDestinationName" type="text" maxlength="200" placeholder="Production backup archive" required />
+              </label>
+              <div id="backupDestinationLocationFields" class="backup-destination-fields backup-destination-wide-field"></div>
+            </div>
+          </fieldset>
+          <div id="backupDestinationError" class="form-error hidden" role="alert"></div>
         </div>
         <footer class="modal-footer">
-          <button id="backupLocalRepositoryCancelButton" class="button outline" type="button">Cancel</button>
-          <button id="backupLocalRepositorySaveButton" class="button solid" type="submit">
+          <button id="backupDestinationCancelButton" class="button outline" type="button">Cancel</button>
+          <button id="backupDestinationSaveButton" class="button solid" type="submit">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-save"></use></svg>
-            Add repository
-          </button>
-        </footer>
-      </form>
-    </div>
-
-    <div id="backupSftpRepositoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="backupSftpRepositoryTitle">
-      <div class="modal-backdrop" data-backup-sftp-repository-close></div>
-      <form id="backupSftpRepositoryForm" class="modal-card small">
-        <header class="modal-header">
-          <div>
-            <h2 id="backupSftpRepositoryTitle">Add SFTP repository</h2>
-            <p>Remote server folder</p>
-          </div>
-          <button id="backupSftpRepositoryCloseButton" class="icon-button" type="button" aria-label="Close">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
-          </button>
-        </header>
-        <div class="modal-body">
-          <div class="field-grid">
-            <label class="field">
-              <span>Repository name</span>
-              <input id="backupSftpRepositoryName" type="text" maxlength="200" placeholder="Offsite backup archive" required />
-            </label>
-            <label class="field">
-              <span>SSH connection</span>
-              <select id="backupSftpRepositoryConnection" required></select>
-            </label>
-            <label class="field">
-              <span>Remote folder</span>
-              <input id="backupSftpRepositoryPath" type="text" maxlength="4096" placeholder="/srv/deployerx-backups" required />
-            </label>
-          </div>
-        </div>
-        <footer class="modal-footer">
-          <button id="backupSftpRepositoryCancelButton" class="button outline" type="button">Cancel</button>
-          <button id="backupSftpRepositorySaveButton" class="button solid" type="submit">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-save"></use></svg>
-            Add repository
-          </button>
-        </footer>
-      </form>
-    </div>
-
-    <div id="backupS3RepositoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="backupS3RepositoryTitle">
-      <div class="modal-backdrop" data-backup-s3-repository-close></div>
-      <form id="backupS3RepositoryForm" class="modal-card backup-s3-repository-modal-card">
-        <header class="modal-header">
-          <div>
-            <h2 id="backupS3RepositoryTitle">Add S3 repository</h2>
-            <p>S3-compatible object storage</p>
-          </div>
-          <button id="backupS3RepositoryCloseButton" class="icon-button" type="button" aria-label="Close">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
-          </button>
-        </header>
-        <div class="modal-body">
-          <div class="field-grid backup-s3-repository-grid">
-            <label class="field backup-s3-wide-field">
-              <span>Repository name</span>
-              <input id="backupS3RepositoryName" type="text" maxlength="200" placeholder="Object storage archive" required />
-            </label>
-            <label class="field backup-s3-wide-field">
-              <span>Endpoint</span>
-              <input id="backupS3RepositoryEndpoint" type="url" maxlength="2048" placeholder="https://s3.example.com" />
-            </label>
-            <label class="field">
-              <span>Region</span>
-              <input id="backupS3RepositoryRegion" type="text" maxlength="64" value="us-east-1" required />
-            </label>
-            <label class="field">
-              <span>Bucket</span>
-              <input id="backupS3RepositoryBucket" type="text" maxlength="63" placeholder="deployerx-backups" required />
-            </label>
-            <label class="field backup-s3-wide-field">
-              <span>Repository prefix</span>
-              <input id="backupS3RepositoryPrefix" type="text" maxlength="1024" placeholder="team/production" />
-            </label>
-            <label class="field">
-              <span>Access key ID</span>
-              <input id="backupS3RepositoryAccessKey" type="text" maxlength="256" autocomplete="off" required />
-            </label>
-            <label class="field">
-              <span>Secret access key</span>
-              <div class="secret-input">
-                <input id="backupS3RepositorySecretKey" type="password" maxlength="4096" autocomplete="new-password" required />
-                <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="backupS3RepositorySecretKey" data-show-label="Show secret access key" data-hide-label="Hide secret access key" aria-controls="backupS3RepositorySecretKey">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-eye"></use></svg>
-                </button>
-              </div>
-            </label>
-            <label class="field backup-s3-wide-field">
-              <span>Session token</span>
-              <div class="secret-input">
-                <input id="backupS3RepositorySessionToken" type="password" maxlength="8192" autocomplete="off" />
-                <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="backupS3RepositorySessionToken" data-show-label="Show session token" data-hide-label="Hide session token" aria-controls="backupS3RepositorySessionToken">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-eye"></use></svg>
-                </button>
-              </div>
-            </label>
-            <label class="backup-browser-option">
-              <input id="backupS3RepositoryPathStyle" type="checkbox" />
-              <span>Use path-style addressing</span>
-            </label>
-            <label class="backup-browser-option">
-              <input id="backupS3RepositoryAllowHttp" type="checkbox" />
-              <span>Allow an insecure HTTP endpoint</span>
-            </label>
-          </div>
-        </div>
-        <footer class="modal-footer">
-          <button id="backupS3RepositoryCancelButton" class="button outline" type="button">Cancel</button>
-          <button id="backupS3RepositorySaveButton" class="button solid" type="submit">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-save"></use></svg>
-            Add repository
+            Add destination
           </button>
         </footer>
       </form>
@@ -5641,7 +5546,7 @@ tool_timeout_sec = 300</pre>
         <header class="modal-header">
           <div>
             <h2 id="backupRepositoryPolicyTitle">Storage policy</h2>
-            <p id="backupRepositoryPolicyName">Backup repository</p>
+            <p id="backupRepositoryPolicyName">Backup destination</p>
           </div>
           <button id="backupRepositoryPolicyCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
@@ -5788,11 +5693,11 @@ tool_timeout_sec = 300</pre>
               </div>
               <label class="field">
                 <span>Include patterns</span>
-                <textarea id="backupBrowserIncludePatterns" rows="3" spellcheck="false" placeholder="**/*.sql"></textarea>
+                <textarea id="backupBrowserIncludePatterns" rows="2" spellcheck="false" placeholder="**/*.sql"></textarea>
               </label>
               <label class="field">
                 <span>Exclude patterns</span>
-                <textarea id="backupBrowserExcludePatterns" rows="3" spellcheck="false" placeholder="**/node_modules/**"></textarea>
+                <textarea id="backupBrowserExcludePatterns" rows="2" spellcheck="false" placeholder="**/node_modules/**"></textarea>
               </label>
               <label class="backup-browser-option">
                 <input id="backupBrowserIncludeHidden" type="checkbox" />
@@ -5802,10 +5707,6 @@ tool_timeout_sec = 300</pre>
                 <input id="backupBrowserCrossMounts" type="checkbox" />
                 <span>Cross filesystem mount points</span>
               </label>
-              <div class="backup-browser-metadata" aria-label="Metadata preservation">
-                <div class="backup-browser-selection-heading"><strong>Metadata preservation</strong></div>
-                <div id="backupBrowserMetadataPolicy" class="backup-browser-metadata-list"></div>
-              </div>
             </aside>
           </div>
         </div>
