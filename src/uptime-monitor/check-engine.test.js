@@ -92,9 +92,15 @@ test('reports HTTP status, assertion, and bounded-response failures', async (con
   const failed = await runMonitorCheck(monitor({ config: { url: `http://127.0.0.1:${address.port}/down`, expectedStatusRanges: ['200-299'] } }));
   assert.equal(failed.outcome, 'down');
   assert.equal(failed.failureCategory, 'http-status');
-  const large = await runMonitorCheck(monitor({ config: { url: `http://127.0.0.1:${address.port}/large`, expectedStatusRanges: [200] } }), { maximumResponseBytes: 128 });
-  assert.equal(large.outcome, 'down');
-  assert.equal(large.failureCategory, 'response-size');
+  const largeStatusOnly = await runMonitorCheck(monitor({ config: { url: `http://127.0.0.1:${address.port}/large`, expectedStatusRanges: [200] } }), { maximumResponseBytes: 128 });
+  assert.equal(largeStatusOnly.outcome, 'up');
+  const largeWithAssertion = await runMonitorCheck(monitor({ config: {
+    url: `http://127.0.0.1:${address.port}/large`,
+    expectedStatusRanges: [200],
+    assertions: [{ target: 'body', operator: 'contains', expected: 'x' }]
+  } }), { maximumResponseBytes: 128 });
+  assert.equal(largeWithAssertion.outcome, 'down');
+  assert.equal(largeWithAssertion.failureCategory, 'response-size');
 });
 
 test('runs TCP checks and applies warning and critical latency policies', async (context) => {

@@ -350,7 +350,7 @@ test('exposes bundled database plugins only from Database Manager settings', () 
   assert.match(rendererSource, /function renderDatabasePlugins\(/);
   assert.match(rendererSource, /databasePluginSettingsButton\?\.addEventListener\('click',[\s\S]*state\.settingsTab = 'database';[\s\S]*showView\('team'\)/);
   assert.match(rendererSource, /state\.settingsTab === 'database'\) loadDatabasePlugins/);
-  assert.match(rendererSource, /const isFullPageView = isProfile \|\| isSshFile/);
-  assert.match(rendererSource, /function syncSidebarForView\(view = state\.currentView\) \{\s*if \(\['profile', 'ssh-file'\]\.includes\(view\)\)/);
+  assert.match(rendererSource, /const isFullPageView = isProfile \|\| isSshFile \|\| isTeam/, 'Settings uses the full workspace width');
+  assert.equal(rendererSource.includes("if (['profile', 'ssh-file', 'team'].includes(view))"), true, 'Settings hides the global server sidebar');
   assert.match(stylesSource, /\.database-plugin-list\s*\{[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
 });

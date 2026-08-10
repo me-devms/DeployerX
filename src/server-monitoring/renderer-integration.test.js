@@ -14,7 +14,7 @@ test('places real-time monitoring immediately before Uptime and renders its oper
   const monitoringButton = html.indexOf('id="serverMonitoringButton"');
   const uptimeButton = html.indexOf('id="uptimeButton"');
   assert.ok(monitoringButton > 0 && monitoringButton < uptimeButton);
-  for (const id of ['serverMonitoringView', 'serverMonitoringTrendChart', 'serverMonitoringNetworkChart', 'serverMonitoringStorageTable', 'serverMonitoringProcessTable']) {
+  for (const id of ['serverMonitoringView', 'serverMonitoringConnectOverlay', 'serverMonitoringConnectButton', 'serverMonitoringTrendChart', 'serverMonitoringNetworkChart', 'serverMonitoringStorageTable', 'serverMonitoringProcessTable']) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
 });
@@ -29,6 +29,26 @@ test('binds monitoring navigation, sidebar selection, preload APIs, and main-pro
   assert.match(main, /serverMonitoringSessionManager\.stopAll\(\)/);
 });
 
+test('gates telemetry behind the persistent terminal SSH connection', () => {
+  assert.match(renderer, /getConnectedTerminalSession/);
+  assert.match(renderer, /terminalSessionId: terminalSession\.sessionId/);
+  assert.match(renderer, /connectServerMonitoringSsh/);
+  assert.match(renderer, /serverMonitoringPauseButton\.classList\.toggle\('hidden', !sshConnected\)/);
+  assert.match(renderer, /serverMonitoringRefreshButton\.classList\.toggle\('hidden', !sshConnected\)/);
+  assert.match(styles, /#serverMonitoringDashboard\.is-ssh-locked[\s\S]*filter: blur\(4px\)/);
+  assert.match(main, /activeTerminals\.get\(terminalSessionId\)/);
+  assert.match(main, /connection: terminalState\.connection/);
+});
+
+test('selects an available SSH server before monitoring or connecting', () => {
+  assert.match(renderer, /function resolveServerMonitoringProject\(\)[\s\S]*groupProjects\(\)\.flatMap\(\(group\) => group\.items\)[\s\S]*state\.serverMonitoring\.selectedProjectId[\s\S]*state\.activeProject\?\.id[\s\S]*getConnectedTerminalSession\(project\.id\)[\s\S]*!isVncServerType\(project\.serverType\)/);
+  assert.match(renderer, /function syncServerMonitoringProjectSelection\(\)[\s\S]*state\.serverMonitoring\.selectedProjectId = project \? String\(project\.id\) : ''/);
+  assert.match(renderer, /async function connectServerMonitoringSsh\(\)[\s\S]*const project = resolveServerMonitoringProject\(\);[\s\S]*await selectServerForMonitoring\(project\.id\)/);
+  assert.match(renderer, /if \(isServerMonitoring\)[\s\S]*const monitoringProject = resolveServerMonitoringProject\(\);[\s\S]*selectServerForMonitoring\(monitoringProject\.id\)/);
+  assert.match(renderer, /async function refreshProjectsAndTemplates\(\)[\s\S]*const monitoringProject = syncServerMonitoringProjectSelection\(\);[\s\S]*state\.currentView === 'server-monitoring'[\s\S]*await selectServerForMonitoring\(monitoringProject\.id\)/);
+  assert.match(renderer, /if \(state\.currentView === 'dashboard'\) showView\('dashboard'\);/);
+});
+
 test('forces the server sidebar open and disables its toggle during monitoring', () => {
   assert.match(renderer, /function syncSidebarForView[\s\S]*sidebarToggleButton\.disabled = view === 'server-monitoring'[\s\S]*view === 'server-monitoring'[\s\S]*setSidebarCollapsed\(false, \{ persist: false \}\)/);
   assert.match(renderer, /Sidebar is required for real-time monitoring/);
@@ -37,4 +57,5 @@ test('forces the server sidebar open and disables its toggle during monitoring',
 test('keeps breathing room above the live monitoring dashboard', () => {
   assert.match(styles, /\.server-monitoring-header\s*\{[^}]*padding-block:\s*14px 12px;/s);
   assert.match(styles, /\.server-monitoring-workspace\s*\{[^}]*padding:\s*16px 28px 34px;/s);
+  assert.match(styles, /\.server-monitoring-connect-overlay\s*\{[^}]*height:\s*calc\(100vh - 58px - var\(--app-header-height\) - 32px\);[^}]*max-height:\s*100%;/s);
 });

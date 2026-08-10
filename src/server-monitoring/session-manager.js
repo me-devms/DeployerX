@@ -11,14 +11,15 @@ class ServerMonitoringSessionManager {
     this.sessions = new Map();
   }
 
-  start({ sessionId, projectId, connectionConfig }) {
-    if (!sessionId || !projectId || !connectionConfig?.host || !connectionConfig?.username) throw new Error('A valid monitoring session and SSH server are required.');
+  start({ sessionId, projectId, connectionConfig, connection = null }) {
+    if (!sessionId || !projectId || (!connection && (!connectionConfig?.host || !connectionConfig?.username))) throw new Error('A valid monitoring session and SSH server are required.');
     this.stop(sessionId, { emit: false });
     const state = {
       sessionId,
       projectId,
       connectionConfig,
-      connection: null,
+      connection,
+      ownsConnection: !connection,
       timer: null,
       reconnectTimer: null,
       reconnectAttempt: 0,
@@ -32,7 +33,10 @@ class ServerMonitoringSessionManager {
       lastSample: null
     };
     this.sessions.set(sessionId, state);
-    this.#connect(state);
+    if (connection) {
+      this.#emit(state, 'status', { status: 'live' });
+      this.#startPolling(state);
+    } else this.#connect(state);
     return { sessionId, projectId };
   }
 
@@ -56,7 +60,7 @@ class ServerMonitoringSessionManager {
     state.stopped = true;
     clearInterval(state.timer);
     clearTimeout(state.reconnectTimer);
-    state.connection?.end();
+    if (state.ownsConnection) state.connection?.end();
     this.sessions.delete(sessionId);
     if (options.emit !== false) this.#emit(state, 'status', { status: 'stopped' });
     return true;
@@ -64,6 +68,12 @@ class ServerMonitoringSessionManager {
 
   stopAll() {
     for (const sessionId of [...this.sessions.keys()]) this.stop(sessionId, { emit: false });
+  }
+
+  stopByConnection(connection) {
+    for (const [sessionId, state] of this.sessions) {
+      if (state.connection === connection) this.stop(sessionId);
+    }
   }
 
   #emit(state, type, payload = {}) {

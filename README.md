@@ -15,25 +15,24 @@
   <a href="https://github.com/me-devms/DeployerX/issues"><img alt="Issues" src="https://img.shields.io/github/issues/me-devms/DeployerX" /></a>
 </p>
 
-> **Release status:** DeployerX `0.1.4` is an early public release. Use test servers and test data first, verify every backup by restoring it, and review commands before running them against production systems.
+> **Release status:** DeployerX `0.1.5` is an early public release. Use test servers and test data first, verify every backup by restoring it, and review commands before running them against production systems.
 
 ## Overview
 
-DeployerX brings day-to-day infrastructure work into one local-first desktop application. It combines server profiles, SSH and SFTP, repeatable deployment commands, Windows Remote Desktop, endpoint monitoring, backup and recovery workflows, database tooling, optional Firebase workspaces, and a local MCP endpoint for trusted AI clients.
+DeployerX brings day-to-day infrastructure work into one local-first desktop application. It combines server profiles, SSH and SFTP, repeatable deployment commands, Windows VNC access, endpoint monitoring, backup and recovery workflows, database tooling, optional Firebase workspaces, and a local MCP endpoint for trusted AI clients.
 
 The app is designed for developers, system administrators, agencies, and small teams that want an inspectable, self-hosted alternative to stitching together several unrelated server tools.
 
-## What's New in 0.1.4
+## What's New in 0.1.5
 
-- New **Uptime Monitor** workspace for HTTP/API, TCP, and TLS checks, incidents, maintenance windows, shared alerts, and PDF/CSV reports.
-- New **Backup Manager** for scheduled and manual file/database protection, encrypted repositories, retention, verification, and guided recovery.
-- New **Database Manager Access workspace** that opens connected PostgreSQL, MySQL/MariaDB, and SQLite profiles in the bundled DeployerX DB Access Manager window.
-- Embedded **Windows Remote Desktop** sessions alongside SSH and SFTP server tools.
-- New authenticated **DeployerX MCP** server for scoped SSH command and SFTP access from compatible local AI clients.
-- Shared notification routes for desktop, email, generic webhooks, Slack, and Microsoft Teams.
-- Expanded dashboard, navigation, settings, workspace controls, theme support, update handling, and security boundaries.
+- Added a bundled **DeployerX DB Access Manager** handoff for connected PostgreSQL, MySQL/MariaDB, and SQLite profiles, using an ephemeral Windows named pipe instead of exposing credentials to the renderer or command line.
+- Replaced the earlier remote-desktop path with embedded **Windows VNC** support, including connection diagnostics, persistent navigation state, full-screen sizing, and framebuffer repaint fixes.
+- Expanded **DeployerX MCP** with real-time server metrics and full Uptime Monitor management, status, incident, maintenance, settings, and reporting tools.
+- Made enabled MCP integrations restore automatically at startup, with health checks, bounded restart behavior, and clearer connection-test errors.
+- Improved SSH/server connection state, server selection, multi-user credentials, dashboard behavior, backup-job validation, and settings/navigation consistency.
+- Strengthened Uptime worker scheduling and launch behavior, and added focused regression coverage across VNC, MCP, monitoring, backup, database, and renderer workflows.
 
-See the full [v0.1.4 release notes](documentation/releases/v0.1.4.md).
+See the full [v0.1.5 release notes](documentation/releases/v0.1.5.md).
 
 ## Modules
 
@@ -42,7 +41,7 @@ See the full [v0.1.4 release notes](documentation/releases/v0.1.4.md).
 | **Overview** | Workspace operations summary | Server inventory, activity, health, quick actions, import/export |
 | **Servers** | Connection and deployment workspace | Profiles, groups, SSH authentication, command scripts, emergency stop |
 | **SSH & SFTP** | Interactive remote administration | xterm.js terminal, file browser, upload/download, rename, folders, delete |
-| **Remote Desktop** | Windows server control | Embedded RDP canvas, credential prompt, full-view session |
+| **VNC** | Windows server control | Embedded VNC client, credential prompt, full-view session |
 | **Uptime Monitor** | Availability and incident operations | HTTP/API, TCP, TLS, worker scheduling, incidents, maintenance, reports |
 | **Backup Manager** | Backup, retention, and recovery | Sources, jobs, repositories, recovery points, activity, policies, tests |
 | **Database Manager** | Database development and administration | DeployerX-owned profiles and connections with a bundled, separate SQL access workspace |
@@ -73,13 +72,13 @@ pm2 restart my-app
 
 DeployerX executes the commands you provide. It does not validate application-specific deployment safety, so test the sequence on a non-production target first.
 
-## SSH, SFTP, and Remote Desktop
+## SSH, SFTP, and VNC
 
 The project view keeps remote access tools together:
 
 - **SSH terminal:** interactive shell powered by xterm.js and `ssh2`.
 - **SFTP browser:** browse directories; upload and download files or folders; create folders; rename, open, and delete remote entries.
-- **Windows Remote Desktop:** connect to supported Windows hosts inside the project view through the bundled RDP client.
+- **Windows VNC:** connect to a Windows host running a VNC server through the bundled noVNC client. The default port is `5900`.
 
 The file browser uses SSH File Transfer Protocol. Plain, unencrypted FTP is intentionally not exposed.
 
@@ -267,11 +266,11 @@ DeployerX/
 |   |-- backup-manager/             Backup engines, repositories, policy, recovery
 |   |-- database-manager/           Profiles, queries, drivers, schema, plugins
 |   |-- uptime-monitor/             Checks, incidents, worker, reports, storage
-|   |-- renderer/                   Desktop UI and RDP client
+|   |-- renderer/                   Desktop UI and VNC client
 |   |-- main.js                     Electron main process and IPC composition
 |   |-- mcp-server.js               Local authenticated MCP endpoint
 |   |-- preload.js                  Sandboxed renderer bridge
-|   `-- rdp-session.js              Remote Desktop session boundary
+|   `-- vnc-session.js              VNC session boundary
 |-- third_party_licenses/           Bundled dependency licenses
 |-- firestore.rules                 Cloud workspace authorization rules
 |-- package.json                    Runtime, scripts, and packaging configuration

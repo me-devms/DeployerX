@@ -31,7 +31,7 @@ test('aligns the Add Server action with the server toolbar controls', async () =
     fs.readFile(path.join(__dirname, 'styles.css'), 'utf8')
   ]);
 
-  assert.match(html, /id="dashboardCreateButton"[\s\S]*?<use href="#icon-plus"><\/use>[\s\S]*?Add server/);
+  assert.match(html, /id="dashboardCreateButton"[\s\S]*?<use href="#icon-plus"><\/use>[\s\S]*?Add Server/);
   assert.match(styles, /\.servers-view-header \.header-actions > \.button\s*\{[\s\S]*?height: 36px;[\s\S]*?min-height: 36px;/);
   assert.match(styles, /#dashboardCreateButton\s*\{[\s\S]*?min-width: 128px;[\s\S]*?padding-inline: 14px;/);
 });

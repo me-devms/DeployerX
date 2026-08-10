@@ -1,3 +1,5 @@
+const DEFAULT_WORKER_LOCK_LEASE_MS = 30000;
+
 function buildWorkerLaunchArgs({ defaultApp = false, isPackaged = true, appPath = '' } = {}) {
   if (defaultApp || !isPackaged) {
     const normalizedAppPath = String(appPath || '').trim();
@@ -5,6 +7,18 @@ function buildWorkerLaunchArgs({ defaultApp = false, isPackaged = true, appPath 
     return [normalizedAppPath, '--uptime-worker'];
   }
   return ['--uptime-worker'];
+}
+
+function isWorkerLockLeaseActive(record, {
+  now = Date.now(),
+  leaseUpdatedAt = record?.heartbeatAt || record?.startedAt,
+  processRunning = false,
+  leaseMs = DEFAULT_WORKER_LOCK_LEASE_MS
+} = {}) {
+  const pid = Number(record?.pid || 0);
+  const updatedAtMs = Date.parse(leaseUpdatedAt || '');
+  if (!Number.isInteger(pid) || pid <= 0 || !processRunning || !Number.isFinite(updatedAtMs)) return false;
+  return Number(now) - updatedAtMs <= Number(leaseMs);
 }
 
 function buildLoginItemSettings({ enabled, execPath, args } = {}) {
@@ -38,8 +52,10 @@ function buildLinuxAutostartEntry({ execPath, args } = {}) {
 }
 
 module.exports = {
+  DEFAULT_WORKER_LOCK_LEASE_MS,
   buildLinuxAutostartEntry,
   buildLoginItemSettings,
   buildWorkerLaunchArgs,
+  isWorkerLockLeaseActive,
   quoteLinuxExecArgument
 };

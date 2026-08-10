@@ -18,6 +18,7 @@
 | Plugin registry and compatibility | In progress | Live main-process Tabularium catalog, manifest-and-archive-bound signed installer, Windows entrypoint normalization, unsigned-state quarantine, safe staged archive lifecycle, full-tree integrity, restart/pre-spawn revalidation, isolated JSON-RPC runtime, persistent redacted health evidence, device-bound connection-URI/setting bridging, fail-closed plugin mutations, local-driver explorer translation, declarative profiles, unresolved-release visibility, explicit device-prerequisite recovery, and a live compatibility runner are implemented; signed CSV 1.0.3 passes real disposable-data acceptance, Elasticsearch 0.1.4 passes Windows binary/protocol acceptance against a bounded loopback fixture, and Db2 0.0.2 passes signed Windows binary/preflight compatibility with its missing ODBC prerequisite disclosed, while real Elasticsearch/Db2 and unresolved drivers remain |
 | Electron IPC and preload | Completed | Versioned profile, binding, connection, query, notebook, task, operational-log, schema/principal administration, EXPLAIN, and workspace-scoped lifecycle-event APIs are implemented behind a sandboxed, navigation-denied renderer boundary; focused Database Manager suite passes |
 | Database Manager UI | In progress | Catalog with explicit connect/disconnect/test controls, event-driven connection/query/schema/task/plugin state, query workspace, bounded page and streamed full-result export, notebooks, Tasks, sanitized operational Logs with durable connection/schema evidence, capability-gated schema/object and user/privilege tooling with direct-grant inspection, Explain plan tree, ER relationship panel, import/dump actions, responsive signed/integrity/plugin diagnostics, keyboard tab navigation, inert modal background isolation, managed dialog focus, and live Chromium accessibility-tree coverage are implemented; manual NVDA/JAWS acceptance remains |
+| DB Access Manager companion | In progress | Access-only Tabularis fork, secure pipe handoff, separate Access window, DeployerX branding/themes, exact 37-command boundary, single-installer inputs, missing-artifact preflight, and focused verification are implemented; a staged/built Windows companion, Rust execution, real license inventories/human approval, a committed reachable fork revision, and combined-artifact acceptance remain |
 | Cloud metadata and shared connections | In progress | Exact cloud-safe Firestore metadata/rules, readable member authorization, transport-envelope validation, monotonic revisions, schema-three legacy outbox sanitization, remote-only setup states, stable shared-profile import IDs, compare-and-set delivery, conflict resolution, durable redacted reconciliation, Backup Manager handoff, and the Firestore emulator authorization matrix are implemented and verified; live multi-device acceptance remains |
 | SQL safety and resource limits | In progress | Dialect-aware conservative classification, profile and plugin-declared read-only enforcement, query-capability rejection, confirmations, typed production destructive guards, corrected bounded paging, cancellable main-process streamed exports, timeout, structured schema actions, opaque-definition confirmation, read-only Explain, and import policy implemented; live dialect/plugin acceptance remains |
 | Licensing and upstream tracking | In progress | Packaged Tabularis attribution, full Apache-2.0 text, pinned baseline, committed 240-package Rust lock graph, deterministic 239-package/440-file license inventory, canonical SPDX fallback, MSRV enforcement, hash-bound pending human-review request and approval contract, fail-closed native release preflight, bounded PE standard/delay-import review, and live Electron module containment are implemented; human legal approval, the compiled host's actual import result, independent Windows/vendor runtime provenance, and real binary review remain |
@@ -2451,7 +2452,7 @@ Completed:
 - Resolves the selected server from the active workspace at operation time and reuses the application's established server SSH configuration without copying SSH authentication material into the database profile or database driver connection.
 - Connects through the existing `ssh2` dependency, binds an exclusive ephemeral listener on `127.0.0.1`, and opens one SSH `forwardOut` channel per accepted local driver or native-utility socket to the profile's original database host and port.
 - Keeps original remote database endpoints inside the tunnel service. Built-in/plugin runtimes and native import/dump utilities receive only the loopback host and ephemeral port, while the persisted profile remains unchanged.
-- Added safe fixed error handling for missing/RDP linked projects, invalid endpoints, incomplete SSH configuration, authentication failures, timeouts, cancellation, local bind failures, and generic SSH connection failures. Raw SSH diagnostics, linked-server hosts, database endpoints, and credentials are not returned.
+- Added safe fixed error handling for missing/VNC linked projects, invalid endpoints, incomplete SSH configuration, authentication failures, timeouts, cancellation, local bind failures, and generic SSH connection failures. Raw SSH diagnostics, linked-server hosts, database endpoints, and credentials are not returned.
 - Extended `connection-context.js` with non-enumerable tunnel ownership, explicit detach for pooled sessions, and a common asynchronous release path that clears database credentials before closing operation-scoped tunnels.
 - Integrated tunnels into connection test/open, operation-scoped query execution, schema discovery, opaque schema/principal definitions, and native import/dump execution.
 - Physical sidecar sessions retain their tunnel until the runtime pool is closed. Explicit close, replacement, idle pruning, profile-revision invalidation, driver removal, and application shutdown all use the same runtime-first/tunnel-second cleanup path.
@@ -3844,3 +3845,200 @@ Errors or limitations:
 - No focused, full Database Manager, shared control-database, or direct live-acceptance check failed during this task.
 - Page offsets are memory-bounded but still require the database to transmit and discard preceding rows; this is the expected tradeoff for using the clients' existing streaming APIs without another cursor dependency.
 - No `npm run`, development server, build, package, installer, portable application, `cargo build`, `cargo check`, native compilation, signing operation, external release artifact, malware scan, quarantine/remediation action, or SmartScreen action was run.
+
+### 2026-08-07 - Access-only companion frontend completed
+
+Completed:
+
+- Replaced the cloned application entrypoint with the DeployerX DB Access Manager bootstrap and dedicated in-memory providers. It accepts one DeployerX-owned profile handoff and does not expose connection, group, settings, updater, plugin, notebook, saved-query, history, user, import, dump, or task-manager workflows.
+- Added the access-only database explorer, DeployerX theme mapping, startup failure and health-failure states, and hidden-window-safe frontend readiness notification.
+- Retained schema browsing, table/view opening, SQL execution, result paging/export, detached results, JSON viewing, ER diagrams, non-AI Visual Explain, and profile-permitted row writes. Schema DDL controls remain disabled, and profile or driver read-only state disables row mutation and query-plan analysis.
+- Removed the result-tab AI rename path and its backend command while preserving manual rename in tab and stacked result modes.
+- Isolated table-query reconstruction in the memory-only access editor utility so legacy editor preference load/save commands are not compiler-reachable.
+- Removed the unused auxiliary Visual Explain window route; Visual Explain remains an editor modal and needs only `explain_query_plan`.
+- Pruned unused runtime packages (`emoji-picker-react`, `react-colorful`, `react-markdown`, and `recharts`) plus stale upstream plugin scaffolding, roadmap/link/sponsor sync, and release scripts.
+- Confirmed the access compiler graph contains 199 source files, 37 Tauri invokes, and exactly three Tauri plugins: clipboard manager, dialog, and filesystem. The graph contains no AI rename, editor preference persistence, updater, notification, opener, driver-management hook, AI Explain, or native Explain-import path.
+
+Verification:
+
+| Check | Result |
+| --- | --- |
+| Access TypeScript compile (`tsc.cmd -p tsconfig.app.json --noEmit`) | Passed |
+| Focused access and legacy query reconstruction suites | 112/112 passed across 5 files |
+| Targeted ESLint for changed frontend sources | Passed |
+| Access manifest parse and removed-package assertion | Passed |
+
+Not completed:
+
+- No frontend or native production build, installer, portable application, or live database acceptance was run in this frontend task.
+- Packaging capabilities, Rust command registration, installer composition, attribution review, and final cross-project integration remain owned by the parent integration task.
+
+Decisions:
+
+- Keep `get_driver_manifest` in the access allowlist because capabilities determine schema and multi-database layout, materialized-view loading, driver read-only behavior, and Visual Explain availability.
+- Keep Tabularis attribution in repository legal notices while using only DeployerX product names, titles, and theme tokens in the access UI.
+- Keep legacy package records in the shared lockfile when they are no longer importers; only direct importer entries were changed without invoking a package manager.
+
+Errors or limitations:
+
+- GitNexus rates the shared result components and query reconstruction as high/critical impact. Changes were limited to removing AI-only props/UI and switching to a behavior-equivalent access query helper; focused and legacy tests passed afterward.
+- No `npm run`, package-manager wrapper, development server, build, Cargo build/check, installer, or native compilation command was run.
+
+### 2026-08-07 - DeployerX DB Access Manager implementation and security audit
+
+Completed:
+
+- Added the pinned Tabularis v0.18.0 repository as `DeployerX DB Manager/` and
+  converted its runtime to a DeployerX-owned, access-only companion.
+- Wired the Electron Access action, validated preload/main IPC, separate-window
+  lifecycle, secure named-pipe handoff, focus reuse, actor/workspace/profile
+  isolation, ownership-transition cleanup, and packaged resource path.
+- Reduced the companion to the database explorer, SQL editor, results/export,
+  JSON viewer, ER diagram, and non-AI Visual Explain surface. Standalone
+  connection management, settings persistence, AI, MCP, plugins, updater,
+  onboarding, notebooks, history persistence, import/dump, user management,
+  and DDL UI are unreachable.
+- Replaced visible Tabularis identity with DeployerX DB Access Manager metadata,
+  titles, icons, startup/failure UI, and six approved DeployerX themes while
+  retaining Apache-2.0 credit in repository and packaged legal notices.
+- Added exact frontend/native command parity, narrow per-window Tauri
+  capabilities, self-only CSP, bundled Monaco workers, fail-closed packaging
+  provenance, and dependency-license review gates.
+- Fixed the final independent-review blockers: all user-issued SQLite PRAGMAs
+  are rejected for read-only profiles, connection-specific pool logging was
+  removed, and driver errors are converted to fixed safe messages before
+  crossing retained metadata/query/write/export IPC boundaries.
+
+Verification:
+
+| Check | Result |
+| --- | --- |
+| Electron lifecycle, IPC, packaging, provenance, and legal suites | 60/60 passed |
+| Focused companion access and native-boundary suites | 120/120 passed across 6 files |
+| Access TypeScript compile | Passed |
+| Targeted frontend ESLint | Passed |
+| JavaScript syntax | Passed |
+| Frontend invokes versus Rust handlers | Exact parity at 37 commands |
+| Companion package/workspace/lock policy | Passed |
+
+Not completed:
+
+- Rust compilation and tests have not run because `cargo`, `rustc`, `rustfmt`,
+  and `rust-analyzer` are unavailable.
+- Real companion Cargo/pnpm license inventories and schema-v2 human legal
+  approval do not yet exist.
+- The modified companion is not committed or pushed to a reachable fork, so
+  the parent submodule cannot yet pin a distributable modified revision.
+- No development server, build, package, installer, dependency installation,
+  or combined-artifact runtime acceptance was run.
+
+Decisions:
+
+- DeployerX remains the sole owner of profiles, credentials, connections, and
+  tunnels; the companion receives one ephemeral post-connection handoff.
+- Visible product branding is exclusively DeployerX. Tabularis attribution is
+  legal/source credit, not an in-app product identity.
+- Feature implementation may be complete while release readiness remains in
+  progress; missing Rust, legal, fork-pinning, and artifact evidence stay as
+  explicit fail-closed gates.
+
+Errors or limitations:
+
+- GitNexus reports high/critical combined impact because shared upstream query,
+  row-write, result, and pool paths were narrowed. Focused tests pass, but Rust
+  verification is still mandatory before release.
+
+### 2026-08-07 - DB Access Manager launch-artifact diagnosis
+
+Completed:
+
+- Traced the screenshot's generic startup failure to the absence of
+  `deployerx-db-access-manager.exe` in every staged and development location
+  currently available to DeployerX.
+- Added development-path fallback resolution for the companion's target
+  outputs and a regular-file preflight before connection preparation. Missing
+  artifacts now return the safe `DATABASE_ACCESS_COMPANION_MISSING` error
+  instead of attempting a spawn and reporting only a generic launch failure.
+- Added regression coverage proving credentials are not prepared when the
+  executable is absent and that a development release artifact is selected
+  when the staged path is unavailable.
+
+Verification:
+
+| Check | Result |
+| --- | --- |
+| JavaScript syntax | Passed (`node --check`) |
+| Access companion service and integration tests | Passed (20/20) |
+| Database Manager IPC contract tests | Passed (3/3) |
+| Working-copy whitespace check | Passed (`git diff --check`; existing line-ending warnings only) |
+
+Not completed:
+
+- The actual companion window cannot open until a Windows companion executable
+  is built and staged or installed. Build/package/Rust commands were not run in
+  this session because project instructions prohibit them and the Rust toolchain
+  is unavailable.
+- The broader `electron-contract.test.js` suite currently has an unrelated
+  sidebar assertion failure. No sidebar files were changed as part of this
+  launch-artifact diagnosis.
+
+Decision:
+
+- Keep the failure fail-closed and actionable rather than preparing credentials
+  or exposing a driver/spawn error when the release artifact is missing.
+
+### 2026-08-07 - Automatic companion launch artifact recovery
+
+Completed:
+
+- Confirmed that the source checkout, staged native directory, existing
+  DeployerX 0.1.4 installer/portable artifacts, latest GitHub release, and
+  GitHub Actions contain no DeployerX DB Access Manager executable.
+- Confirmed that the Tabularis 0.18.0 Windows portable release cannot be used
+  as a fallback: it does not implement the DeployerX named-pipe handoff, keeps
+  upstream connection ownership and product branding, and exposes the upstream
+  feature surface removed by this integration.
+- Confirmed that the combined installer pipeline already builds, validates,
+  stages, and packages the companion when its release prerequisites are met.
+
+Not completed:
+
+- A runnable companion artifact could not be produced. This workspace has no
+  `cargo` or `rustc`, the companion source tree is not a clean committed fork
+  revision, and the required dependency-license inventories and approval are
+  absent. Project agent instructions also prohibit running build commands.
+
+Decision:
+
+- Do not substitute the branded upstream executable or bypass source,
+  provenance, and legal gates. Automatic Access remains fail-closed until the
+  exact modified companion is compiled and staged.
+
+### 2026-08-07 - Live Access launch verification
+
+Completed:
+
+- Identified the visible application as the development Electron process rooted
+  at the current DeployerX workspace and checked the exact path resolved by that
+  running mode.
+- Confirmed the companion executable is absent from the development stage,
+  companion release/debug targets, installed DeployerX resources, and the
+  active portable extraction resources.
+- Executed a direct runtime probe with the real development path. It returned
+  `DATABASE_ACCESS_COMPANION_MISSING` before the connection preparation
+  callback ran, matching the live toast without touching credentials.
+
+Verification:
+
+| Check | Result |
+| --- | --- |
+| Access launcher, main integration, and IPC suites | Passed (23/23) |
+| Companion artifact staging and packaging contract | Passed (16/16) |
+| Launcher JavaScript syntax | Passed |
+| Live development-path artifact probe | Failed closed as designed; executable absent |
+
+Errors or limitations:
+
+- Windows UI automation could not initialize because its bundled Node kernel
+  failed to create runtime assets. The user-provided live screenshot and the
+  direct launcher probe independently exercise and reproduce the same failure.

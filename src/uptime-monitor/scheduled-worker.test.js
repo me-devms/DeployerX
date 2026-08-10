@@ -5,7 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { UptimeControlDatabase } = require('./control-database');
 const { UptimeIncidentPolicyService } = require('./incident-policy');
-const { ScheduledUptimeWorkerService, UptimeRetentionService, maintenanceApplies } = require('./scheduled-worker');
+const { ScheduledUptimeWorkerService, UptimeRetentionService, executeUptimeMonitorCheck, maintenanceApplies } = require('./scheduled-worker');
 
 async function fixture(context, options = {}) {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), 'deployerx-uptime-worker-test-'));
@@ -53,12 +53,40 @@ function monitor(name, overrides = {}) {
   };
 }
 
+async function waitFor(predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for the scheduled worker.');
+}
+
 test('matches workspace, group, project, and monitor maintenance scopes', () => {
   const item = { id: 'monitor-1', group: 'Production', projectId: 'project-1' };
   assert.equal(maintenanceApplies({ scope: { type: 'workspace' } }, item), true);
   assert.equal(maintenanceApplies({ scope: { type: 'group', group: 'Production' } }, item), true);
   assert.equal(maintenanceApplies({ scope: { type: 'project', projectId: 'project-2' } }, item), false);
   assert.equal(maintenanceApplies({ scope: { type: 'monitors', monitorIds: ['monitor-1'] } }, item), true);
+});
+
+test('persists the first health result for a newly created monitor', async (context) => {
+  const values = await fixture(context);
+  const stored = await values.database.createMonitor('local', 'tester', monitor('New target'));
+  assert.equal(stored.runtime.status, 'unknown');
+  const transition = await executeUptimeMonitorCheck({
+    controlDatabase: values.database,
+    incidentPolicy: values.worker.incidentPolicy,
+    workspaceId: 'local',
+    actorId: 'tester',
+    monitor: stored,
+    checkRunner: async () => ({ outcome: 'up', ok: true, latencyMs: 12, statusCode: 200, summary: 'Healthy.', details: {}, startedAt: values.clock(), completedAt: values.clock() }),
+    clock: values.clock,
+    probeId: 'local-windows:test'
+  });
+  assert.equal(transition.monitor.runtime.status, 'up');
+  assert.equal((await values.database.getMonitor('local', stored.id)).runtime.status, 'up');
+  assert.equal((await values.database.listChecks('local', stored.id)).length, 1);
 });
 
 test('dispatches due monitors within bounded concurrency and persists next schedules', async (context) => {
@@ -102,6 +130,25 @@ test('runs one missed check after restart and schedules from the current complet
   await values.worker.stop({ drain: true });
   assert.deepEqual(values.runs, [stored.id]);
   assert.equal((await values.database.getMonitor('local', stored.id)).nextCheckAt, '2026-08-04T12:01:00.000Z');
+});
+
+test('continues interval checks until the monitor is paused', async (context) => {
+  const values = await fixture(context);
+  const stored = await values.database.createMonitor('local', 'tester', monitor('Continuous target'));
+  await values.worker.start('local', 'worker');
+  await waitFor(() => values.runs.length === 1);
+
+  values.advance(60000);
+  await waitFor(() => values.runs.length === 2);
+
+  const current = await values.database.getMonitor('local', stored.id);
+  await values.database.updateMonitor('local', 'tester', stored.id, { state: 'paused', nextCheckAt: null }, current.revision);
+  values.advance(60000);
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  await values.worker.stop({ drain: true });
+
+  assert.equal(values.runs.length, 2);
+  assert.equal((await values.database.getMonitor('local', stored.id)).nextCheckAt, null);
 });
 
 test('isolates a failed monitor task so other due monitors complete', async (context) => {

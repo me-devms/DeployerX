@@ -154,7 +154,7 @@ class DatabaseServerTunnelService {
     try { project = await this.projectResolver({ workspaceId, projectId }); } catch {
       throw tunnelError('DATABASE_MANAGER_TUNNEL_SERVER_UNAVAILABLE', 'The linked server could not be loaded on this device.', { retryable: true });
     }
-    if (!project || String(project.id) !== projectId || project.serverType === 'rdp') {
+    if (!project || String(project.id) !== projectId || ['vnc', 'rdp'].includes(project.serverType)) {
       throw tunnelError('DATABASE_MANAGER_TUNNEL_SERVER_NOT_FOUND', 'The linked SSH server was not found in this workspace.');
     }
     let sshConfig;

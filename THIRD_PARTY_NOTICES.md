@@ -1,5 +1,23 @@
 # Third-Party Notices
 
+## noVNC
+
+DeployerX includes noVNC v1.6.0 for browser-native VNC sessions.
+
+- Project: noVNC
+- Source: https://github.com/novnc/noVNC/tree/v1.6.0
+- License: Mozilla Public License 2.0
+- License text: `src/renderer/vendor/novnc/LICENSE.MPL-2.0`
+
+## pako
+
+The vendored noVNC runtime includes pako for compressed VNC encodings.
+
+- Project: pako
+- Source: https://github.com/nodeca/pako
+- License: MIT License
+- License text: `src/renderer/vendor/novnc/PAKO-LICENSE`
+
 ## Devicon Brand Icons
 
 Database brand icons displayed by Backup Manager are sourced from Devicon v2.17.0.
@@ -13,17 +31,49 @@ The MySQL, MariaDB, PostgreSQL, Supabase, MongoDB, ClickHouse, Redis, and SQLite
 
 ## Tabularis
 
-Portions of the DeployerX Database Manager built-in driver host are derived from or informed by Tabularis.
+DeployerX includes two distinct adaptations of Tabularis: the separately launched DeployerX DB Access Manager companion and portions of the built-in Database Manager driver host. Both adaptations are modified by the DeployerX project and remain subject to the attribution and license below.
 
 - Project: Tabularis
 - Source: https://github.com/TabularisDB/tabularis
 - Release: v0.18.0
-- Commit: `147777c59947178c54e1a9894d52f5abc9db9208`
+- Approved upstream base commit: `147777c59947178c54e1a9894d52f5abc9db9208`
 - Copyright: 2026 Andrea Debernardi
 - License: Apache License 2.0
-- License text: `third_party_licenses/Apache-2.0.txt`
+- Packaged companion license text: `licenses/Tabularis-LICENSE.txt`
 
-The reviewed driver source is adapted behind DeployerX's existing Electron renderer and design system. DeployerX keeps its own navigation, profile storage, IPC, query workspace, schema tools, result grid, notebooks, tasks, and logs. No Tabularis executable is downloaded or launched, and no separate application is required.
+### DeployerX DB Access Manager Companion
+
+Windows releases that include database access ship a modified and rebranded executable built from the source in `DeployerX DB Manager/`. The executable is named `deployerx-db-access-manager.exe`, is launched by DeployerX as a separate process after the user selects Access, and uses DeployerX product branding and visual design. It is not an unmodified Tabularis release and is not downloaded separately at runtime.
+
+The companion retains Tabularis's database workspace capabilities needed by DeployerX. Connection creation, saved-connection management, standalone onboarding, upstream update services, community links, and other standalone Tabularis product surfaces are removed or disabled. DeployerX supplies an ephemeral connection handoff and does not represent the modified companion as an official Tabularis distribution.
+
+The packaged companion directory includes this notice and the upstream Apache License 2.0 text. DeployerX's modifications are available with the rest of the open-source DeployerX repository.
+
+Each packaged companion also includes `artifact-manifest.json`. Its `sourceRevision` identifies the exact DeployerX companion commit used for that artifact, while `modifiedFrom.commit` identifies the approved Tabularis base above. Release staging rejects companion revisions outside that approved history and rejects tracked or untracked source changes, so the manifest never substitutes the upstream base commit for the actual modified source revision.
+
+The companion's Rust and production frontend dependency notices are generated
+from `DeployerX DB Manager/src-tauri/Cargo.lock`, `DeployerX DB
+Manager/package.json`, and `DeployerX DB Manager/pnpm-lock.yaml`. The generated
+inventories are distributed in the packaged companion as
+`licenses/dependencies/db-access-manager-rust.json` and
+`licenses/dependencies/db-access-manager-frontend.json`, together with every
+content-addressed license file they reference. Development-only frontend
+dependencies are excluded; production workspace links, transitive packages,
+and optional runtime dependencies are included.
+
+Legal acceptance is distributed in the packaged companion as
+`licenses/dependencies/db-access-manager-review.json`. The approval is bound to
+the exact companion source revision, Cargo lock, pnpm lock, companion package
+manifest, production workspace manifests, both inventories, this notice, the
+upstream license, every referenced license file, package counts, and accepted
+license-expression set. Companion preparation and validation fail when an
+inventory, referenced license file, or approval is missing, changed,
+incomplete, unlocked, or stale. Releases are rejected until the exact human
+approval required by the dependency-license gate is present.
+
+### Built-In Database Driver Host
+
+Portions of the DeployerX Database Manager built-in driver host are derived from or informed by the reviewed Tabularis source. This host remains a separate DeployerX implementation behind the existing Electron renderer and design system. DeployerX keeps its own navigation, profile storage, IPC, query workspace, schema tools, result grid, notebooks, tasks, and logs.
 
 The exact reviewed upstream paths and DeployerX file inventory are maintained in `native/deployerx-db-host/UPSTREAM.md`.
 

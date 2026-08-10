@@ -62,6 +62,9 @@ test('registers the workspace Uptime IPC and isolated preload surface', async ()
   assert.equal(mainSource.includes('async function applyUptimeServerLinkHierarchy(payload, current = null)'), true, 'main process derives monitor hierarchy from Server Link');
   assert.equal(mainSource.includes("payload.parentGroup = String(project.name || '').trim() || 'Untitled Server';"), true, 'linked server name replaces manual parent metadata');
   assert.equal(mainSource.includes('await applyUptimeServerLinkHierarchy(payload, current);'), true, 'server hierarchy is enforced before monitor persistence');
+  assert.match(mainSource, /uptime:monitors:create[\s\S]*await executeUptimeMonitorCheck\([\s\S]*monitor = transition\.monitor;/, 'new enabled monitors return their first persisted health result');
+  assert.match(mainSource, /uptime:monitors:run-now[\s\S]*await executeUptimeMonitorCheck\([\s\S]*completed: true/, 'Run now completes and persists a check without depending on the detached worker');
+  assert.match(mainSource, /uptime:monitors:update[\s\S]*monitor\.state === 'enabled'[\s\S]*maybeStartDetachedUptimeWorker/, 'enabling a monitor starts the detached worker');
 });
 
 test('starts the durable worker control plane and routes notification clicks to Uptime', async () => {
@@ -76,6 +79,7 @@ test('starts the durable worker control plane and routes notification clicks to 
   assert.equal(mainSource.includes('tray.displayBalloon('), false);
   assert.equal(mainSource.includes('const child = execFile(process.execPath, buildWorkerArgs()'), true);
   assert.equal(mainSource.includes('child.unref()'), true);
+  assert.equal(mainSource.includes('isWorkerLockLeaseActive(existing'), true, 'worker ownership uses a renewable lease instead of PID existence alone');
 });
 
 test('keeps one interactive desktop instance and restores it on repeated launches', async () => {

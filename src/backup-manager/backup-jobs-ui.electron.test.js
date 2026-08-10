@@ -135,18 +135,18 @@ async function measureEmptyJobs(window) {
   })()`);
 }
 
-async function completeToReview(window) {
+async function completeToProtection(window) {
   return window.webContents.executeJavaScript(`(async () => {
     await openBackupJobModal();
+    const defaultDestinationSelected = state.backupJobWizard.repositoryIds.length === 1
+      && state.backupJobWizard.repositoryIds[0] === 'repo_primary'
+      && document.querySelector('[data-backup-job-repository][value="repo_primary"]').checked;
     advanceBackupJobStep();
     const emptyBlocked = !document.getElementById('backupJobError').classList.contains('hidden') && state.backupJobWizard.step === 0;
     document.getElementById('backupJobName').value = 'Production application protection';
     advanceBackupJobStep();
-    document.querySelector('[data-backup-job-source][value="src_ready"]').checked = true;
-    advanceBackupJobStep();
     document.querySelector('[data-backup-job-repository][value="repo_primary"]').checked = true;
     document.querySelector('[data-backup-job-repository][value="repo_copy"]').checked = true;
-    advanceBackupJobStep();
     document.querySelector('input[name="backupJobMode"][value="incremental"]').checked = true;
     document.getElementById('backupJobKeepLast').value = '14';
     document.getElementById('backupJobKeepHourly').value = '24';
@@ -194,7 +194,6 @@ async function completeToReview(window) {
     const maintenanceVisible = !document.getElementById('backupJobMaintenanceFields').classList.contains('hidden');
     const blackoutVisible = !document.getElementById('backupJobBlackoutFields').classList.contains('hidden');
     const bandwidthVisible = !document.getElementById('backupJobBandwidthWindowFields').classList.contains('hidden');
-    advanceBackupJobStep();
     return {
       emptyBlocked,
       step: state.backupJobWizard.step,
@@ -205,10 +204,13 @@ async function completeToReview(window) {
       maintenanceVisible,
       blackoutVisible,
       bandwidthVisible,
-      disabledSource: document.querySelector('[data-backup-job-source][value="src_blocked"]').disabled,
+      defaultSourceSelected: state.backupJobWizard.sourceId === 'src_ready',
+      defaultDestinationSelected,
+      singleSourceSummary: document.querySelectorAll('#backupJobSources [data-backup-job-source]').length === 1,
+      sourceRadioAbsent: !document.querySelector('#backupJobSources input[type="radio"]'),
       disabledRepository: document.querySelector('[data-backup-job-repository][value="repo_blocked"]').disabled,
-      reviewText: document.getElementById('backupJobReview').innerText,
-      readinessText: document.getElementById('backupJobReadiness').innerText
+      protectionText: document.querySelector('[data-backup-job-step="1"]').innerText,
+      destinationText: document.getElementById('backupJobRepositories').innerText
     };
   })()`);
 }
@@ -274,7 +276,7 @@ app.whenReady().then(async () => {
     const emptyDesktop = await measureEmptyJobs(window);
     const emptyDesktopPath = path.join(captureRoot, 'backup-jobs-empty-desktop.png');
     await fs.writeFile(emptyDesktopPath, (await window.webContents.capturePage()).toPNG());
-    const review = await completeToReview(window);
+    const review = await completeToProtection(window);
     window.setSize(1279, 800);
     window.setSize(1280, 800);
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -291,8 +293,8 @@ app.whenReady().then(async () => {
     await fs.writeFile(mobilePath, (await window.webContents.capturePage()).toPNG());
 
     const weeklyMobile = await window.webContents.executeJavaScript(`(() => {
-      state.backupJobWizard.step = 3;
-      renderBackupJobStep();
+      state.backupJobWizard.step = 1;
+      renderBackupJobForm();
       const type = document.getElementById('backupJobScheduleType');
       type.value = 'weekly';
       syncBackupJobScheduleFields();
@@ -324,8 +326,8 @@ app.whenReady().then(async () => {
       document.getElementById('backupJobScheduleType').value = 'daily';
       document.getElementById('backupJobDailyTime').value = '01:30';
       syncBackupJobScheduleFields();
-      state.backupJobWizard.step = 4;
-      renderBackupJobStep();
+      state.backupJobWizard.step = 1;
+      renderBackupJobForm();
     `);
 
     const submitted = await window.webContents.executeJavaScript(`(async () => {
@@ -429,13 +431,12 @@ app.whenReady().then(async () => {
       && emptyDesktop.empty.height >= emptyDesktop.panel.height - emptyDesktop.heading.height - 1
       && emptyDesktop.panel.bottom <= emptyDesktop.content.bottom + 1
       && emptyDesktop.empty.height >= 360
-      && review.emptyBlocked && review.step === 4 && review.disabledSource && review.disabledRepository
-      && review.reviewText.includes('Production application protection') && review.reviewText.includes('Primary local archive, Offsite object archive')
-      && review.reviewText.includes('Incremental, keep 14 recovery points') && review.reviewText.includes('Daily at 01:30 America/New_York')
-      && review.reviewText.includes('Retain last 14, 24 hourly, 14 daily, 8 weekly, 12 monthly, 7 yearly (America/New_York)')
-      && review.reviewText.includes('high priority, 5 attempts, linear backoff') && review.reviewText.includes('2 MiB/s default, weekly limit enabled')
-      && review.reviewText.includes('run latest, 20m grace - maintenance window - blackout')
-      && review.readinessText.includes('2 repositories are ready') && review.scheduleTypeCount === 7 && review.weeklyVisible
+      && review.emptyBlocked && review.step === 1 && review.defaultSourceSelected && review.defaultDestinationSelected && review.singleSourceSummary && review.sourceRadioAbsent && review.disabledRepository
+      && review.protectionText.includes('Backup Mode') && review.protectionText.includes('Calendar Retention')
+      && review.protectionText.includes('Automatic Retries') && review.protectionText.includes('Transfer Bandwidth')
+      && review.protectionText.includes('Schedule')
+      && review.destinationText.includes('Primary local archive') && review.destinationText.includes('Offsite object archive')
+      && review.scheduleTypeCount === 7 && review.weeklyVisible
       && review.timezoneCount > 100 && review.dstVisible && review.maintenanceVisible && review.blackoutVisible && review.bandwidthVisible
       && modalFits(desktop) && modalFits(mobile)
       && weeklyMobile.visible && weeklyMobile.weekdayCount === 7 && weeklyMobile.maintenanceDayCount === 7 && weeklyMobile.bandwidthDayCount === 7 && weeklyMobile.dstVisible && !weeklyMobile.overflow

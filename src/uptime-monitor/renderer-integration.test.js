@@ -23,6 +23,7 @@ test('renders the five-section Uptime operations shell and guided editor', async
   assert.equal(detailLayout.includes('padding-top'), false, 'monitor detail uses the panel top spacing only');
   assert.match(styles, /\.uptime-monitor-detail \.uptime-monitor-actions \.button \{\s+height: 32px;\s+min-height: 32px;/, 'monitor detail actions share one control height');
   assert.equal(html.includes('id="uptimeDeleteMonitorButton" class="button outline danger compact icon-only"'), true, 'Delete uses the same outlined icon-button frame');
+  assert.equal(html.includes('id="uptimeToggleMonitorButton"'), false, 'detail actions use one Run Now/Pause control');
   for (const id of ['uptimeMonitorTableCard', 'uptimeMonitorFilterButton', 'uptimeMonitorFilterPanel', 'uptimeClearFiltersButton']) assert.equal(html.includes(`id="${id}"`), true, `${id} table control`);
   for (const id of ['uptimeStateFilterDropdown', 'uptimeTypeFilterDropdown', 'uptimeSortFilterDropdown']) assert.equal(html.includes(`id="${id}" class="top-workspace-switcher uptime-filter-select"`), true, `${id} shared dropdown component`);
   const monitorPanel = html.slice(html.indexOf('data-uptime-panel="monitors"'), html.indexOf('data-uptime-panel="incidents"'));
@@ -37,6 +38,8 @@ test('renders the five-section Uptime operations shell and guided editor', async
   assert.equal(editor.includes('JSON object'), false);
   assert.equal(editor.includes('JSON array'), false);
   assert.equal(editor.includes('id="uptimeMonitorTestButton"'), true);
+  assert.match(editor, /id="uptimeLatencyWarning"[^>]*value="150"/);
+  assert.match(editor, /id="uptimeLatencyCritical"[^>]*value="500"/);
   assert.equal(editor.includes('class="field-grid uptime-http-request-grid"'), true, 'HTTP request controls use their dedicated responsive grid');
   assert.equal(editor.includes('id="uptimeMonitorParentGroup"'), false, 'parent grouping is derived from Server Link');
   assert.equal(editor.indexOf('id="uptimeMonitorProject"') < editor.indexOf('id="uptimeMonitorGroup"'), true, 'Server Link precedes its monitor subgroup');
@@ -45,6 +48,7 @@ test('renders the five-section Uptime operations shell and guided editor', async
   assert.match(styles, /\.uptime-http-request-grid \{\s+grid-template-columns: minmax\(0, 1fr\) minmax\(200px, 220px\);/, 'redirect selector has a stable wide column');
   assert.match(styles, /\.uptime-report-kpis \{[\s\S]*?grid-auto-rows: 34px;/, 'report KPIs match the compact action height');
   assert.match(styles, /\.uptime-report-kpis > div \{\s+display: flex;[\s\S]*?justify-content: space-between;/, 'report KPI labels and values use opposite alignment');
+  assert.match(styles, /\.uptime-fleet-list,\s+\.uptime-timeline \{\s+align-content: start;\s+grid-auto-rows: minmax\(54px, auto\);/, 'overview activity rows stay aligned to the top of tall cards');
   assert.equal(html.includes('data-settings-tab="notifications"'), true);
   assert.equal(html.includes('data-settings-tab="monitoring"'), true);
 });
@@ -71,8 +75,18 @@ test('binds V2 Uptime renderer actions without requiring legacy server selection
   assert.equal(source.includes('els.uptimeMonitorFilterPanel.contains(event.target)'), true, 'outside-click filter dismissal');
   assert.equal(source.includes('function renderUptimeMonitorFilterDropdown(config)'), true, 'shared custom filter dropdown rendering');
   assert.equal(source.includes('function filteredUptimeIncidents()'), true, 'incident table search and filter projection');
+  assert.equal(source.includes('function currentUptimeIncidents()'), true, 'operational views exclude incidents belonging to deleted monitors');
+  assert.match(source, /function renderUptimeOverview\(\)[\s\S]*const incidents = currentUptimeIncidents\(\);[\s\S]*uptimeRecentIncidentList\.innerHTML = incidents\.length/);
+  assert.match(source, /function loadUptimeOverviewReport\(\)[\s\S]*includeDeleted: false[\s\S]*renderUptimeOverview\(\)/);
+  assert.match(source, /deleteSelectedUptimeMonitor\(\)[\s\S]*state\.uptime\.overviewReport = null;[\s\S]*state\.uptime\.report = null;[\s\S]*refreshUptimeProjectState/);
   assert.equal(source.includes("uptimeClearFiltersButton.addEventListener('click'"), true, 'monitor filter reset action');
   assert.equal(source.includes('function uptimeServerLinkValue(monitor = {})'), true, 'linked server identity provides the parent hierarchy key');
   assert.equal(source.includes('function uptimeGroupHierarchyKey(monitor = {})'), true, 'monitor subgroup is nested beneath the server link');
+  assert.equal(source.includes('monitor.alertPolicy?.latencyWarningMs ?? 150'), true, 'new monitor warning latency default');
+  assert.equal(source.includes('monitor.alertPolicy?.latencyCriticalMs ?? 500'), true, 'new monitor critical latency default');
   assert.equal(source.includes("const parentGroup = projectId ? String(linkedProject?.name || existing?.parentGroup || '').trim() : '';"), true, 'saved compatibility metadata mirrors the linked server name');
+  assert.match(source, /runUptimeMonitorNow\(runButton\.dataset\.uptimeRunMonitor\);\s+await refreshUptimeProjectState/, 'table Run now refreshes after the completed check');
+  assert.match(source, /runUptimeMonitorNow\(monitor\.id\);\s+state\.uptime\.runningMonitorIds\.add\(monitor\.id\);\s+await refreshUptimeProjectState/, 'detail Run now converts to Pause after the completed check');
+  assert.equal(source.includes("querySelector('span').textContent = running ? 'Pause' : 'Run Now'"), true, 'primary detail action renders the current Run Now/Pause state');
+  assert.equal(source.includes("state: 'paused', nextCheckAt: null"), true, 'converted Pause action pauses future checks');
 });

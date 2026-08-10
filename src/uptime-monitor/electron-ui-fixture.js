@@ -150,6 +150,7 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
     const maintenanceTableCard = document.querySelector('[data-uptime-panel="maintenance"] .uptime-maintenance-card');
     const overviewPanel = document.querySelector('[data-uptime-panel="overview"]');
     const overviewGrid = overviewPanel.querySelector('.uptime-overview-grid');
+    const fleetRows = [...overviewPanel.querySelectorAll('.uptime-fleet-row')];
     const cards = [...document.querySelectorAll('[data-uptime-panel="${panel}"] .uptime-summary-card, [data-uptime-panel="${panel}"] .uptime-report-kpis > div')].filter(visible);
     const cardOverlap = cards.some((card, index) => cards.slice(index + 1).some((other) => overlaps(card, other)));
     const clippedText = [...document.querySelectorAll('[data-uptime-panel="${panel}"] h2, [data-uptime-panel="${panel}"] h3, [data-uptime-panel="${panel}"] .button')]
@@ -182,7 +183,7 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
       monitorFilterUsesNativeSelects: '${panel}' === 'monitors' && ${filtersOpen} && (monitorFilterSelects.some(visible) || monitorFilterSelectTriggers.length !== 4 || monitorFilterSelectTriggers.some((trigger) => !visible(trigger))),
       monitorFilterSelectMenuStateWrong: '${panel}' === 'monitors' && visible(monitorStateFilterMenu) !== ${filterSelectOpen},
       monitorFilterSelectStackingWrong: '${panel}' === 'monitors' && ${filterSelectOpen} && Number(getComputedStyle(monitorStateFilterDropdown).zIndex) < 2,
-      monitorDetailActionHeightMismatch: ${monitorDetail} && (monitorDetailActionHeights.length !== 4 || new Set(monitorDetailActionHeights).size !== 1 || monitorDetailActionHeights[0] !== 32),
+      monitorDetailActionHeightMismatch: ${monitorDetail} && (monitorDetailActionHeights.length !== 3 || new Set(monitorDetailActionHeights).size !== 1 || monitorDetailActionHeights[0] !== 32),
       monitorDetailIconWidthMismatch: ${monitorDetail} && (monitorDetailIconWidths.length !== 2 || new Set(monitorDetailIconWidths).size !== 1 || monitorDetailIconWidths[0] !== 32),
       monitorDetailDeleteNotOutlined: ${monitorDetail} && !monitorDetailDeleteButton.classList.contains('outline'),
       incidentTableVisible: '${panel}' !== 'incidents' || visible(incidentTableWrap),
@@ -196,6 +197,7 @@ function measurementScript(panel, filtersOpen = false, filterSelectOpen = false,
       incidentFilterUsesNativeSelect: '${panel}' === 'incidents' && ${incidentFiltersOpen} && (visible(incidentStateSelect) || !visible(incidentStateTrigger)),
       maintenanceTableTooShort: '${panel}' === 'maintenance' && maintenanceTableCard.getBoundingClientRect().height < 360,
       overviewBottomGapTooLarge: '${panel}' === 'overview' && overviewPanel.getBoundingClientRect().bottom - overviewGrid.getBoundingClientRect().bottom > 26,
+      fleetRowsStretched: '${panel}' === 'overview' && fleetRows.some((row) => row.getBoundingClientRect().height > 80),
       cardOverlap,
       clippedText
     };

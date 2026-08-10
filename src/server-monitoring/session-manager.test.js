@@ -42,3 +42,17 @@ test('starts, samples, pauses, and stops a monitoring session', async () => {
   assert.equal(manager.stop('session-1'), true);
   assert.equal(manager.sessions.size, 0);
 });
+
+test('borrows an existing terminal SSH client without connecting or closing it', async () => {
+  const events = [];
+  const connection = new FakeClient();
+  let ended = false;
+  connection.end = () => { ended = true; };
+  const manager = new ServerMonitoringSessionManager({ emit: (event) => events.push(event), pollIntervalMs: 60000 });
+  manager.start({ sessionId: 'shared-monitor', projectId: 'project-1', connection });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(events.some((event) => event.type === 'sample' && event.sample.system.hostname === 'test-host'));
+  assert.equal(manager.stop('shared-monitor'), true);
+  assert.equal(ended, false);
+});

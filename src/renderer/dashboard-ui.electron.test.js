@@ -17,8 +17,11 @@ async function prepare(window) {
       { id: 'server-1', name: 'API edge', group: 'Production', serverType: 'ubuntu', ssh: { host: 'api.example.com', username: 'root', port: 22 }, ftp: {}, commands: [], uptimeMonitors: [] },
       { id: 'server-2', name: 'Worker east', group: 'Production', serverType: 'ubuntu', ssh: { host: 'worker.example.com', username: 'root', port: 22 }, ftp: {}, commands: [], uptimeMonitors: [] }
     ];
+    state.featureFlags.databaseManager = true;
+    syncDatabaseManagerFeatureVisibility();
     state.terminalSessions = { 'server-1': { sessionId: 'ssh-1', connected: true } };
     state.terminalSessionProjectIds = { 'ssh-1': 'server-1' };
+    window.__dashboardCalls = { listDatabaseProfiles: 0, listDatabaseConnectionStatuses: 0 };
     Object.defineProperty(window, 'deployerx', { configurable: true, value: {
       listUptimeMonitors: async () => [
         { id: 'monitor-api', name: 'API health', state: 'enabled', runtime: { status: 'down' } },
@@ -32,8 +35,14 @@ async function prepare(window) {
         { id: 'backup-run-success', jobId: 'backup-job', state: 'succeeded', createdAt: '2026-08-05T10:05:00.000Z', completedAt: '2026-08-05T10:22:00.000Z' }
       ],
       getBackupWorkerStatus: async () => ({ online: true, nextRunAt: '2026-08-06T11:00:00.000Z' }),
-      listDatabaseProfiles: async () => [{ id: 'db-prod', name: 'Production PostgreSQL', driverId: 'postgresql' }, { id: 'db-reporting', name: 'Reporting replica', driverId: 'mysql' }],
-      listDatabaseConnectionStatuses: async () => [{ profileId: 'db-prod', state: 'ready' }, { profileId: 'db-reporting', state: 'failed' }]
+      listDatabaseProfiles: async () => {
+        window.__dashboardCalls.listDatabaseProfiles += 1;
+        return [{ id: 'db-prod', name: 'Production PostgreSQL', driverId: 'postgresql' }, { id: 'db-reporting', name: 'Reporting replica', driverId: 'mysql' }];
+      },
+      listDatabaseConnectionStatuses: async () => {
+        window.__dashboardCalls.listDatabaseConnectionStatuses += 1;
+        return [{ profileId: 'db-prod', state: 'ready' }, { profileId: 'db-reporting', state: 'failed' }];
+      }
     }});
     true;
   `);
@@ -70,7 +79,10 @@ app.whenReady().then(async () => {
       uptime: document.getElementById('dashboardUptimeAlerts').innerText,
       backup: document.getElementById('dashboardBackupStatus').innerText,
       database: document.getElementById('dashboardDatabaseStatus').innerText,
-      cards: document.querySelectorAll('.dashboard-operations-panel').length
+      cards: document.querySelectorAll('.dashboard-operations-panel').length,
+      databaseSurfacesAvailable: !document.getElementById('topDatabasesButton').hidden
+        && document.querySelector('[data-settings-tab="database"]').hidden
+        && !document.querySelector('[data-settings-panel="database"]').hidden
     })`);
     const desktop = await measure(window);
     const desktopPath = path.join(captureRoot, 'dashboard-desktop.png');
@@ -87,6 +99,48 @@ app.whenReady().then(async () => {
       return { uptime, backup, databaseView: state.currentView };
     })()`);
 
+    const hiddenDatabase = await window.webContents.executeJavaScript(`(async () => {
+      const before = { ...window.__dashboardCalls };
+      state.featureFlags.databaseManager = false;
+      syncDatabaseManagerFeatureVisibility();
+      showView('database');
+      const blockedDatabaseView = state.currentView;
+      setSettingsTab('database');
+      const blockedDatabaseSettings = state.settingsTab;
+      showView('dashboard');
+      await refreshDashboardOperations();
+      renderProjects();
+      return {
+        before,
+        after: { ...window.__dashboardCalls },
+        stats: document.getElementById('dashboardStatsGrid').innerText,
+        database: document.getElementById('dashboardDatabaseStatus').innerText,
+        cards: document.querySelectorAll('.dashboard-operations-panel:not(.hidden)').length,
+        databasePanelHidden: document.querySelector('.dashboard-database-panel')?.classList.contains('hidden'),
+        topNavigationHidden: document.getElementById('topDatabasesButton').hidden,
+        settingsNavigationHidden: document.querySelector('[data-settings-tab="database"]').hidden,
+        settingsPanelHidden: document.querySelector('[data-settings-panel="database"]').hidden,
+        blockedDatabaseView,
+        blockedDatabaseSettings,
+        layout: (() => {
+          const grid = document.querySelector('.dashboard-operations-grid');
+          const gridRect = grid.getBoundingClientRect();
+          const visibleCards = [...grid.querySelectorAll('.dashboard-operations-panel:not(.hidden)')].map((card) => card.getBoundingClientRect());
+          const statsGrid = document.getElementById('dashboardStatsGrid');
+          const statsRect = statsGrid.getBoundingClientRect();
+          const statCards = [...statsGrid.querySelectorAll('.dashboard-stat-card')].map((card) => card.getBoundingClientRect());
+          return {
+            databaseHiddenClass: grid.classList.contains('database-hidden'),
+            cardWidths: visibleCards.map((card) => card.width),
+            rightGap: gridRect.right - visibleCards.at(-1).right,
+            statsDatabaseHiddenClass: statsGrid.classList.contains('database-hidden'),
+            statWidths: statCards.map((card) => card.width),
+            statsRightGap: statsRect.right - statCards.at(-1).right
+          };
+        })()
+      };
+    })()`);
+
     await window.webContents.executeJavaScript(`showView('dashboard')`);
     window.setSize(390, 844);
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -94,16 +148,41 @@ app.whenReady().then(async () => {
     const mobilePath = path.join(captureRoot, 'dashboard-mobile.png');
     await fs.writeFile(mobilePath, (await window.webContents.capturePage()).toPNG());
 
-    const valid = text.cards === 3
-      && text.stats.includes('UPTIME ALERTS') && text.stats.includes('ACTIVE BACKUPS') && text.stats.includes('DATABASES')
-      && text.uptime.includes('API health') && text.uptime.includes('HTTP 503 from upstream')
-      && text.backup.includes('1 backup in progress') && text.backup.includes('Nightly production')
-      && text.database.includes('1 of 2 profiles connected') && text.database.includes('Connection failed')
+    const normalizedText = {
+      stats: text.stats.toLowerCase(),
+      uptime: text.uptime.toLowerCase(),
+      backup: text.backup.toLowerCase(),
+      database: text.database.toLowerCase(),
+      hiddenStats: hiddenDatabase.stats.toLowerCase()
+    };
+    const valid = text.cards === 3 && text.databaseSurfacesAvailable
+      && normalizedText.stats.includes('uptime alerts') && normalizedText.stats.includes('active backups') && normalizedText.stats.includes('databases')
+      && normalizedText.uptime.includes('api health') && normalizedText.uptime.includes('http 503 from upstream')
+      && normalizedText.backup.includes('1 backup in progress') && normalizedText.backup.includes('nightly production')
+      && normalizedText.database.includes('1 of 2 profiles connected') && normalizedText.database.includes('connection failed')
       && navigation.uptime.view === 'uptime' && navigation.uptime.tab === 'incidents'
       && navigation.backup.view === 'backup' && navigation.backup.tab === 'jobs'
       && navigation.databaseView === 'database'
+      && hiddenDatabase.cards === 2
+      && hiddenDatabase.databasePanelHidden === true
+      && hiddenDatabase.topNavigationHidden === true
+      && hiddenDatabase.settingsNavigationHidden === true
+      && hiddenDatabase.settingsPanelHidden === true
+      && hiddenDatabase.blockedDatabaseView === 'dashboard'
+      && hiddenDatabase.blockedDatabaseSettings === 'workspace'
+      && hiddenDatabase.layout.databaseHiddenClass === true
+      && Math.abs(hiddenDatabase.layout.cardWidths[0] - hiddenDatabase.layout.cardWidths[1]) <= 1
+      && hiddenDatabase.layout.rightGap <= 1
+      && hiddenDatabase.layout.statsDatabaseHiddenClass === true
+      && hiddenDatabase.layout.statWidths.length === 5
+      && hiddenDatabase.layout.statWidths.every((width) => Math.abs(width - hiddenDatabase.layout.statWidths[0]) <= 1)
+      && hiddenDatabase.layout.statsRightGap <= 1
+      && !normalizedText.hiddenStats.includes('databases')
+      && hiddenDatabase.database === ''
+      && hiddenDatabase.after.listDatabaseProfiles === hiddenDatabase.before.listDatabaseProfiles
+      && hiddenDatabase.after.listDatabaseConnectionStatuses === hiddenDatabase.before.listDatabaseConnectionStatuses
       && [desktop, mobile].every((result) => !result.overflow && result.cards.every((card) => card.left >= 0 && card.right <= result.viewport.width + 1));
-    process.stdout.write(`${JSON.stringify({ ok: valid, text, navigation, desktop, mobile, screenshots: { desktopPath, mobilePath } })}\n`);
+    process.stdout.write(`${JSON.stringify({ ok: valid, text, navigation, hiddenDatabase, desktop, mobile, screenshots: { desktopPath, mobilePath } })}\n`);
     if (!valid) process.exitCode = 1;
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);

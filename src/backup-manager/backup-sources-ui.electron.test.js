@@ -54,8 +54,11 @@ async function prepareSources(window) {
 }
 
 async function measure(window) {
-  return window.webContents.executeJavaScript(`(() => {
-    if (document.getElementById('backupSourceAddButton').getAttribute('aria-expanded') !== 'true') openBackupSourceAddMenu();
+  return window.webContents.executeJavaScript(`(async () => {
+    if (document.getElementById('backupSourceAddButton').getAttribute('aria-expanded') !== 'true') {
+      openBackupSourceAddMenu();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
     const panel = document.getElementById('backupPanelSources').getBoundingClientRect();
     const heading = document.querySelector('#backupPanelSources .backup-panel-heading').getBoundingClientRect();
     const trigger = document.getElementById('backupSourceAddButton').getBoundingClientRect();
@@ -70,7 +73,8 @@ async function measure(window) {
       const rect = row.getBoundingClientRect();
       return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
     });
-    const visibleText = document.body.innerText.includes('Production application server') && document.body.innerText.includes('Needs attention') && document.body.innerText.includes('Production MySQL');
+    const visibleBodyText = document.body.innerText.toLowerCase();
+    const visibleText = visibleBodyText.includes('production application server') && visibleBodyText.includes('needs attention') && visibleBodyText.includes('production mysql');
     return {
       viewport: { width: innerWidth, height: innerHeight }, panel: { left: panel.left, right: panel.right },
       heading: { left: heading.left, right: heading.right, height: heading.height },
@@ -122,10 +126,18 @@ app.whenReady().then(async () => {
         card: { left: card.left, right: card.right, top: card.top, bottom: card.bottom },
         menu: { left: menu.left, right: menu.right, top: menu.top, bottom: menu.bottom },
         menuOpen: !document.getElementById('backupSourceAddMenu').classList.contains('hidden'),
-        menuInsideJob: document.getElementById('backupSourceAddMenu').parentElement === document.getElementById('backupJobAddSourceDropdown'),
+        menuInsideJob: document.getElementById('backupSourceAddMenu').parentElement === document.getElementById('backupJobSourcePickerBody'),
         triggerExpanded: document.getElementById('backupJobAddSourceButton').getAttribute('aria-expanded') === 'true',
         localSourceAvailable: !document.getElementById('backupAddLocalConnectionButton').disabled,
-        oldActionsRemoved: !document.getElementById('backupJobCreateFileSourceButton') && !document.getElementById('backupJobCreateOtherSourceButton')
+        oldActionsRemoved: !document.getElementById('backupJobCreateFileSourceButton') && !document.getElementById('backupJobCreateOtherSourceButton'),
+        titleCase: {
+          modal: document.getElementById('backupJobModalTitle').textContent.trim(),
+          name: document.querySelector('[data-backup-job-step="0"] h3').textContent.trim(),
+          source: document.querySelectorAll('[data-backup-job-step="0"] h3')[1].textContent.trim(),
+          destination: document.querySelectorAll('[data-backup-job-step="0"] h3')[2].textContent.trim(),
+          addSource: document.getElementById('backupJobAddSourceButton').textContent.trim(),
+          picker: document.getElementById('backupJobSourcePickerTitle').textContent.trim()
+        }
       };
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -140,6 +152,64 @@ app.whenReady().then(async () => {
         mysqlModalOpen: !document.getElementById('backupMysqlModal').classList.contains('hidden')
       };
       document.getElementById('backupMysqlModal').classList.add('hidden');
+      const refreshedReadiness = {
+        sources: [{ id: 'source_new', name: 'New Source', sourceType: 'database', connectionName: 'Production MySQL', adapterId: 'deployerx.database.mysql.native', selection: { allDatabases: true }, readiness: { ready: true, message: 'Ready' } }],
+        repositories: []
+      };
+      selectNewBackupJobSource(refreshedReadiness);
+      state.backupJobWizard.readiness = refreshedReadiness;
+      renderBackupJobChoices();
+      result.newSourceSelected = state.backupJobWizard.sourceId === 'source_new'
+        && document.querySelector('[data-backup-job-source]')?.dataset.backupJobSource === 'source_new'
+        && !document.querySelector('#backupJobSources input[type="radio"]');
+      const blockedSource = { id: 'source_blocked', name: 'Blocked Source', sourceType: 'file', connectionName: 'Offline server', rootCount: 1, readiness: { ready: false, message: 'Unavailable' } };
+      const defaultSource = { id: 'source_default', name: 'Default Source', sourceType: 'file', connectionName: 'Ready server', rootCount: 1, readiness: { ready: true, message: 'Ready' } };
+      state.backupJobWizard = { ...blankBackupJobWizard(), draftActive: true, readiness: { sources: [blockedSource, defaultSource], repositories: [] } };
+      renderBackupJobChoices();
+      result.defaultSourceSelected = state.backupJobWizard.sourceId === defaultSource.id
+        && document.querySelectorAll('#backupJobSources [data-backup-job-source]').length === 1
+        && document.querySelector('[data-backup-job-source]')?.dataset.backupJobSource === defaultSource.id
+        && !document.querySelector('#backupJobSources input[type="radio"]');
+      const oldRepository = { id: 'repository_old', name: 'Original Destination', adapterId: 'deployerx.repository.local-folder', location: { path: 'D:\\Backups' }, readiness: { ready: true, message: 'Ready' } };
+      const newRepository = { id: 'repository_new', name: 'New Destination', adapterId: 'deployerx.repository.s3', location: { bucket: 'new-backups', prefix: '' }, readiness: { ready: true, message: 'Ready' } };
+      state.backupJobWizard.readiness.repositories = [oldRepository];
+      selectDefaultBackupJobRepository();
+      renderBackupJobChoices();
+      result.defaultDestinationSelected = state.backupJobWizard.repositoryIds.length === 1
+        && state.backupJobWizard.repositoryIds[0] === oldRepository.id
+        && document.querySelector('[data-backup-job-repository]')?.checked;
+      state.backupJobWizard.repositoryIdsBeforeDependency = [oldRepository.id];
+      selectNewBackupJobRepository({ sources: [], repositories: [oldRepository, newRepository] });
+      result.newDestinationSelected = state.backupJobWizard.repositoryIds.includes(oldRepository.id)
+        && state.backupJobWizard.repositoryIds.includes(newRepository.id);
+      const oldSource = { id: 'source_old', name: 'Original Source', sourceType: 'file', connectionName: 'This computer', rootCount: 1, readiness: { ready: true, message: 'Ready' } };
+      const savedSource = { id: 'source_saved', name: 'Saved Source', sourceType: 'file', connectionName: 'Saved server', rootCount: 2, readiness: { ready: true, message: 'Ready' } };
+      state.backupJobWizard = { ...blankBackupJobWizard(), draftActive: true, sourceId: oldSource.id, readiness: { sources: [oldSource, savedSource], repositories: [] } };
+      renderBackupJobChoices();
+      document.getElementById('backupJobModal').classList.remove('hidden');
+      const replaceButton = document.getElementById('backupJobReplaceSourceButton');
+      const replaceBounds = replaceButton.getBoundingClientRect();
+      const sourceSectionBounds = replaceButton.closest('.backup-job-resource-section').getBoundingClientRect();
+      result.replaceActionVisible = !replaceButton.classList.contains('hidden');
+      result.replaceActionFits = replaceBounds.left >= sourceSectionBounds.left && replaceBounds.right <= sourceSectionBounds.right;
+      replaceButton.click();
+      result.replacePickerOpen = !document.getElementById('backupJobSourcePicker').classList.contains('hidden')
+        && document.getElementById('backupJobSourcePickerTitle').textContent.trim() === 'Replace Backup Source';
+      result.savedSourcesVisible = document.querySelectorAll('[data-backup-job-saved-source]').length === 2;
+      document.querySelector('[data-backup-job-saved-source="source_saved"]').click();
+      result.savedSourceSelected = state.backupJobWizard.sourceId === savedSource.id
+        && document.getElementById('backupJobSourcePicker').classList.contains('hidden')
+        && document.querySelector('[data-backup-job-source]')?.dataset.backupJobSource === savedSource.id;
+      replaceButton.click();
+      document.getElementById('backupAddMysqlConnectionButton').click();
+      document.getElementById('backupMysqlModal').classList.add('hidden');
+      const replacement = { id: 'source_replacement', name: 'Replacement Source', sourceType: 'database', connectionName: 'Replacement MySQL', adapterId: 'deployerx.database.mysql.native', selection: { allDatabases: true }, readiness: { ready: true, message: 'Ready' } };
+      const replacementReadiness = { sources: [oldSource, savedSource, replacement], repositories: [] };
+      selectNewBackupJobSource(replacementReadiness);
+      state.backupJobWizard.readiness = replacementReadiness;
+      renderBackupJobChoices();
+      result.replacementSelected = state.backupJobWizard.sourceId === replacement.id
+        && document.querySelector('[data-backup-job-source]')?.dataset.backupJobSource === replacement.id;
       state.backupJobWizard = blankBackupJobWizard();
       return result;
     })()`);
@@ -244,7 +314,7 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     const mysqlPath = path.join(captureRoot, 'mysql-modal-mobile.png');
     await fs.writeFile(mysqlPath, (await window.webContents.capturePage()).toPNG());
-    const expectedSourceOptions = ['This computer', 'Linux server', 'MySQL', 'MariaDB', 'PostgreSQL / Supabase', 'MongoDB', 'ClickHouse', 'Redis', 'SQLite'];
+    const expectedSourceOptions = ['This Computer', 'Linux Server', 'MySQL', 'MariaDB', 'PostgreSQL / Supabase', 'MongoDB', 'ClickHouse', 'Redis', 'SQLite'];
     const valid = [desktop, mobile].every((result) => result.visibleText && result.menuOpen && !result.toastVisible && !result.horizontalOverflow
       && result.menu.left >= 0 && result.menu.right <= result.viewport.width + 1 && result.menu.bottom <= result.viewport.height + 1
       && result.trigger.left >= result.panel.left && result.trigger.right <= result.panel.right + 1
@@ -255,7 +325,9 @@ app.whenReady().then(async () => {
       && jobPicker.menuOpen && jobPicker.menuInsideJob && jobPicker.triggerExpanded && jobPicker.localSourceAvailable && jobPicker.oldActionsRemoved
       && jobPicker.menu.left >= jobPicker.card.left && jobPicker.menu.right <= jobPicker.card.right + 1
       && jobPicker.menu.top >= jobPicker.card.top && jobPicker.menu.bottom <= jobPicker.card.bottom + 1
-      && jobPickerAction.menuClosed && jobPickerAction.jobSuspended && jobPickerAction.dependency === 'source-creator' && jobPickerAction.mysqlModalOpen
+      && JSON.stringify(jobPicker.titleCase) === JSON.stringify({ modal: 'Create Job Backup', name: 'Name This Protection Job', source: 'Choose One Source', destination: 'Choose The Backup Destination', addSource: 'Add Source', picker: 'Add Backup Source' })
+      && jobPickerAction.menuClosed && jobPickerAction.jobSuspended && jobPickerAction.dependency === 'source-creator' && jobPickerAction.mysqlModalOpen && jobPickerAction.newSourceSelected && jobPickerAction.defaultSourceSelected && jobPickerAction.defaultDestinationSelected && jobPickerAction.newDestinationSelected
+      && jobPickerAction.replaceActionVisible && jobPickerAction.replaceActionFits && jobPickerAction.replacePickerOpen && jobPickerAction.savedSourcesVisible && jobPickerAction.savedSourceSelected && jobPickerAction.replacementSelected
       && addSourceAction.menuClosed && addSourceAction.triggerCollapsed && addSourceAction.sshModalOpen
       && diagnostics.hasGuidance && diagnostics.hasCode && !diagnostics.horizontalOverflow
       && diagnostics.card.left >= 0 && diagnostics.card.right <= mobile.viewport.width

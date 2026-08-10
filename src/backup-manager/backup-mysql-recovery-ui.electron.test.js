@@ -95,8 +95,6 @@ app.whenReady().then(async () => {
       closeBackupMysqlRestore();
       state.backupJobWizard = { step: 1, sourceId: '', repositoryIds: [], readiness: { sources: [{ id: 'source_mysql', name: 'Orders and analytics', sourceType: 'database', objectCount: 2, connectionName: 'Production MySQL', readiness: { ready: true, message: 'Ready' } }], repositories: [] } };
       renderBackupJobChoices();
-      document.querySelector('[data-backup-job-source]').checked = true;
-      state.backupJobWizard.sourceId = 'source_mysql';
       syncBackupJobModeForSource();
       const detail = document.getElementById('backupJobSources').innerText;
       const incrementalDisabled = document.querySelector('input[name="backupJobMode"][value="incremental"]').disabled;
@@ -134,12 +132,12 @@ app.whenReady().then(async () => {
       };
     })()`);
 
-    const valid = [desktop, mobile].every((result) => result.pointText.includes('Production MySQL protection') && result.summaryText.includes('Orders and analytics') && result.resultText.includes('Application-consistent') && result.searchHidden && result.restoreText.includes('Restore database') && !result.toastVisible && !result.horizontalOverflow && result.workspace.left >= result.panel.left && result.workspace.right <= result.panel.right + 1)
+    const valid = [desktop, mobile].every((result) => result.pointText.includes('Production MySQL Protection') && result.summaryText.includes('Orders and analytics') && result.resultText.includes('Application-consistent') && result.searchHidden && result.restoreText.includes('Restore Database') && !result.toastVisible && !result.horizontalOverflow && result.workspace.left >= result.panel.left && result.workspace.right <= result.panel.right + 1)
       && openResult && modal.summary.includes('Orders and analytics') && modal.warning.includes('Original server restore') && modal.left >= 0 && modal.right <= mobile.viewport.width && modal.top >= 0 && modal.bottom <= mobile.viewport.height && !modal.horizontalOverflow
       && completed.state === 'succeeded' && completed.status.includes('8.0 MB restored') && completed.status.includes('native integrity validation passed')
       && completed.targetVisible && completed.databaseVisible && completed.payload.mode === 'new-database' && completed.payload.targetConnectionId === 'connection_mysql_recovery' && completed.payload.targetDatabase === 'orders_restore'
       && jobMode.detail.includes('2 selected databases') && jobMode.incrementalDisabled && jobMode.fullChecked && jobMode.pitrIncrementalEnabled && jobMode.pitrDetail.includes('PITR enabled')
-      && pitr.recoveryButton.includes('Recover to point in time') && pitr.title.includes('Recover MySQL to point in time') && pitr.stopVisible && pitr.coordinateVisible && pitr.status.includes('2 binary-log files replayed')
+      && pitr.recoveryButton.includes('Recover To Point In Time') && pitr.title.includes('Recover MySQL to point in time') && pitr.stopVisible && pitr.coordinateVisible && pitr.status.includes('2 binary-log files replayed')
       && pitr.payload.terminalRecoveryPointId === 'point_mysql_log' && pitr.payload.stop.coordinate.file === 'mysql-bin.000043' && pitr.payload.stop.coordinate.position === 7000 && pitr.contained && !pitr.horizontalOverflow;
     process.stdout.write(`${JSON.stringify({ ok: valid, desktop, mobile, modal, completed, jobMode, pitr, screenshots: { desktopPath, mobilePath } })}\n`);
     if (!valid) process.exitCode = 1;

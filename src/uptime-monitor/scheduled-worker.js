@@ -5,6 +5,28 @@ const DEFAULT_MAXIMUM_CONCURRENCY = 8;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 5000;
 
+async function executeUptimeMonitorCheck({
+  controlDatabase,
+  incidentPolicy,
+  workspaceId,
+  actorId = 'uptime-worker',
+  monitor,
+  secretResolver = null,
+  checkRunner = runMonitorCheck,
+  clock = () => new Date().toISOString(),
+  probeId = 'local-windows',
+  scheduledAt = null
+} = {}) {
+  if (!controlDatabase || !incidentPolicy) throw new TypeError('Uptime control database and incident policy are required.');
+  if (!workspaceId) throw new TypeError('Workspace ID is required.');
+  if (!monitor?.id) throw new TypeError('Monitor is required.');
+  const checkScheduledAt = scheduledAt || monitor.nextCheckAt || clock();
+  const maintenanceWindows = await controlDatabase.listMaintenanceWindows(workspaceId, { activeAt: clock(), limit: 1000 });
+  const maintenance = maintenanceWindows.some((window) => maintenanceApplies(window, monitor));
+  const result = await checkRunner(monitor, { secretResolver });
+  return incidentPolicy.processCheck(workspaceId, actorId, monitor, { ...result, scheduledAt: checkScheduledAt, probeId }, { maintenance });
+}
+
 class UptimeRetentionService {
   constructor({ controlDatabase, now = () => Date.now(), rawCheckDays = 90, rollupMonths = 13 } = {}) {
     if (!controlDatabase) throw new TypeError('Uptime control database is required.');
@@ -154,11 +176,17 @@ class ScheduledUptimeWorkerService {
   }
 
   async #runMonitor(monitor) {
-    const scheduledAt = monitor.nextCheckAt || this.clock();
-    const maintenanceWindows = await this.controlDatabase.listMaintenanceWindows(this.workspaceId, { activeAt: this.clock(), limit: 1000 });
-    const maintenance = maintenanceWindows.some((window) => maintenanceApplies(window, monitor));
-    const result = await this.checkRunner(monitor, { secretResolver: this.secretResolver });
-    return this.incidentPolicy.processCheck(this.workspaceId, this.actorId, monitor, { ...result, scheduledAt, probeId: this.probeId }, { maintenance });
+    return executeUptimeMonitorCheck({
+      controlDatabase: this.controlDatabase,
+      incidentPolicy: this.incidentPolicy,
+      workspaceId: this.workspaceId,
+      actorId: this.actorId,
+      monitor,
+      secretResolver: this.secretResolver,
+      checkRunner: this.checkRunner,
+      clock: this.clock,
+      probeId: this.probeId
+    });
   }
 
   async #heartbeat(state) {
@@ -182,5 +210,6 @@ module.exports = {
   DEFAULT_POLL_INTERVAL_MS,
   ScheduledUptimeWorkerService,
   UptimeRetentionService,
+  executeUptimeMonitorCheck,
   maintenanceApplies
 };

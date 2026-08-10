@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ws://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ws://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>DeployerX</title>
     <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
     <link rel="stylesheet" href="./styles.css" />
@@ -125,6 +125,11 @@
         <path d="M15 7a4 4 0 1 0-4 4l-6 6v3h3l1-1h2v-2h2l3-3a4 4 0 0 0-1-7Z" />
         <circle cx="16" cy="8" r="1" />
       </symbol>
+      <symbol id="icon-square-terminal" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="m7 8 4 4-4 4" />
+        <path d="M13 16h4" />
+      </symbol>
       <symbol id="icon-heart" viewBox="0 0 24 24">
         <path d="M12 20.5 4.9 13.8a4.8 4.8 0 0 1 6.8-6.8L12 8l.3-.3a4.8 4.8 0 0 1 6.8 6.8L12 20.5Z" />
       </symbol>
@@ -180,6 +185,11 @@
         <path d="m3 21 6-6" />
         <path d="M16 21h5v-5" />
         <path d="m21 21-6-6" />
+      </symbol>
+      <symbol id="icon-displays" viewBox="0 0 24 24">
+        <rect x="2" y="4" width="12" height="10" rx="2" />
+        <rect x="10" y="8" width="12" height="10" rx="2" />
+        <path d="M6 18h12" />
       </symbol>
       <symbol id="icon-minimize" viewBox="0 0 24 24">
         <path d="M9 9H3V4" />
@@ -338,7 +348,7 @@
             </svg>
             <span>Backup Manager</span>
           </button>
-          <button id="topDatabasesButton" class="top-nav-action" type="button">
+          <button id="topDatabasesButton" class="top-nav-action" type="button" hidden>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-database"></use>
             </svg>
@@ -367,7 +377,7 @@
                   <use href="#icon-dashboard"></use>
                 </svg>
               </span>
-              <span id="topWorkspaceLabel" class="workspace-switcher-label">Local workspace</span>
+              <span id="topWorkspaceLabel" class="workspace-switcher-label">Local Workspace</span>
               <span class="workspace-switcher-chevron" aria-hidden="true"></span>
             </button>
             <div id="topWorkspaceMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose workspace"></div>
@@ -449,7 +459,7 @@
             </span>
             <span>Go online</span>
           </button>
-          <span id="sidebarWorkspaceName" class="hidden">Local workspace</span>
+          <span id="sidebarWorkspaceName" class="hidden">Local Workspace</span>
           <span id="sidebarWorkspaceMeta" class="hidden">Offline mode</span>
         </div>
       </aside>
@@ -459,7 +469,7 @@
           <header class="view-header dashboard-view-header">
             <div class="dashboard-title-block">
               <span class="dashboard-title-kicker">DeployerX / Control plane</span>
-              <h1>Command center</h1>
+              <h1>Command Center</h1>
               <p class="header-copy">Live fleet telemetry, uptime incidents, backup protection, and data services.</p>
             </div>
           </header>
@@ -471,7 +481,7 @@
               <section class="dashboard-panel dashboard-operations-panel dashboard-uptime-panel">
                 <div class="section-heading compact">
                   <div>
-                    <h2>Uptime alerts</h2>
+                    <h2>Uptime Alerts</h2>
                     <p>Incidents that need attention right now.</p>
                   </div>
                   <button id="dashboardUptimeButton" class="button outline compact" type="button">Open Uptime</button>
@@ -482,7 +492,7 @@
               <section class="dashboard-panel dashboard-operations-panel dashboard-backup-panel">
                 <div class="section-heading compact">
                   <div>
-                    <h2>Backup protection</h2>
+                    <h2>Backup Protection</h2>
                     <p>Current jobs, runs, and latest outcome.</p>
                   </div>
                   <button id="dashboardBackupButton" class="button outline compact" type="button">Open Backups</button>
@@ -493,7 +503,7 @@
               <section class="dashboard-panel dashboard-operations-panel dashboard-database-panel">
                 <div class="section-heading compact">
                   <div>
-                    <h2>Database estate</h2>
+                    <h2>Database Estate</h2>
                     <p>Connection health across saved profiles.</p>
                   </div>
                   <button id="dashboardDatabaseButton" class="button outline compact" type="button">Open Databases</button>
@@ -505,16 +515,16 @@
             <div class="dashboard-overview-grid">
               <section class="dashboard-panel dashboard-operational-panel">
                 <div class="section-heading compact">
-                  <h2>Fleet telemetry</h2>
+                  <h2>Fleet Telemetry</h2>
                   <p>Live connection coverage and node availability.</p>
                 </div>
                 <div class="dashboard-operational-grid">
                   <div class="dashboard-operational-section">
-                    <h3>Network coverage</h3>
+                    <h3>Network Coverage</h3>
                     <div id="dashboardSystemOverview" class="dashboard-system-overview"></div>
                   </div>
                   <div class="dashboard-operational-section dashboard-status-section">
-                    <h3>Node status</h3>
+                    <h3>Node Status</h3>
                     <div id="dashboardHealthSummary" class="dashboard-health-summary"></div>
                   </div>
                 </div>
@@ -522,7 +532,7 @@
 
               <section class="dashboard-panel dashboard-readiness-panel">
                 <div class="section-heading compact">
-                  <h2>Node readiness</h2>
+                  <h2>Node Readiness</h2>
                   <p>Connection state across the active fleet.</p>
                 </div>
                 <div id="dashboardConnectionReadiness" class="dashboard-connection-readiness"></div>
@@ -532,16 +542,16 @@
             <div class="dashboard-lower-grid">
               <section class="dashboard-panel dashboard-workspace-panel">
                 <div class="section-heading compact">
-                  <h2>Operations stream</h2>
+                  <h2>Operations Stream</h2>
                   <p>Recent events and fleet organization.</p>
                 </div>
                 <div class="dashboard-workspace-grid">
                   <div class="dashboard-workspace-section">
-                    <h3>Recent activity</h3>
+                    <h3>Recent Activity</h3>
                     <div id="dashboardRecentActivity" class="dashboard-recent-activity"></div>
                   </div>
                   <div class="dashboard-workspace-section dashboard-groups-section">
-                    <h3>Fleet groups</h3>
+                    <h3>Fleet Groups</h3>
                     <div id="dashboardGroupSummary" class="dashboard-group-summary"></div>
                   </div>
                 </div>
@@ -549,12 +559,12 @@
 
               <section class="dashboard-panel dashboard-actions-panel">
                 <div class="section-heading compact">
-                  <h2>Launch controls</h2>
+                  <h2>Launch Controls</h2>
                 </div>
                 <div class="dashboard-quick-actions">
                   <button id="dashboardQuickAddButton" class="dashboard-quick-action" type="button">
                     <span class="quick-action-icon purple"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg></span>
-                    <span><strong>Add server</strong><small>Configure a new connection</small></span>
+                    <span><strong>Add Server</strong><small>Configure a new connection</small></span>
                   </button>
                   <button id="dashboardServersButton" class="dashboard-quick-action" type="button">
                     <span class="quick-action-icon blue"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-server"></use></svg></span>
@@ -625,7 +635,7 @@
                     <div class="server-filter-field">
                       <span>Connection</span>
                       <div id="serversFilterConnectionDropdown" class="top-workspace-switcher server-filter-select">
-                        <select id="serversFilterConnection" class="hidden" tabindex="-1" aria-hidden="true"><option value="">Any state</option><option value="connected">Connected</option><option value="disconnected">Disconnected</option><option value="ssh">SSH connected</option><option value="ftp">FTP connected</option><option value="rdp">RDP connected</option></select>
+                        <select id="serversFilterConnection" class="hidden" tabindex="-1" aria-hidden="true"><option value="">Any state</option><option value="connected">Connected</option><option value="disconnected">Disconnected</option><option value="ssh">SSH connected</option><option value="ftp">FTP connected</option><option value="vnc">Windows connected</option></select>
                         <button id="serversFilterConnectionButton" class="workspace-switcher-trigger" type="button" aria-label="Connection: Any state" aria-haspopup="listbox" aria-expanded="false" aria-controls="serversFilterConnectionMenu"><span id="serversFilterConnectionLabel" class="workspace-switcher-label">Any state</span><span class="workspace-switcher-chevron" aria-hidden="true"></span></button>
                         <div id="serversFilterConnectionMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose connection state"></div>
                       </div>
@@ -670,7 +680,7 @@
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-plus"></use>
                 </svg>
-                Add server
+                Add Server
               </button>
             </div>
           </header>
@@ -701,10 +711,16 @@
             <section id="serverMonitoringUnsupported" class="server-monitoring-empty hidden">
               <div class="server-monitoring-empty-icon is-warning"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-info"></use></svg></div>
               <h2>SSH monitoring is required</h2>
-              <p>This RDP-only server does not expose a monitoring transport yet. Add SSH credentials or use the server workspace.</p>
+              <p>This VNC-only server does not expose a monitoring transport yet. Add SSH credentials or use the server workspace.</p>
             </section>
 
             <section id="serverMonitoringDashboard" class="hidden" aria-live="polite">
+              <div id="serverMonitoringConnectOverlay" class="server-monitoring-connect-overlay" role="status">
+                <button id="serverMonitoringConnectButton" class="button solid server-monitoring-connect-button" type="button">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-server"></use></svg>
+                  <span>Connect SSH</span>
+                </button>
+              </div>
               <div class="server-monitoring-server-banner">
                 <div class="server-monitoring-server-identity"><span id="serverMonitoringServerIcon" class="server-monitoring-server-icon"></span><div><strong id="serverMonitoringServerName">Server</strong><span id="serverMonitoringServerEndpoint">--</span></div></div>
                 <div class="server-monitoring-last-seen"><span>Last sample</span><strong id="serverMonitoringLastSample">--</strong></div>
@@ -786,7 +802,7 @@
                   <div id="uptimeMonitorsEmpty" class="uptime-empty-state hidden"><strong>No Monitors Found</strong><span id="uptimeMonitorsEmptyCopy">Create a monitor or change the current filters.</span></div>
                 </div>
               </div>
-              <section id="uptimeMonitorDetail" class="uptime-monitor-detail hidden"><header class="uptime-detail-header"><button id="uptimeBackToMonitorsButton" class="button outline compact icon-only" type="button" title="Back to Monitors" aria-label="Back to Monitors"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-arrow-left"></use></svg></button><div class="uptime-detail-heading"><span id="uptimeSelectedMonitorStatus" class="uptime-status-pill">Unknown</span><h2 id="uptimeSelectedMonitorName">Monitor</h2><p id="uptimeSelectedMonitorMeta" class="settings-muted"></p></div><div class="uptime-monitor-actions"><button id="uptimeRunMonitorButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg>Run Now</button><button id="uptimeToggleMonitorButton" class="button outline compact" type="button">Pause</button><button id="uptimeEditMonitorButton" class="button outline compact icon-only" type="button" title="Edit" aria-label="Edit Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button><button id="uptimeDeleteMonitorButton" class="button outline danger compact icon-only" type="button" title="Delete" aria-label="Delete Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-trash"></use></svg></button></div></header><div class="uptime-detail-grid"><div class="uptime-detail-chart-panel"><div class="uptime-detail-chart-heading"><h3>Response Time</h3><span id="uptimeSelectedMonitorP95">P95 --</span></div><div id="uptimeLatencyChart" class="uptime-latency-chart" role="img" aria-label="Recent Monitor Response Times"></div></div><div><h3>Configuration</h3><dl id="uptimeConfigList" class="uptime-kv-list"></dl></div><div><h3>Recent Checks</h3><div id="uptimeHistoryList" class="uptime-history-list"></div></div><div><h3>Incident History</h3><div id="uptimeMonitorIncidentList" class="uptime-history-list"></div></div><div><h3>Notification Delivery</h3><div id="uptimeMonitorDeliveryList" class="uptime-history-list"></div></div></div></section>
+              <section id="uptimeMonitorDetail" class="uptime-monitor-detail hidden"><header class="uptime-detail-header"><button id="uptimeBackToMonitorsButton" class="button outline compact icon-only" type="button" title="Back to Monitors" aria-label="Back to Monitors"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-arrow-left"></use></svg></button><div class="uptime-detail-heading"><span id="uptimeSelectedMonitorStatus" class="uptime-status-pill">Unknown</span><h2 id="uptimeSelectedMonitorName">Monitor</h2><p id="uptimeSelectedMonitorMeta" class="settings-muted"></p></div><div class="uptime-monitor-actions"><button id="uptimeRunMonitorButton" class="button solid compact" type="button" title="Run monitor now" aria-label="Run Monitor now"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-play"></use></svg><span>Run Now</span></button><button id="uptimeEditMonitorButton" class="button outline compact icon-only" type="button" title="Edit" aria-label="Edit Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button><button id="uptimeDeleteMonitorButton" class="button outline danger compact icon-only" type="button" title="Delete" aria-label="Delete Monitor"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-trash"></use></svg></button></div></header><div class="uptime-detail-grid"><div class="uptime-detail-chart-panel"><div class="uptime-detail-chart-heading"><h3>Response Time</h3><span id="uptimeSelectedMonitorP95">P95 --</span></div><div id="uptimeLatencyChart" class="uptime-latency-chart" role="img" aria-label="Recent Monitor Response Times"></div></div><div><h3>Configuration</h3><dl id="uptimeConfigList" class="uptime-kv-list"></dl></div><div><h3>Recent Checks</h3><div id="uptimeHistoryList" class="uptime-history-list"></div></div><div><h3>Incident History</h3><div id="uptimeMonitorIncidentList" class="uptime-history-list"></div></div><div><h3>Notification Delivery</h3><div id="uptimeMonitorDeliveryList" class="uptime-history-list"></div></div></div></section>
             </section>
 
             <section class="uptime-panel" data-uptime-panel="incidents">
@@ -845,7 +861,7 @@
             <div class="header-actions">
               <button id="backupCreateJobButton" class="button solid" type="button">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-plus"></use></svg>
-                Create backup job
+                Create Job Backup
               </button>
             </div>
           </header>
@@ -932,7 +948,7 @@
                   <section class="backup-manager-section">
                     <div class="backup-section-heading">
                       <div>
-                        <h2>Recent activity</h2>
+                        <h2>Recent Activity</h2>
                         <p>Latest backup, verification, and recovery runs.</p>
                       </div>
                     </div>
@@ -1382,7 +1398,7 @@
                 <h1 id="activeProjectName">Server</h1>
                 <nav class="project-tabs" aria-label="Server tools">
                   <button id="projectSshTab" class="project-tab active" type="button" aria-selected="true">
-                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-key"></use></svg>
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-square-terminal"></use></svg>
                     <span>SSH</span>
                   </button>
                   <button id="projectFtpTab" class="project-tab" type="button" aria-selected="false">
@@ -1401,10 +1417,16 @@
               </div>
             </div>
             <div class="header-actions">
+              <div id="vncDisplaySelector" class="vnc-display-selector hidden">
+                <button id="vncDisplayButton" class="button outline icon-only project-action-button" type="button" aria-label="Choose VNC display" aria-haspopup="menu" aria-expanded="false" data-tooltip="Choose Display">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-displays"></use></svg>
+                </button>
+                <div id="vncDisplayMenu" class="vnc-display-menu hidden" role="menu" aria-label="VNC displays"></div>
+              </div>
               <button id="rdpHeaderFullscreenButton" class="button outline icon-only project-action-button rdp-header-fullscreen-button" type="button" aria-label="Open full view" data-tooltip="Open full view">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-maximize"></use></svg>
               </button>
-              <button id="editProjectButton" class="button outline icon-only project-action-button" type="button" aria-label="Edit server" data-tooltip="Edit server">
+              <button id="editProjectButton" class="button outline icon-only project-action-button" type="button" aria-label="Edit Server" data-tooltip="Edit Server">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-edit"></use>
                 </svg>
@@ -1429,7 +1451,7 @@
                   <svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-os-windows"></use></svg>
                 </span>
                 <div>
-                  <strong id="rdpToolbarLabel">Windows Remote Desktop</strong>
+                  <strong id="rdpToolbarLabel">Windows VNC</strong>
                   <span id="rdpToolbarStatus">Not connected</span>
                 </div>
               </div>
@@ -1441,16 +1463,17 @@
               </div>
             </div>
             <div id="rdpViewport" class="rdp-viewport">
-              <canvas id="rdpCanvas" class="rdp-canvas" width="1280" height="720" tabindex="0" aria-label="Windows Remote Desktop session"></canvas>
+              <canvas id="rdpCanvas" class="rdp-canvas hidden" width="1280" height="720" tabindex="0" aria-label="Windows Remote Desktop session"></canvas>
+              <div id="vncCanvas" class="rdp-canvas" tabindex="0" aria-label="Windows VNC session"></div>
               <div id="rdpConnectPanel" class="rdp-connect-panel">
                 <span class="rdp-connect-icon" aria-hidden="true">
                   <svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-os-windows"></use></svg>
                 </span>
-                <strong>Windows Remote Desktop</strong>
+                <strong id="rdpConnectTitle">Windows VNC</strong>
                 <span id="rdpConnectHint">Connect to control this Windows server inside DeployerX.</span>
                 <button id="connectRdpButton" class="button solid" type="button">
                   <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-play"></use></svg>
-                  <span id="connectRdpLabel">Connect RDP</span>
+                  <span id="connectRdpLabel">Connect VNC</span>
                 </button>
               </div>
             </div>
@@ -1865,7 +1888,7 @@
                 </svg>
                 Backup & Restore
               </button>
-              <button class="settings-nav-item" type="button" data-settings-tab="database">
+              <button class="settings-nav-item" type="button" data-settings-tab="database" hidden>
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-database"></use>
                 </svg>
@@ -2324,7 +2347,7 @@
                       <span id="mcpIntegrationStatus" class="app-update-pill mcp-status-pill" data-status="unconfigured">Stopped</span>
                     </div>
                     <p class="settings-muted">
-                      Give AI agents authenticated SSH command and SFTP file access to servers already saved in DeployerX. Hostnames, usernames, passwords, and private keys stay inside this app.
+                      Give AI agents authenticated SSH, SFTP, live server metrics, and complete Uptime monitoring access. DeployerX starts MCP automatically and keeps credentials inside this app.
                     </p>
                     <form id="mcpIntegrationForm" class="mcp-control-row">
                       <label class="field mcp-port-field">
@@ -2332,14 +2355,13 @@
                         <input id="mcpIntegrationPort" type="number" min="1024" max="65535" value="43821" required />
                       </label>
                       <div class="settings-inline-actions mcp-control-actions">
-                        <button id="mcpIntegrationStopButton" class="button outline danger hidden" type="button">Stop MCP</button>
-                        <button id="mcpIntegrationTestButton" class="button outline hidden" type="button">
+                        <button id="mcpIntegrationTestButton" class="button outline" type="button">
                           <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
                           Test
                         </button>
                         <button id="mcpIntegrationStartButton" class="button solid" type="submit">
-                          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-play"></use></svg>
-                          <span>Start MCP</span>
+                          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-save"></use></svg>
+                          <span>Apply port</span>
                         </button>
                       </div>
                     </form>
@@ -2356,7 +2378,7 @@
                       <div class="mcp-detail-item">
                         <span class="mcp-detail-label">Bearer token</span>
                         <div class="mcp-value-row">
-                          <strong id="mcpIntegrationToken">Created when MCP starts</strong>
+                          <strong id="mcpIntegrationToken">Preparing secure token</strong>
                           <button id="mcpCopyTokenButton" class="icon-button compact" type="button" aria-label="Copy bearer token" title="Copy bearer token" disabled>
                             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-copy"></use></svg>
                           </button>
@@ -2383,7 +2405,7 @@
                       <p class="settings-muted">The desktop app must remain open while an agent uses this MCP endpoint.</p>
                     </div>
                     <ol class="mcp-steps">
-                      <li><strong>Start MCP.</strong><span>Choose a free local port, then copy the generated URL and bearer token.</span></li>
+                      <li><strong>Open DeployerX.</strong><span>MCP starts automatically on the saved local port and remains available while the app is open.</span></li>
                       <li><strong>Add the HTTP server.</strong><span>Use Streamable HTTP and send <code>Authorization: Bearer &lt;token&gt;</code> with every request.</span></li>
                       <li><strong>Verify access.</strong><span>Ask the client to list DeployerX servers before running a command or changing files.</span></li>
                     </ol>
@@ -2428,17 +2450,8 @@ tool_timeout_sec = 300</pre>
                     </details>
 
                     <details class="mcp-doc-section">
-                      <summary>Available tools</summary>
-                      <div class="mcp-tool-list">
-                        <div><code>deployerx_list_servers</code><span>Returns saved server names and opaque IDs, never connection details.</span></div>
-                        <div><code>deployerx_ssh_execute</code><span>Runs a non-interactive SSH command with timeout and bounded output.</span></div>
-                        <div><code>deployerx_sftp_list</code><span>Lists a remote directory.</span></div>
-                        <div><code>deployerx_sftp_read</code><span>Reads UTF-8 or base64 files up to 2 MiB.</span></div>
-                        <div><code>deployerx_sftp_write</code><span>Creates or replaces UTF-8 or base64 files up to 2 MiB.</span></div>
-                        <div><code>deployerx_sftp_mkdir</code><span>Creates remote directories.</span></div>
-                        <div><code>deployerx_sftp_move</code><span>Renames or moves remote items.</span></div>
-                        <div><code>deployerx_sftp_delete</code><span>Deletes files or explicitly recursive directories.</span></div>
-                      </div>
+                      <summary>Available tools <span id="mcpToolCount" class="mcp-tool-count"></span></summary>
+                      <div id="mcpToolList" class="mcp-tool-list"></div>
                     </details>
 
                     <details class="mcp-doc-section">
@@ -2791,10 +2804,11 @@ tool_timeout_sec = 300</pre>
     <div id="projectModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
       <div class="modal-backdrop"></div>
       <form class="modal-card project-modal-card server-modal-card" id="projectModalForm" novalidate>
+        <div class="server-modal-top">
         <header class="modal-header">
           <div>
-            <h2 id="projectModalTitle">Add server</h2>
-            <p id="projectModalSubtitle">Add server, SSH, and optional FTP details. Commands are managed inside the server.</p>
+            <h2 id="projectModalTitle">Add Server</h2>
+            <p id="projectModalSubtitle">Add Server, proxy or VPN routing, SSH, and optional FTP details. Commands are managed inside the server.</p>
           </div>
           <button id="projectModalCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -2809,7 +2823,7 @@ tool_timeout_sec = 300</pre>
               <span class="server-wizard-step-number">1</span>
               <span class="server-wizard-step-copy">
                 <strong>Server</strong>
-                <small>Basic details</small>
+                <small>Basic Details</small>
               </span>
             </button>
           </li>
@@ -2823,8 +2837,17 @@ tool_timeout_sec = 300</pre>
             </button>
           </li>
           <li class="server-wizard-step-item">
-            <button id="projectStepButtonFtp" class="server-wizard-step" type="button" data-project-step-button="2" aria-controls="projectStepPanelFtp">
+            <button id="projectStepButtonProxy" class="server-wizard-step" type="button" data-project-step-button="2" aria-controls="projectStepPanelProxy">
               <span class="server-wizard-step-number">3</span>
+              <span class="server-wizard-step-copy">
+                <strong>Proxy</strong>
+                <small>Optional</small>
+              </span>
+            </button>
+          </li>
+          <li class="server-wizard-step-item">
+            <button id="projectStepButtonFtp" class="server-wizard-step" type="button" data-project-step-button="3" aria-controls="projectStepPanelFtp">
+              <span class="server-wizard-step-number">4</span>
               <span class="server-wizard-step-copy">
                 <strong>FTP</strong>
                 <small>Optional</small>
@@ -2832,16 +2855,17 @@ tool_timeout_sec = 300</pre>
             </button>
           </li>
         </ol>
+        </div>
 
         <div class="modal-body project-modal-body">
           <section id="projectStepPanelServer" class="form-section server-wizard-panel" data-project-step-panel="0" role="tabpanel" aria-labelledby="projectStepButtonServer">
             <div class="section-heading compact">
-              <h3>Server details</h3>
+              <h3>Server Details</h3>
               <p>Name this server and choose its environment and command template.</p>
             </div>
             <div class="field-grid project-fields">
-              <label class="field span-2">
-                <span>Server name</span>
+              <label class="field">
+                <span>Server Name</span>
                 <input id="modalProjectName" type="text" placeholder="Production API" required />
               </label>
               <div class="field">
@@ -2872,7 +2896,7 @@ tool_timeout_sec = 300</pre>
                 <small class="field-note">Choose a saved group for this server.</small>
               </div>
               <div class="field">
-                <span>System type</span>
+                <span>System Type</span>
                 <div id="modalServerTypeDropdown" class="top-workspace-switcher server-type-switcher">
                   <select id="modalServerType" class="hidden" tabindex="-1" aria-hidden="true">
                     <option value="ubuntu">Ubuntu</option>
@@ -2881,14 +2905,14 @@ tool_timeout_sec = 300</pre>
                     <option value="rocky">Rocky Linux</option>
                     <option value="rhel">Red Hat Enterprise Linux</option>
                     <option value="debian">Debian</option>
-                    <option value="rdp">Windows</option>
+                    <option value="vnc">Windows</option>
                     <option value="custom">Custom Linux</option>
                   </select>
                   <button
                     id="modalServerTypeButton"
                     class="workspace-switcher-trigger"
                     type="button"
-                    aria-label="System type: Ubuntu"
+                    aria-label="System Type: Ubuntu"
                     aria-haspopup="listbox"
                     aria-expanded="false"
                     aria-controls="modalServerTypeMenu"
@@ -2904,7 +2928,7 @@ tool_timeout_sec = 300</pre>
                   <div id="modalServerTypeMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose system type"></div>
                 </div>
               </div>
-              <div id="modalTemplateField" class="field span-2">
+              <div id="modalTemplateField" class="field">
                 <span>Command template</span>
                 <div id="modalTemplateDropdown" class="top-workspace-switcher modal-template-switcher">
                   <select id="modalTemplateSelect" class="hidden" tabindex="-1" aria-hidden="true">
@@ -2933,10 +2957,73 @@ tool_timeout_sec = 300</pre>
             </div>
           </section>
 
+          <section id="projectStepPanelProxy" class="form-section server-wizard-panel hidden" data-project-step-panel="2" role="tabpanel" aria-labelledby="projectStepButtonProxy">
+            <div class="section-heading compact">
+              <h3>Proxy and VPN</h3>
+              <p>Route this server directly, through a Windows VPN profile, or through a dedicated proxy.</p>
+            </div>
+            <div class="field-grid project-fields">
+              <label class="field">
+                <span>Route Mode</span>
+                <select id="modalProxyMode">
+                  <option value="none">Direct connection</option>
+                  <option value="windows-vpn">Windows VPN profile</option>
+                  <option value="socks5">SOCKS5 proxy</option>
+                  <option value="http-connect">HTTP CONNECT proxy</option>
+                </select>
+                <small class="field-note">Use a saved Windows VPN profile when network access must happen at the Windows level.</small>
+              </label>
+
+              <label id="modalProxyVpnProfileField" class="field hidden">
+                <span>Windows VPN Profile</span>
+                <select id="modalProxyVpnProfile">
+                  <option value="">Loading Windows VPN profiles...</option>
+                </select>
+                <small id="modalProxyVpnProfileHelp" class="field-note">Choose a VPN profile already installed on this Windows device.</small>
+              </label>
+
+              <div id="modalProxyVpnActions" class="field hidden">
+                <span>Refresh Profiles</span>
+                <button id="modalRefreshVpnProfilesButton" class="button outline" type="button">Refresh Windows VPN Profiles</button>
+              </div>
+
+              <label id="modalProxyHostField" class="field hidden">
+                <span>Proxy Host</span>
+                <input id="modalProxyHost" type="text" placeholder="proxy.example.com" />
+              </label>
+
+              <label id="modalProxyPortField" class="field hidden">
+                <span>Proxy Port</span>
+                <input id="modalProxyPort" type="number" min="1" max="65535" placeholder="1080" />
+              </label>
+
+              <label id="modalProxyUsernameField" class="field hidden">
+                <span>Proxy Username</span>
+                <input id="modalProxyUsername" type="text" placeholder="Optional username" />
+              </label>
+
+              <label id="modalProxyPasswordField" class="field hidden modal-secret">
+                <span>Proxy Password</span>
+                <div class="secret-input">
+                  <input id="modalProxyPassword" type="password" autocomplete="off" placeholder="Optional password" />
+                  <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="modalProxyPassword" data-show-label="Show proxy password" data-hide-label="Hide proxy password" aria-controls="modalProxyPassword">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <use href="#icon-eye"></use>
+                    </svg>
+                  </button>
+                </div>
+              </label>
+
+              <div id="modalProxyWindowsOnlyNotice" class="field span-2 hidden">
+                <small class="field-note">Windows server sessions currently support direct access or a Windows VPN profile. Manual proxy transport is used for SSH and SFTP connections.</small>
+              </div>
+            </div>
+          </section>
+
           <section id="projectStepPanelSsh" class="form-section server-wizard-panel hidden" data-project-step-panel="1" role="tabpanel" aria-labelledby="projectStepButtonSsh">
             <div id="modalSshFields">
               <div class="section-heading compact">
-              <h3>SSH connection</h3>
+              <h3>SSH Connection</h3>
               <p>Enter the server endpoint, then add one or more SSH users.</p>
               </div>
               <div class="field-grid ssh-endpoint-grid">
@@ -2982,11 +3069,11 @@ tool_timeout_sec = 300</pre>
                   </div>
 
                   <div class="field-grid modal-columns ssh-user-fields">
-              <label class="field span-2">
+              <label class="field">
                 <span>Username</span>
                 <input id="modalSshUsername" type="text" placeholder="root" required />
               </label>
-              <div class="field span-2">
+              <div class="field">
                 <span>Authentication</span>
                 <div id="modalAuthTypeDropdown" class="top-workspace-switcher auth-type-switcher">
                   <select id="modalAuthType" class="hidden" tabindex="-1" aria-hidden="true">
@@ -3058,44 +3145,54 @@ tool_timeout_sec = 300</pre>
 
             <div id="modalRdpFields" class="hidden">
               <div class="section-heading compact">
-                <h3>Windows connection</h3>
-                <p>Enter the Windows credentials DeployerX should use for Remote Desktop access.</p>
+                <h3 id="modalWindowsConnectionHeading">VNC Connection</h3>
+                <p id="modalWindowsConnectionDescription">Enter the VNC server endpoint and credentials for this Windows server.</p>
               </div>
-              <div class="field-grid modal-columns">
+              <div class="field windows-protocol-field">
+                <span>Connection Type</span>
+                <input id="modalWindowsProtocol" type="hidden" value="vnc" />
+                <div id="modalWindowsProtocolControl" class="windows-protocol-control" role="radiogroup" aria-label="Windows connection type">
+                  <button class="windows-protocol-option" type="button" role="radio" aria-checked="false" data-windows-protocol="rdp">RDP</button>
+                  <button class="windows-protocol-option active" type="button" role="radio" aria-checked="true" data-windows-protocol="vnc">VNC</button>
+                </div>
+              </div>
+              <div class="field-grid modal-columns windows-endpoint-grid">
                 <label class="field ssh-host-field">
-                  <span>Computer / IP</span>
+                  <span id="modalWindowsHostLabel">VNC Server / IP</span>
                   <input id="modalRdpHost" type="text" placeholder="192.168.1.10" />
                 </label>
                 <label class="field">
                   <span>Port</span>
-                  <input id="modalRdpPort" type="number" min="1" max="65535" value="3389" />
+                  <input id="modalRdpPort" type="number" min="1" max="65535" value="5900" />
                 </label>
+              </div>
+              <div class="field-grid windows-credentials-grid">
                 <label class="field">
-                  <span>Username</span>
+                  <span id="modalWindowsUsernameLabel">Username <small class="field-optional">Optional</small></span>
                   <input id="modalRdpUsername" type="text" placeholder="Administrator" autocomplete="username" />
                 </label>
-                <label class="field">
+                <label class="field modal-secret">
+                  <span id="modalWindowsPasswordLabel">VNC Password</span>
+                  <div class="secret-input">
+                    <input id="modalRdpPassword" type="password" autocomplete="new-password" />
+                    <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="modalRdpPassword" data-show-label="Show VNC password" data-hide-label="Hide VNC password" aria-controls="modalRdpPassword">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <use href="#icon-eye"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </label>
+                <label id="modalRdpDomainField" class="field hidden">
                   <span>Domain <small class="field-optional">Optional</small></span>
                   <input id="modalRdpDomain" type="text" placeholder="CONTOSO" />
                 </label>
               </div>
-              <label class="field modal-secret">
-                <span>Password</span>
-                <div class="secret-input">
-                  <input id="modalRdpPassword" type="password" autocomplete="new-password" />
-                  <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="modalRdpPassword" data-show-label="Show Windows password" data-hide-label="Hide Windows password" aria-controls="modalRdpPassword">
-                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                      <use href="#icon-eye"></use>
-                    </svg>
-                  </button>
-                </div>
-              </label>
             </div>
           </section>
 
-          <section id="projectStepPanelFtp" class="form-section server-wizard-panel hidden" data-project-step-panel="2" role="tabpanel" aria-labelledby="projectStepButtonFtp">
+          <section id="projectStepPanelFtp" class="form-section server-wizard-panel hidden" data-project-step-panel="3" role="tabpanel" aria-labelledby="projectStepButtonFtp">
             <div class="section-heading compact">
-              <h3>FTP connection</h3>
+              <h3>FTP Connection</h3>
               <p>Leave these optional fields blank to reuse the SSH connection.</p>
             </div>
             <div class="field-grid modal-columns">
@@ -3179,7 +3276,7 @@ tool_timeout_sec = 300</pre>
               <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <use href="#icon-save"></use>
               </svg>
-              Save server
+              Save Server
             </button>
           </div>
         </footer>
@@ -4516,8 +4613,8 @@ tool_timeout_sec = 300</pre>
       <form id="backupJobForm" class="modal-card backup-job-modal-card">
         <header class="modal-header">
           <div>
-            <h2 id="backupJobModalTitle">Create backup job</h2>
-            <p id="backupJobStepLabel">Step 1 of 2 - Setup</p>
+            <h2 id="backupJobModalTitle">Create Job Backup</h2>
+            <p id="backupJobStepLabel">Step 1 Of 2 - Setup</p>
           </div>
           <button id="backupJobCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
@@ -4529,14 +4626,14 @@ tool_timeout_sec = 300</pre>
           </ol>
           <p id="backupJobError" class="inline-error hidden" role="alert"></p>
           <section class="backup-job-step" data-backup-job-step="0">
-            <div class="backup-job-step-heading"><h3>Name this protection job</h3><p>Use a name that identifies the workload and purpose.</p></div>
+            <div class="backup-job-step-heading"><h3>Name This Protection Job</h3><p>Use a name that identifies the workload and purpose.</p></div>
             <label class="field">
-              <span>Job name</span>
+              <span>Job Name</span>
               <input id="backupJobName" type="text" maxlength="200" placeholder="Production application files" autocomplete="off" required />
             </label>
             <div class="backup-job-resource-grid">
               <section class="backup-job-resource-section">
-                <div class="backup-job-step-heading"><h3>Choose one source</h3><p>The saved file paths or database selection are captured with this job.</p></div>
+                <div class="backup-job-step-heading backup-job-source-heading"><div><h3>Choose One Source</h3><p>The saved file paths or database selection are captured with this job.</p></div><button id="backupJobReplaceSourceButton" class="button outline compact hidden" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="backupJobSourcePicker"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-edit"></use></svg>Replace Source</button></div>
                 <div id="backupJobSources" class="backup-job-choice-list"></div>
                 <div id="backupJobSourcesEmpty" class="backup-job-inline-empty hidden">
                   <span>Create and test a file or database source before continuing.</span>
@@ -4544,36 +4641,33 @@ tool_timeout_sec = 300</pre>
                     <div id="backupJobAddSourceDropdown" class="backup-job-source-add-trigger">
                       <button id="backupJobAddSourceButton" class="button solid compact" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="backupJobSourcePicker">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>
-                        Add source
+                        Add Source
                       </button>
                     </div>
                   </div>
                 </div>
               </section>
               <section class="backup-job-resource-section">
-                <div class="backup-job-step-heading"><h3>Choose backup destinations</h3><p>The first selected destination is primary; additional destinations receive copies.</p></div>
+                <div class="backup-job-step-heading backup-job-source-heading"><div><h3>Choose The Backup Destination</h3><p>The first selected destination is primary; additional destinations receive copies.</p></div><button id="backupJobCreateDestinationButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Add Destination</button></div>
                 <div id="backupJobRepositories" class="backup-job-choice-list"></div>
                 <div id="backupJobRepositoriesEmpty" class="backup-job-inline-empty hidden">
                   <span>Add and test a destination before continuing.</span>
-                  <div class="backup-job-inline-actions">
-                    <button id="backupJobCreateDestinationButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Add destination</button>
-                  </div>
                 </div>
               </section>
             </div>
           </section>
           <section class="backup-job-step hidden" data-backup-job-step="1">
-            <div class="backup-job-step-heading"><h3>Set protection behavior</h3><p>Choose backup, retention, and UTC schedule settings.</p></div>
-            <fieldset class="backup-job-options">
-              <legend>Backup mode</legend>
+            <div class="backup-job-step-heading"><h3>Set Protection Behavior</h3><p>Choose backup, retention, and UTC schedule settings.</p></div>
+            <fieldset class="backup-job-options backup-job-mode-options">
+              <legend>Backup Mode</legend>
               <label class="backup-job-option"><input type="radio" name="backupJobMode" value="incremental" checked /><span><strong>Incremental</strong><small>Store changed content after the first recovery point.</small></span></label>
               <label class="backup-job-option"><input type="radio" name="backupJobMode" value="differential" /><span><strong>Differential</strong><small>Store changes since the latest full recovery point.</small></span></label>
-              <label class="backup-job-option"><input type="radio" name="backupJobMode" value="native" /><span><strong>Archived redo</strong><small>Extend an Oracle recovery chain with archived redo and a current control file.</small></span></label>
+              <label class="backup-job-option"><input type="radio" name="backupJobMode" value="native" /><span><strong>Archived Redo</strong><small>Extend an Oracle recovery chain with archived redo and a current control file.</small></span></label>
               <label class="backup-job-option"><input type="radio" name="backupJobMode" value="full" /><span><strong>Full</strong><small>Create an independent full recovery point each time.</small></span></label>
             </fieldset>
             <div class="field-grid modal-columns backup-job-policy-fields">
               <label class="field">
-                <span>Recovery points to keep</span>
+                <span>Recovery Points To Keep</span>
                 <input id="backupJobKeepLast" type="number" min="1" max="10000" value="30" required />
               </label>
               <label class="field">
@@ -4581,53 +4675,53 @@ tool_timeout_sec = 300</pre>
                 <select id="backupJobCompression"><option value="fast">Fast</option><option value="balanced" selected>Balanced</option><option value="maximum">Maximum</option><option value="none">None</option></select>
               </label>
               <label class="field">
-                <span>Queue priority</span>
+                <span>Queue Priority</span>
                 <select id="backupJobPriority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="critical">Critical</option></select>
               </label>
               <label class="field">
-                <span>RPO target (minutes)</span>
+                <span>RPO Target (Minutes)</span>
                 <input id="backupJobRpoMinutes" type="number" min="1" max="525600" placeholder="Not monitored" />
               </label>
               <label class="field">
-                <span>RTO target (minutes)</span>
+                <span>RTO Target (Minutes)</span>
                 <input id="backupJobRtoMinutes" type="number" min="1" max="525600" placeholder="Not monitored" />
               </label>
             </div>
-            <fieldset class="backup-job-options">
-              <legend>Notification routes</legend>
+            <fieldset class="backup-job-options backup-job-notification-options">
+              <legend>Notification Routes</legend>
               <div id="backupJobNotificationRoutes" class="backup-job-choice-list compact"></div>
               <div id="backupJobNotificationRoutesEmpty" class="backup-job-inline-empty hidden">
                 <span>No enabled notification routes are configured.</span>
-                <div class="backup-job-inline-actions"><button id="backupJobCreateNotificationRouteButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Add notification route</button></div>
+                <div class="backup-job-inline-actions"><button id="backupJobCreateNotificationRouteButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Add Notification Route</button></div>
               </div>
             </fieldset>
             <fieldset class="backup-job-options">
-              <legend>Calendar retention</legend>
+              <legend>Calendar Retention</legend>
               <div class="field-grid modal-columns backup-job-policy-fields">
-                <label class="field"><span>Hourly points</span><input id="backupJobKeepHourly" type="number" min="0" max="10000" value="0" /></label>
-                <label class="field"><span>Daily points</span><input id="backupJobKeepDaily" type="number" min="0" max="10000" value="7" /></label>
-                <label class="field"><span>Weekly points</span><input id="backupJobKeepWeekly" type="number" min="0" max="10000" value="4" /></label>
-                <label class="field"><span>Monthly points</span><input id="backupJobKeepMonthly" type="number" min="0" max="10000" value="12" /></label>
-                <label class="field"><span>Yearly points</span><input id="backupJobKeepYearly" type="number" min="0" max="10000" value="3" /></label>
+                <label class="field"><span>Hourly Points</span><input id="backupJobKeepHourly" type="number" min="0" max="10000" value="0" /></label>
+                <label class="field"><span>Daily Points</span><input id="backupJobKeepDaily" type="number" min="0" max="10000" value="7" /></label>
+                <label class="field"><span>Weekly Points</span><input id="backupJobKeepWeekly" type="number" min="0" max="10000" value="4" /></label>
+                <label class="field"><span>Monthly Points</span><input id="backupJobKeepMonthly" type="number" min="0" max="10000" value="12" /></label>
+                <label class="field"><span>Yearly Points</span><input id="backupJobKeepYearly" type="number" min="0" max="10000" value="3" /></label>
               </div>
             </fieldset>
             <fieldset class="backup-job-options">
-              <legend>Automatic retries</legend>
+              <legend>Automatic Retries</legend>
               <div class="field-grid modal-columns backup-job-policy-fields">
-                <label class="field"><span>Maximum attempts</span><input id="backupJobRetryAttempts" type="number" min="1" max="10" value="3" /></label>
+                <label class="field"><span>Maximum Attempts</span><input id="backupJobRetryAttempts" type="number" min="1" max="10" value="3" /></label>
                 <label class="field"><span>Backoff</span><select id="backupJobRetryBackoff"><option value="fixed">Fixed</option><option value="linear">Linear</option><option value="exponential" selected>Exponential</option></select></label>
-                <label class="field"><span>Initial delay (seconds)</span><input id="backupJobRetryInitialDelay" type="number" min="1" max="604800" value="30" /></label>
-                <label class="field"><span>Maximum delay (seconds)</span><input id="backupJobRetryMaximumDelay" type="number" min="1" max="604800" value="3600" /></label>
+                <label class="field"><span>Initial Delay (Seconds)</span><input id="backupJobRetryInitialDelay" type="number" min="1" max="604800" value="30" /></label>
+                <label class="field"><span>Maximum Delay (Seconds)</span><input id="backupJobRetryMaximumDelay" type="number" min="1" max="604800" value="3600" /></label>
                 <label class="field"><span>Jitter (%)</span><input id="backupJobRetryJitter" type="number" min="0" max="100" value="20" /></label>
               </div>
             </fieldset>
-            <fieldset class="backup-job-options">
-              <legend>Transfer bandwidth</legend>
-              <label class="field"><span>Default limit (MiB/s, blank for unlimited)</span><input id="backupJobBandwidthLimit" type="number" min="0.0625" max="10240" step="0.0625" placeholder="Unlimited" /></label>
-              <label class="backup-job-check"><input id="backupJobBandwidthWindowEnabled" type="checkbox" /><span><strong>Weekly bandwidth window</strong></span></label>
+            <fieldset class="backup-job-options backup-job-bandwidth-options">
+              <legend>Transfer Bandwidth</legend>
+              <label class="field"><span>Default Limit (MiB/s, Blank For Unlimited)</span><input id="backupJobBandwidthLimit" type="number" min="0.0625" max="10240" step="0.0625" placeholder="Unlimited" /></label>
+              <label class="backup-job-check"><input id="backupJobBandwidthWindowEnabled" type="checkbox" /><span><strong>Weekly Bandwidth Window</strong></span></label>
               <div id="backupJobBandwidthWindowFields" class="backup-job-calendar-fields hidden">
                 <fieldset class="backup-job-weekdays">
-                  <legend>Limited weekdays</legend>
+                  <legend>Limited Weekdays</legend>
                   <label><input type="checkbox" value="1" data-backup-job-bandwidth-day checked /><span>Mon</span></label>
                   <label><input type="checkbox" value="2" data-backup-job-bandwidth-day checked /><span>Tue</span></label>
                   <label><input type="checkbox" value="3" data-backup-job-bandwidth-day checked /><span>Wed</span></label>
@@ -4639,7 +4733,7 @@ tool_timeout_sec = 300</pre>
                 <div class="field-grid modal-columns backup-job-calendar-times">
                   <label class="field"><span>Starts</span><input id="backupJobBandwidthStart" type="time" value="09:00" /></label>
                   <label class="field"><span>Ends</span><input id="backupJobBandwidthEnd" type="time" value="18:00" /></label>
-                  <label class="field"><span>Window limit (MiB/s)</span><input id="backupJobBandwidthWindowLimit" type="number" min="0.0625" max="10240" step="0.0625" value="1" /></label>
+                  <label class="field"><span>Window Limit (MiB/s)</span><input id="backupJobBandwidthWindowLimit" type="number" min="0.0625" max="10240" step="0.0625" value="1" /></label>
                 </div>
               </div>
             </fieldset>
@@ -4647,9 +4741,9 @@ tool_timeout_sec = 300</pre>
               <label class="field">
                 <span>Schedule</span>
                 <select id="backupJobScheduleType">
-                  <option value="manual" selected>Manual only</option>
+                  <option value="manual" selected>Manual Only</option>
                   <option value="interval">Interval</option>
-                  <option value="cron">Cron expression</option>
+                  <option value="cron">Cron Expression</option>
                   <option value="hourly">Hourly</option>
                   <option value="daily">Daily</option>
                   <option value="weekly">Weekly</option>
@@ -4661,15 +4755,15 @@ tool_timeout_sec = 300</pre>
                 <select id="backupJobTimezone"><option value="UTC">UTC</option></select>
               </label>
               <div id="backupJobScheduleInterval" class="field hidden" data-backup-job-schedule-fields="interval">
-                <span>Interval in minutes</span>
+                <span>Interval In Minutes</span>
                 <input id="backupJobIntervalMinutes" type="number" min="1" max="525600" value="60" />
               </div>
               <label id="backupJobScheduleCron" class="field hidden" data-backup-job-schedule-fields="cron">
-                <span>Five-field cron (UTC)</span>
+                <span>Five-Field Cron (UTC)</span>
                 <input id="backupJobCronExpression" type="text" maxlength="200" value="0 2 * * *" autocomplete="off" spellcheck="false" />
               </label>
               <label id="backupJobScheduleHourly" class="field hidden" data-backup-job-schedule-fields="hourly">
-                <span>Minute of each hour</span>
+                <span>Minute Of Each Hour</span>
                 <input id="backupJobHourlyMinute" type="number" min="0" max="59" value="0" />
               </label>
               <label id="backupJobScheduleDaily" class="field hidden" data-backup-job-schedule-fields="daily">
@@ -4690,34 +4784,34 @@ tool_timeout_sec = 300</pre>
                 <label class="field"><span>Time (UTC)</span><input id="backupJobWeeklyTime" type="time" value="02:00" /></label>
               </div>
               <div id="backupJobScheduleMonthly" class="field-grid modal-columns backup-job-policy-fields hidden" data-backup-job-schedule-fields="monthly">
-                <label class="field"><span>Day of month</span><input id="backupJobMonthlyDay" type="number" min="1" max="31" value="1" /></label>
+                <label class="field"><span>Day Of Month</span><input id="backupJobMonthlyDay" type="number" min="1" max="31" value="1" /></label>
                 <label class="field"><span>Time (UTC)</span><input id="backupJobMonthlyTime" type="time" value="02:00" /></label>
               </div>
               <div id="backupJobSchedulePolicy" class="backup-job-calendar-policy hidden">
                 <div id="backupJobDstPolicy" class="field-grid modal-columns backup-job-policy-fields hidden">
                   <label class="field">
-                    <span>Nonexistent DST time</span>
-                    <select id="backupJobDstNonexistent"><option value="shift-forward">Shift forward</option><option value="skip">Skip occurrence</option></select>
+                    <span>Nonexistent DST Time</span>
+                    <select id="backupJobDstNonexistent"><option value="shift-forward">Shift Forward</option><option value="skip">Skip Occurrence</option></select>
                   </label>
                   <label class="field">
-                    <span>Repeated DST time</span>
-                    <select id="backupJobDstAmbiguous"><option value="first">First offset</option><option value="second">Second offset</option><option value="both">Both offsets</option></select>
+                    <span>Repeated DST Time</span>
+                    <select id="backupJobDstAmbiguous"><option value="first">First Offset</option><option value="second">Second Offset</option><option value="both">Both Offsets</option></select>
                   </label>
                 </div>
                 <div class="field-grid modal-columns backup-job-policy-fields">
                   <label class="field">
-                    <span>Missed occurrence</span>
-                    <select id="backupJobMissedRun"><option value="run-latest">Run latest</option><option value="run-all">Run all</option><option value="skip">Skip</option></select>
+                    <span>Missed Occurrence</span>
+                    <select id="backupJobMissedRun"><option value="run-latest">Run Latest</option><option value="run-all">Run All</option><option value="skip">Skip</option></select>
                   </label>
                   <label class="field">
-                    <span>Grace period (minutes)</span>
+                    <span>Grace Period (Minutes)</span>
                     <input id="backupJobMissedGrace" type="number" min="0" max="10080" value="15" />
                   </label>
                 </div>
-                <label class="backup-job-check"><input id="backupJobMaintenanceEnabled" type="checkbox" /><span><strong>Maintenance window</strong></span></label>
+                <label class="backup-job-check"><input id="backupJobMaintenanceEnabled" type="checkbox" /><span><strong>Maintenance Window</strong></span></label>
                 <div id="backupJobMaintenanceFields" class="backup-job-calendar-fields hidden">
                   <fieldset class="backup-job-weekdays">
-                    <legend>Allowed weekdays</legend>
+                    <legend>Allowed Weekdays</legend>
                     <label><input type="checkbox" value="1" data-backup-job-maintenance-day checked /><span>Mon</span></label>
                     <label><input type="checkbox" value="2" data-backup-job-maintenance-day checked /><span>Tue</span></label>
                     <label><input type="checkbox" value="3" data-backup-job-maintenance-day checked /><span>Wed</span></label>
@@ -4729,18 +4823,18 @@ tool_timeout_sec = 300</pre>
                   <div class="field-grid modal-columns backup-job-calendar-times">
                     <label class="field"><span>Starts</span><input id="backupJobMaintenanceStart" type="time" value="22:00" /></label>
                     <label class="field"><span>Ends</span><input id="backupJobMaintenanceEnd" type="time" value="04:00" /></label>
-                    <label class="field"><span>Outside window</span><select id="backupJobMaintenanceBehavior"><option value="defer">Defer</option><option value="skip">Skip</option></select></label>
+                    <label class="field"><span>Outside Window</span><select id="backupJobMaintenanceBehavior"><option value="defer">Defer</option><option value="skip">Skip</option></select></label>
                   </div>
                 </div>
                 <label class="backup-job-check"><input id="backupJobBlackoutEnabled" type="checkbox" /><span><strong>Blackout</strong></span></label>
                 <div id="backupJobBlackoutFields" class="field-grid modal-columns backup-job-calendar-times hidden">
                   <label class="field"><span>Starts (UTC)</span><input id="backupJobBlackoutStart" type="datetime-local" /></label>
                   <label class="field"><span>Ends (UTC)</span><input id="backupJobBlackoutEnd" type="datetime-local" /></label>
-                  <label class="field"><span>During blackout</span><select id="backupJobBlackoutBehavior"><option value="defer">Defer</option><option value="skip">Skip</option></select></label>
+                  <label class="field"><span>During Blackout</span><select id="backupJobBlackoutBehavior"><option value="defer">Defer</option><option value="skip">Skip</option></select></label>
                 </div>
               </div>
             </div>
-            <label class="backup-job-check"><input id="backupJobVerify" type="checkbox" checked /><span><strong>Verify checksums after backup</strong><small>Confirm committed objects match their recorded checksums.</small></span></label>
+            <label class="backup-job-check"><input id="backupJobVerify" type="checkbox" checked /><span><strong>Verify Checksums After Backup</strong><small>Confirm committed objects match their recorded checksums.</small></span></label>
           </section>
         </div>
         <div id="backupJobSourcePicker" class="backup-job-source-picker hidden" role="dialog" aria-modal="true" aria-labelledby="backupJobSourcePickerTitle">
@@ -4748,14 +4842,17 @@ tool_timeout_sec = 300</pre>
           <section class="backup-job-source-picker-card">
             <header class="backup-job-source-picker-header">
               <div>
-                <h3 id="backupJobSourcePickerTitle">Add backup source</h3>
-                <p>Choose the type of data you want to protect.</p>
+                <h3 id="backupJobSourcePickerTitle">Add Backup Source</h3>
+                <p id="backupJobSourcePickerDescription">Choose the type of data you want to protect.</p>
               </div>
               <button id="backupJobSourcePickerCloseButton" class="icon-button" type="button" aria-label="Close source picker">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
               </button>
             </header>
-            <div id="backupJobSourcePickerBody" class="backup-job-source-picker-body"></div>
+            <div id="backupJobSourcePickerBody" class="backup-job-source-picker-body">
+              <div id="backupJobSavedSources" class="backup-job-saved-sources hidden"></div>
+              <div id="backupJobSourceCreateLabel" class="backup-job-source-picker-label hidden">Create New Source</div>
+            </div>
           </section>
         </div>
         <footer class="modal-footer backup-job-footer">
@@ -5801,12 +5898,12 @@ tool_timeout_sec = 300</pre>
               <label class="field"><span>Port</span><input id="uptimeTcpPort" type="number" min="1" max="65535" value="80" /></label>
             </div>
             </div>
-            <div id="uptimeTlsFields" class="uptime-target-fields hidden"><div class="field-grid modal-columns"><label class="field span-2"><span>Hostname</span><input id="uptimeTlsHost" type="text" maxlength="253" placeholder="example.com" /></label><label class="field"><span>Port</span><input id="uptimeTlsPort" type="number" min="1" max="65535" value="443" /></label><label class="field"><span>Server name</span><input id="uptimeTlsServerName" type="text" maxlength="253" placeholder="example.com" /></label></div></div>
+            <div id="uptimeTlsFields" class="uptime-target-fields hidden"><div class="field-grid modal-columns"><label class="field span-2"><span>Hostname</span><input id="uptimeTlsHost" type="text" maxlength="253" placeholder="example.com" /></label><label class="field"><span>Port</span><input id="uptimeTlsPort" type="number" min="1" max="65535" value="443" /></label><label class="field"><span>Server Name</span><input id="uptimeTlsServerName" type="text" maxlength="253" placeholder="example.com" /></label></div></div>
           </section>
 
           <section class="form-section hidden" data-uptime-monitor-step="2"><div class="section-heading compact"><h3>Success conditions</h3><p>Define the response that counts as healthy.</p></div><div id="uptimeHttpConditions"><div class="field-grid modal-columns"><label class="field"><span>Expected status</span><input id="uptimeHttpStatusCodes" type="text" value="200-299" placeholder="200-299, 304" /></label><label class="field"><span>TLS validation</span><select id="uptimeHttpVerifyTls"><option value="true">Verify certificate</option><option value="false">Allow invalid certificate</option></select></label><label class="field"><span>Body contains</span><input id="uptimeBodyContains" type="text" placeholder="healthy" /></label><label class="field"><span>Body excludes</span><input id="uptimeBodyExcludes" type="text" placeholder="error" /></label><label class="field"><span>JSONPath</span><input id="uptimeJsonPath" type="text" placeholder="$.status" /></label><label class="field"><span>Expected value</span><input id="uptimeJsonExpected" type="text" placeholder="ok" /></label><label class="field span-2"><span>Request body</span><textarea id="uptimeHttpBody" rows="3" placeholder='{"probe":true}'></textarea></label></div><div class="uptime-guided-section"><div class="uptime-guided-heading"><strong>Request headers</strong><button id="uptimeAddHeaderButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg>Add header</button></div><div id="uptimeHeaderRows" class="uptime-header-rows"></div></div><div class="uptime-guided-section"><strong>Sensitive headers</strong><div class="field-grid modal-columns"><label class="field"><span>Authorization</span><input id="uptimeAuthorizationHeader" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing" /></label><label class="field"><span>X-API-Key</span><input id="uptimeApiKeyHeader" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing" /></label></div></div></div><div id="uptimeTcpConditions" class="uptime-inline-note hidden">A successful TCP connection is healthy. TLS monitors also validate hostname, issuer, validity, and certificate expiry.</div><div id="uptimeTlsConditions" class="field-grid modal-columns hidden"><label class="field"><span>Expiry warning</span><input id="uptimeTlsWarningDays" type="number" min="1" value="30" /></label><label class="field"><span>Expiry critical</span><input id="uptimeTlsCriticalDays" type="number" min="0" value="7" /></label></div></section>
 
-          <section class="form-section hidden" data-uptime-monitor-step="3"><div class="section-heading compact"><h3>Schedule and alerts</h3><p>Control execution, confirmation thresholds, and destinations.</p></div><div class="field-grid modal-columns"><label class="field"><span>Status</span><select id="uptimeMonitorEnabled"><option value="enabled">Enabled</option><option value="paused">Paused</option></select></label><label class="field"><span>Interval</span><select id="uptimeMonitorInterval"><option value="30">30 seconds</option><option value="60" selected>1 minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="3600">1 hour</option></select></label><label class="field"><span>Timeout (ms)</span><input id="uptimeMonitorTimeout" type="number" min="1000" max="120000" value="10000" /></label><label class="field"><span>Failures to open</span><input id="uptimeFailureThreshold" type="number" min="1" max="20" value="2" /></label><label class="field"><span>Successes to recover</span><input id="uptimeRecoveryThreshold" type="number" min="1" max="20" value="1" /></label><label class="field"><span>Latency warning (ms)</span><input id="uptimeLatencyWarning" type="number" min="0" max="120000" value="0" /></label><label class="field"><span>Latency critical (ms)</span><input id="uptimeLatencyCritical" type="number" min="0" max="120000" value="0" /></label></div><div class="uptime-guided-section"><strong>Notification routes</strong><div id="uptimeNotificationRoutes" class="uptime-route-choices"></div><p id="uptimeNotificationRoutesEmpty" class="settings-muted hidden">No enabled routes. Add destinations in Settings &gt; Notifications.</p></div></section>
+          <section class="form-section hidden" data-uptime-monitor-step="3"><div class="section-heading compact"><h3>Schedule and alerts</h3><p>Control execution, confirmation thresholds, and destinations.</p></div><div class="field-grid modal-columns"><label class="field"><span>Status</span><select id="uptimeMonitorEnabled"><option value="enabled">Enabled</option><option value="paused">Paused</option></select></label><label class="field"><span>Interval</span><select id="uptimeMonitorInterval"><option value="30">30 seconds</option><option value="60" selected>1 minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="3600">1 hour</option></select></label><label class="field"><span>Timeout (ms)</span><input id="uptimeMonitorTimeout" type="number" min="1000" max="120000" value="10000" /></label><label class="field"><span>Failures to open</span><input id="uptimeFailureThreshold" type="number" min="1" max="20" value="2" /></label><label class="field"><span>Successes to recover</span><input id="uptimeRecoveryThreshold" type="number" min="1" max="20" value="1" /></label><label class="field"><span>Latency warning (ms)</span><input id="uptimeLatencyWarning" type="number" min="0" max="120000" value="150" /></label><label class="field"><span>Latency critical (ms)</span><input id="uptimeLatencyCritical" type="number" min="0" max="120000" value="500" /></label></div><div class="uptime-guided-section"><strong>Notification routes</strong><div id="uptimeNotificationRoutes" class="uptime-route-choices"></div><p id="uptimeNotificationRoutesEmpty" class="settings-muted hidden">No enabled routes. Add destinations in Settings &gt; Notifications.</p></div></section>
         </div>
 
         <footer class="modal-footer">

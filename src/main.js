@@ -7,13 +7,16 @@ const http = require('http');
 const https = require('https');
 const os = require('os');
 const net = require('net');
+const tls = require('tls');
 const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { autoUpdater } = require('electron-updater');
 const nodemailer = require('nodemailer');
 const { Client } = require('ssh2');
 const { ServerMonitoringSessionManager } = require('./server-monitoring/session-manager');
 const { DeployerXMcpServer } = require('./mcp-server');
 const { RdpSessionManager } = require('./rdp-session');
+const { VncSessionManager } = require('./vnc-session');
 const { BackupAuditStore, StructuredLogStore } = require('./backup-manager/audit');
 const { BackupJobService } = require('./backup-manager/backup-job');
 const { BackupControlDatabase } = require('./backup-manager/control-database');
@@ -39,6 +42,7 @@ const { MysqlRestoreService, RESTORE_CONFIRMATIONS: MYSQL_RESTORE_CONFIRMATIONS 
 const { MysqlPhysicalRestoreService, RESTORE_CONFIRMATIONS: MYSQL_PHYSICAL_RESTORE_CONFIRMATIONS } = require('./backup-manager/mysql-physical-restore');
 const { MariadbPointInTimeRestoreService, MysqlPointInTimeRestoreService, PROFILES: MYSQL_FAMILY_PITR_PROFILES } = require('./backup-manager/mysql-family-pitr');
 const { BackupSourceReaderRouter, MysqlSourceReaderService } = require('./backup-manager/mysql-source-reader');
+const execFileAsync = promisify(execFile);
 const { BackupNotificationService } = require('./backup-manager/notifications');
 const { BackupObjectiveStatusService } = require('./backup-manager/objectives');
 const { ADAPTER_ID: MONGODB_ADAPTER_ID, MongoDbConnectionService, MongoDbNativeAdapter } = require('./backup-manager/mongodb');
@@ -166,9 +170,14 @@ const { UptimeIncidentPolicyService } = require('./uptime-monitor/incident-polic
 const { wrapUptimeIpc } = require('./uptime-monitor/ipc-contract');
 const { migrateLegacyUptime } = require('./uptime-monitor/legacy-migration');
 const { buildUptimeReport, reportToCsv, uptimeReportHtml } = require('./uptime-monitor/reporting');
-const { ScheduledUptimeWorkerService } = require('./uptime-monitor/scheduled-worker');
+const { ScheduledUptimeWorkerService, executeUptimeMonitorCheck } = require('./uptime-monitor/scheduled-worker');
 const { evaluateWorkerHeartbeat, workerHealthEvent } = require('./uptime-monitor/worker-health');
-const { buildLinuxAutostartEntry, buildLoginItemSettings, buildWorkerLaunchArgs } = require('./uptime-monitor/worker-launch');
+const {
+  buildLinuxAutostartEntry,
+  buildLoginItemSettings,
+  buildWorkerLaunchArgs,
+  isWorkerLockLeaseActive
+} = require('./uptime-monitor/worker-launch');
 const { uptimeWindowCloseDisposition } = require('./uptime-monitor/window-lifecycle');
 const appPackage = require('../package.json');
 
@@ -187,15 +196,21 @@ let mainWindow;
 const databaseAccessFallbackWindows = new Map();
 let databaseManagerPackagedSmokePublished = false;
 let rdpSessionManager;
-let rdpRestoreBounds = null;
+let vncSessionManager;
+let vncRestoreWindowState = null;
 let tray;
 let isAppQuitting = false;
 let pendingSecondInstanceArguments = null;
 let mcpServer;
+let mcpRestartTimer = null;
+let mcpRestorePromise = null;
+let mcpHealthTimer = null;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
 const activeFtpSessions = new Map();
+const activeVncNetworkSessions = new Map();
 const activeTerminalUploads = new Map();
+const activeWindowsVpnProfiles = new Map();
 const serverMonitoringSessionManager = new ServerMonitoringSessionManager({
   emit: (event) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('server-monitoring:event', event);
@@ -207,6 +222,7 @@ const FIREBASE_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
 const UPTIME_HISTORY_LIMIT = 200;
 const UPTIME_CONFIG_REFRESH_MS = 60 * 1000;
 const UPTIME_COMMAND_POLL_MS = 4000;
+const UPTIME_WORKER_LOCK_RENEW_MS = 5000;
 const DATABASE_CLOUD_SYNC_INTERVAL_MS = 60 * 1000;
 const UPTIME_RUNTIME_FILE = 'runtime.json';
 const SESSION_DATA_PATH = path.join(os.tmpdir(), `DeployerX-session-${process.pid}`);
@@ -251,6 +267,10 @@ let databaseCloudSyncTimer = null;
 let databaseManagerEventSequence = 0;
 const uptimeRunNowQueue = new Set();
 let uptimeWorkerOwnsLock = false;
+let uptimeWorkerLockOwnerId = '';
+let uptimeWorkerLockRenewTimer = null;
+let uptimeWorkerLaunchPromise = null;
+let uptimeWorkerLaunchError = '';
 let backupSecretStore = null;
 let backupAuditStore = null;
 let backupLogStore = null;
@@ -3385,7 +3405,7 @@ async function getUptimeServiceStatusV2() {
     activeChecks: Number(heartbeat?.activeChecks || 0),
     maximumConcurrency: Number(heartbeat?.maximumConcurrency || 8),
     autostartEnabled: await resolveWorkerAutostartEnabled().catch(() => false),
-    syncWarning: uptimeWorkerState.syncWarning || '',
+    syncWarning: uptimeWorkerLaunchError || uptimeWorkerState.syncWarning || '',
     lastError: heartbeat?.lastError || null
   };
 }
@@ -3451,7 +3471,7 @@ async function buildWorkspaceUptimeReport(options = {}) {
   }
   const to = toDate.toISOString();
   const from = fromDate.toISOString();
-  const monitors = await database.listMonitors(context.workspaceId, { includeDeleted: true, limit: 10000 });
+  const monitors = await database.listMonitors(context.workspaceId, { includeDeleted: options.includeDeleted !== false, limit: 10000 });
   const selected = monitors.filter((monitor) => {
     if (options.monitorId && monitor.id !== options.monitorId) return false;
     if (options.projectId && monitor.projectId !== options.projectId) return false;
@@ -5165,7 +5185,7 @@ async function writeCurrentStore(data) {
 
 function normalizeMcpIntegration(config = {}) {
   return {
-    enabled: config.enabled === true,
+    enabled: true,
     port: Math.min(65535, Math.max(1024, Math.round(Number(config.port) || 43821))),
     tokenEncrypted: String(config.tokenEncrypted || ''),
     lastError: String(config.lastError || ''),
@@ -5188,12 +5208,215 @@ function createMcpToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
+async function listUptimeMonitorsOperation(options = {}) {
+  const context = await uptimeOperationalContext();
+  return getUptimeControlDatabaseV2().listMonitors(context.workspaceId, options);
+}
+
+async function getUptimeMonitorOperation(payload = {}) {
+  const context = await uptimeOperationalContext();
+  return getUptimeControlDatabaseV2().getMonitor(context.workspaceId, payload.id, { includeDeleted: payload.includeDeleted === true });
+}
+
+async function createUptimeMonitorOperation(input = {}) {
+  const context = await uptimeOperationalContext();
+  const prepared = await prepareUptimeMonitorForSave(context, input);
+  let monitor;
+  try {
+    if (!Object.prototype.hasOwnProperty.call(prepared.payload, 'nextCheckAt')) {
+      const disabled = ['paused', 'disabled'].includes(String(prepared.payload.state || '').toLowerCase());
+      prepared.payload.nextCheckAt = disabled
+        ? null
+        : new Date(Date.now() + Number(prepared.payload.timeoutMs || 10000) + 5000).toISOString();
+    }
+    monitor = await getUptimeControlDatabaseV2().createMonitor(context.workspaceId, context.actorId, prepared.payload);
+  } catch (error) {
+    await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
+    throw error;
+  }
+  if (monitor.state === 'enabled') {
+    const transition = await executeUptimeMonitorCheck({
+      controlDatabase: getUptimeControlDatabaseV2(),
+      incidentPolicy: uptimeIncidentPolicyService,
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      monitor,
+      secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
+      probeId: `local-windows:${backupDeviceId || process.pid}`,
+      scheduledAt: nowIso()
+    });
+    monitor = transition.monitor;
+  }
+  emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
+  await maybeStartDetachedUptimeWorker().catch(() => {});
+  return monitor;
+}
+
+async function updateUptimeMonitorOperation(input = {}) {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const current = await database.getMonitor(context.workspaceId, input.id);
+  if (!current) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
+  const prepared = await prepareUptimeMonitorForSave(context, input, current);
+  try {
+    const monitor = await database.updateMonitor(context.workspaceId, context.actorId, current.id, prepared.payload, input.revision);
+    const previousRefs = Object.values(current.config?.secretHeaderRefs || {});
+    const currentRefs = new Set(Object.values(monitor.config?.secretHeaderRefs || {}).map(String));
+    await cleanupUptimeSecretReferences(context, previousRefs.filter((id) => !currentRefs.has(String(id))));
+    if (monitor.state === 'enabled') await maybeStartDetachedUptimeWorker().catch(() => {});
+    emitUptimeEvent('uptime:monitor-updated-v2', { monitorId: monitor.id });
+    return monitor;
+  } catch (error) {
+    await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
+    throw error;
+  }
+}
+
+async function deleteUptimeMonitorOperation(payload = {}) {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const current = await database.getMonitor(context.workspaceId, payload.id);
+  if (!current) return { id: String(payload.id || ''), deleted: false, absent: true };
+  const result = await database.deleteMonitor(context.workspaceId, context.actorId, current.id, payload.revision);
+  if (result.deleted) {
+    await cleanupUptimeSecretReferences(context, Object.values(current.config?.secretHeaderRefs || {}));
+    emitUptimeEvent('uptime:monitor-deleted-v2', { monitorId: current.id });
+  }
+  return result;
+}
+
+async function testUptimeMonitorOperation(input = {}) {
+  const context = await uptimeOperationalContext();
+  const current = input.id ? await getUptimeControlDatabaseV2().getMonitor(context.workspaceId, input.id) : null;
+  const prepared = prepareUptimeMonitorForTest(context, input, current);
+  return runMonitorCheck(prepared.monitor, { secretResolver: prepared.secretResolver });
+}
+
+async function runUptimeMonitorNowOperation(payload = {}) {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const monitor = await database.getMonitor(context.workspaceId, payload.id);
+  if (!monitor) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
+  if (monitor.state !== 'enabled') throw Object.assign(new Error('Enable the monitor before running it.'), { code: 'UPTIME_MONITOR_NOT_ENABLED' });
+  const scheduledAt = nowIso();
+  const leased = await database.updateMonitor(context.workspaceId, context.actorId, monitor.id, {
+    nextCheckAt: new Date(Date.now() + Number(monitor.timeoutMs || 10000) + 5000).toISOString()
+  }, monitor.revision);
+  const transition = await executeUptimeMonitorCheck({
+    controlDatabase: database,
+    incidentPolicy: uptimeIncidentPolicyService,
+    workspaceId: context.workspaceId,
+    actorId: context.actorId,
+    monitor: leased,
+    secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
+    probeId: `local-windows:${backupDeviceId || process.pid}`,
+    scheduledAt
+  });
+  await maybeStartDetachedUptimeWorker().catch(() => {});
+  emitUptimeEvent('uptime:monitor-run-completed-v2', { monitorId: monitor.id });
+  return { queued: false, completed: true, monitorId: monitor.id, revision: transition.monitor.revision };
+}
+
+async function acknowledgeUptimeIncidentOperation(payload = {}) {
+  const context = await uptimeOperationalContext();
+  if (!uptimeIncidentPolicyService) throw new Error('Uptime incident policy is not initialized.');
+  const incident = await uptimeIncidentPolicyService.acknowledge(context.workspaceId, context.actorId, payload.id, payload.revision, payload.note);
+  if (!incident) throw Object.assign(new Error('Incident was not found.'), { code: 'UPTIME_INCIDENT_NOT_FOUND' });
+  emitUptimeEvent('uptime:incident-acknowledged-v2', { monitorId: incident.monitorId, incidentId: incident.id });
+  return incident;
+}
+
+async function createUptimeMaintenanceOperation(input = {}) {
+  const context = await uptimeOperationalContext();
+  const maintenance = await getUptimeControlDatabaseV2().createMaintenanceWindow(context.workspaceId, context.actorId, input);
+  emitUptimeEvent('uptime:maintenance-created', { maintenanceId: maintenance.id });
+  return maintenance;
+}
+
+async function updateUptimeMaintenanceOperation(input = {}) {
+  const context = await uptimeOperationalContext();
+  const maintenance = await getUptimeControlDatabaseV2().updateMaintenanceWindow(context.workspaceId, context.actorId, input.id, input, input.revision);
+  if (!maintenance) throw Object.assign(new Error('Maintenance window was not found.'), { code: 'UPTIME_MAINTENANCE_NOT_FOUND' });
+  emitUptimeEvent('uptime:maintenance-updated', { maintenanceId: maintenance.id });
+  return maintenance;
+}
+
+async function deleteUptimeMaintenanceOperation(payload = {}) {
+  const context = await uptimeOperationalContext();
+  const result = await getUptimeControlDatabaseV2().deleteMaintenanceWindow(context.workspaceId, context.actorId, payload.id, payload.revision);
+  if (result.deleted) emitUptimeEvent('uptime:maintenance-deleted', { maintenanceId: result.id });
+  return result;
+}
+
+async function getUptimeStatusOperation() {
+  const context = await uptimeOperationalContext();
+  const database = getUptimeControlDatabaseV2();
+  const checkedAt = nowIso();
+  const [worker, monitors, incidents, activeMaintenance] = await Promise.all([
+    getUptimeServiceStatusV2(),
+    database.listMonitors(context.workspaceId, { limit: 10000 }),
+    database.listIncidents(context.workspaceId, { limit: 10000 }),
+    database.listMaintenanceWindows(context.workspaceId, { activeAt: checkedAt, limit: 10000 })
+  ]);
+  const activeIncidents = incidents.filter((incident) => incident.state !== 'resolved');
+  const statusCounts = monitors.reduce((counts, monitor) => {
+    const status = String(monitor.runtime?.status || monitor.state || 'unknown');
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
+  return {
+    checkedAt,
+    worker,
+    summary: { monitorCount: monitors.length, statusCounts, activeIncidentCount: activeIncidents.length, activeMaintenanceCount: activeMaintenance.length },
+    monitors,
+    activeIncidents,
+    activeMaintenance
+  };
+}
+
+async function writeMcpIntegrationSettings(config) {
+  const latestSettings = await readSettings();
+  const normalized = normalizeMcpIntegration(config);
+  await writeSettings({ ...latestSettings, mcpIntegration: normalized });
+  return normalized;
+}
+
 function ensureMcpServer() {
   if (!mcpServer) {
     mcpServer = new DeployerXMcpServer({
       getProjects: async () => {
         const data = await readCurrentStore();
         return data.projects || [];
+      },
+      uptimeOperations: {
+        getStatus: getUptimeStatusOperation,
+        listMonitors: listUptimeMonitorsOperation,
+        getMonitor: getUptimeMonitorOperation,
+        createMonitor: createUptimeMonitorOperation,
+        updateMonitor: updateUptimeMonitorOperation,
+        deleteMonitor: deleteUptimeMonitorOperation,
+        testMonitor: testUptimeMonitorOperation,
+        runMonitorNow: runUptimeMonitorNowOperation,
+        listChecks: async (payload = {}) => {
+          const context = await uptimeOperationalContext();
+          return getUptimeControlDatabaseV2().listChecks(context.workspaceId, payload.monitorId, payload);
+        },
+        listIncidents: async (options = {}) => {
+          const context = await uptimeOperationalContext();
+          return getUptimeControlDatabaseV2().listIncidents(context.workspaceId, options);
+        },
+        acknowledgeIncident: acknowledgeUptimeIncidentOperation,
+        listMaintenance: async (options = {}) => {
+          const context = await uptimeOperationalContext();
+          return getUptimeControlDatabaseV2().listMaintenanceWindows(context.workspaceId, options);
+        },
+        createMaintenance: createUptimeMaintenanceOperation,
+        updateMaintenance: updateUptimeMaintenanceOperation,
+        deleteMaintenance: deleteUptimeMaintenanceOperation,
+        getWorkerStatus: getUptimeServiceStatusV2,
+        getSettings: getUptimeMonitoringSettings,
+        updateSettings: updateUptimeMonitoringSettings,
+        getReport: buildWorkspaceUptimeReport
       }
     });
   }
@@ -5212,7 +5435,7 @@ async function publicMcpIntegration(config = null) {
   }
   try {
     const data = await readCurrentStore();
-    serverCount = (data.projects || []).filter((project) => project?.serverType !== 'rdp' && project?.ssh?.host).length;
+    serverCount = (data.projects || []).filter((project) => !['vnc', 'rdp'].includes(project?.serverType) && project?.ssh?.host).length;
   } catch {
     serverCount = 0;
   }
@@ -5224,12 +5447,16 @@ async function publicMcpIntegration(config = null) {
     url: `http://127.0.0.1:${normalized.port}/mcp`,
     token,
     serverCount,
+    tools: ensureMcpServer().tools(),
     lastError: runtime.lastError || normalized.lastError,
     updatedAt: normalized.updatedAt
   };
 }
 
 async function startMcpIntegration(payload = {}) {
+  if (mcpRestorePromise) await mcpRestorePromise.catch(() => {});
+  if (mcpRestartTimer) clearTimeout(mcpRestartTimer);
+  mcpRestartTimer = null;
   const settings = await readSettings();
   const current = normalizeMcpIntegration(settings.mcpIntegration || {});
   const port = Math.min(65535, Math.max(1024, Math.round(Number(payload.port) || current.port || 43821)));
@@ -5242,26 +5469,20 @@ async function startMcpIntegration(payload = {}) {
     lastError: '',
     updatedAt: nowIso()
   });
-  await writeSettings({ ...settings, mcpIntegration: next });
+  await writeMcpIntegrationSettings(next);
   try {
     await ensureMcpServer().start({ port, token });
   } catch (error) {
     const failed = { ...next, lastError: String(error?.message || error), updatedAt: nowIso() };
-    await writeSettings({ ...settings, mcpIntegration: failed });
+    await writeMcpIntegrationSettings(failed);
+    scheduleMcpRestoreRetry();
     throw new Error(`Could not start the DeployerX MCP server: ${error?.message || error}`);
   }
   return publicMcpIntegration(next);
 }
 
-async function stopMcpIntegration() {
-  const settings = await readSettings();
-  const next = normalizeMcpIntegration({ ...settings.mcpIntegration, enabled: false, lastError: '', updatedAt: nowIso() });
-  await ensureMcpServer().stop();
-  await writeSettings({ ...settings, mcpIntegration: next });
-  return publicMcpIntegration(next);
-}
-
 async function rotateMcpToken() {
+  if (mcpRestorePromise) await mcpRestorePromise.catch(() => {});
   const settings = await readSettings();
   const current = normalizeMcpIntegration(settings.mcpIntegration || {});
   const token = createMcpToken();
@@ -5271,15 +5492,14 @@ async function rotateMcpToken() {
     lastError: '',
     updatedAt: nowIso()
   });
-  await writeSettings({ ...settings, mcpIntegration: next });
-  if (current.enabled) {
-    try {
-      await ensureMcpServer().start({ port: next.port, token });
-    } catch (error) {
-      const failed = { ...next, lastError: String(error?.message || error), updatedAt: nowIso() };
-      await writeSettings({ ...settings, mcpIntegration: failed });
-      throw new Error(`The token was rotated, but the MCP server could not restart: ${error?.message || error}`);
-    }
+  await writeMcpIntegrationSettings(next);
+  try {
+    await ensureMcpServer().start({ port: next.port, token });
+  } catch (error) {
+    const failed = { ...next, lastError: String(error?.message || error), updatedAt: nowIso() };
+    await writeMcpIntegrationSettings(failed);
+    scheduleMcpRestoreRetry();
+    throw new Error(`The token was rotated, but the MCP server could not restart: ${error?.message || error}`);
   }
   return publicMcpIntegration(next);
 }
@@ -5288,8 +5508,8 @@ async function testMcpIntegration() {
   const settings = await readSettings();
   const config = normalizeMcpIntegration(settings.mcpIntegration || {});
   const token = decryptMcpToken(config.tokenEncrypted);
-  if (!token || !ensureMcpServer().status().running) throw new Error('Start the DeployerX MCP server first.');
-  const body = JSON.stringify({ jsonrpc: '2.0', id: 'deployerx-test', method: 'ping' });
+  if (!token || !ensureMcpServer().status().running) throw new Error('The DeployerX MCP server is still starting. Try again shortly.');
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 'deployerx-test', method: 'tools/list' });
   const result = await new Promise((resolve, reject) => {
     const request = http.request(
       {
@@ -5316,20 +5536,78 @@ async function testMcpIntegration() {
     request.end(body);
   });
   const parsed = JSON.parse(result.body || '{}');
-  if (result.statusCode !== 200 || parsed?.result === undefined) throw new Error('The MCP endpoint did not return a valid ping response.');
-  return { ok: true, checkedAt: nowIso(), ...(await publicMcpIntegration(config)) };
+  if (result.statusCode !== 200 || !Array.isArray(parsed?.result?.tools)) throw new Error('The MCP endpoint did not return a valid tool list.');
+  return {
+    ok: true,
+    checkedAt: nowIso(),
+    ...(await publicMcpIntegration(config)),
+    tools: parsed.result.tools.map(({ name, title, description }) => ({ name, title, description }))
+  };
+}
+
+function scheduleMcpRestoreRetry(delayMs = 10000) {
+  if (isAppQuitting || mcpRestartTimer) return;
+  mcpRestartTimer = setTimeout(() => {
+    mcpRestartTimer = null;
+    restoreMcpIntegration().catch(() => {});
+  }, delayMs);
+  mcpRestartTimer.unref?.();
+}
+
+function startMcpHealthWatchdog() {
+  if (mcpHealthTimer) return;
+  mcpHealthTimer = setInterval(() => {
+    if (!isAppQuitting && !ensureMcpServer().status().running) restoreMcpIntegration().catch(() => {});
+  }, 15000);
+  mcpHealthTimer.unref?.();
+}
+
+async function restoreMcpIntegrationAttempt() {
+  const settings = await readSettings();
+  const current = normalizeMcpIntegration(settings.mcpIntegration || {});
+  let token;
+  let tokenEncrypted = current.tokenEncrypted;
+  try {
+    token = decryptMcpToken(tokenEncrypted);
+  } catch {
+    token = '';
+    tokenEncrypted = '';
+  }
+  token ||= createMcpToken();
+  const config = normalizeMcpIntegration({
+    ...current,
+    tokenEncrypted: tokenEncrypted || encryptMcpToken(token),
+    lastError: '',
+    updatedAt: current.updatedAt || nowIso()
+  });
+  await writeMcpIntegrationSettings(config);
+
+  let lastError;
+  for (const delayMs of [0, 300, 1000]) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      await ensureMcpServer().start({ port: config.port, token });
+      config.lastError = '';
+      config.updatedAt = nowIso();
+      await writeMcpIntegrationSettings(config);
+      return publicMcpIntegration(config);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  config.lastError = String(lastError?.message || lastError || 'MCP startup failed.');
+  config.updatedAt = nowIso();
+  await writeMcpIntegrationSettings(config);
+  scheduleMcpRestoreRetry();
+  return publicMcpIntegration(config);
 }
 
 async function restoreMcpIntegration() {
-  const settings = await readSettings();
-  const config = normalizeMcpIntegration(settings.mcpIntegration || {});
-  if (!config.enabled || !config.tokenEncrypted) return;
-  try {
-    await ensureMcpServer().start({ port: config.port, token: decryptMcpToken(config.tokenEncrypted) });
-  } catch (error) {
-    config.lastError = String(error?.message || error);
-    await writeSettings({ ...settings, mcpIntegration: config });
-  }
+  if (mcpRestorePromise) return mcpRestorePromise;
+  mcpRestorePromise = restoreMcpIntegrationAttempt().finally(() => {
+    mcpRestorePromise = null;
+  });
+  return mcpRestorePromise;
 }
 
 function sanitizeUptimeProjects(projects = []) {
@@ -5363,36 +5641,86 @@ async function isProcessRunning(pid) {
   }
 }
 
-async function acquireUptimeWorkerLock() {
-  await ensureUptimeRoot();
-  const lockPath = getUptimeWorkerLockPath();
-  try {
-    const handle = await fs.open(lockPath, 'wx');
-    await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2));
-    await handle.close();
-    uptimeWorkerOwnsLock = true;
-    return true;
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-  }
+function stopUptimeWorkerLockRenewal() {
+  if (uptimeWorkerLockRenewTimer) clearInterval(uptimeWorkerLockRenewTimer);
+  uptimeWorkerLockRenewTimer = null;
+}
 
-  const existing = await readJsonFileSafe(lockPath, null);
-  if (existing?.pid && (await isProcessRunning(existing.pid)) && Number(existing.pid) !== process.pid) {
+async function renewUptimeWorkerLock() {
+  if (!uptimeWorkerOwnsLock || !uptimeWorkerLockOwnerId) return false;
+  const lockPath = getUptimeWorkerLockPath();
+  const current = await readJsonFileSafe(lockPath, null);
+  if (current?.ownerId !== uptimeWorkerLockOwnerId || Number(current?.pid) !== process.pid) {
+    uptimeWorkerOwnsLock = false;
+    uptimeWorkerLockOwnerId = '';
+    stopUptimeWorkerLockRenewal();
     return false;
   }
-
-  await fs.rm(lockPath, { force: true });
-  const handle = await fs.open(lockPath, 'wx');
-  await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2));
-  await handle.close();
-  uptimeWorkerOwnsLock = true;
+  const now = new Date();
+  await fs.utimes(lockPath, now, now);
   return true;
+}
+
+function startUptimeWorkerLockRenewal() {
+  stopUptimeWorkerLockRenewal();
+  uptimeWorkerLockRenewTimer = setInterval(() => {
+    renewUptimeWorkerLock().catch(() => {});
+  }, UPTIME_WORKER_LOCK_RENEW_MS);
+}
+
+async function createUptimeWorkerLock(lockPath, ownerId) {
+  const handle = await fs.open(lockPath, 'wx');
+  try {
+    await handle.writeFile(JSON.stringify({ pid: process.pid, ownerId, startedAt: nowIso() }, null, 2));
+  } finally {
+    await handle.close();
+  }
+  uptimeWorkerOwnsLock = true;
+  uptimeWorkerLockOwnerId = ownerId;
+  startUptimeWorkerLockRenewal();
+  return true;
+}
+
+async function acquireUptimeWorkerLock() {
+  if (uptimeWorkerOwnsLock) return true;
+  await ensureUptimeRoot();
+  const lockPath = getUptimeWorkerLockPath();
+  const ownerId = crypto.randomUUID();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await createUptimeWorkerLock(lockPath, ownerId);
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+
+    const existing = await readJsonFileSafe(lockPath, null);
+    const stats = await fs.stat(lockPath).catch(() => null);
+    const processRunning = existing?.pid ? await isProcessRunning(existing.pid) : false;
+    if (isWorkerLockLeaseActive(existing, {
+      leaseUpdatedAt: stats?.mtime?.toISOString(),
+      processRunning
+    })) return false;
+
+    const latest = await readJsonFileSafe(lockPath, null);
+    if (latest?.ownerId !== existing?.ownerId || latest?.startedAt !== existing?.startedAt || Number(latest?.pid || 0) !== Number(existing?.pid || 0)) {
+      continue;
+    }
+    await fs.rm(lockPath, { force: true });
+  }
+  return false;
 }
 
 async function releaseUptimeWorkerLock() {
   if (!uptimeWorkerOwnsLock) return;
+  const ownerId = uptimeWorkerLockOwnerId;
   uptimeWorkerOwnsLock = false;
-  await fs.rm(getUptimeWorkerLockPath(), { force: true }).catch(() => {});
+  uptimeWorkerLockOwnerId = '';
+  stopUptimeWorkerLockRenewal();
+  const lockPath = getUptimeWorkerLockPath();
+  const current = await readJsonFileSafe(lockPath, null);
+  if (current?.ownerId === ownerId && Number(current?.pid) === process.pid) {
+    await fs.rm(lockPath, { force: true }).catch(() => {});
+  }
 }
 
 function buildWorkerArgs() {
@@ -5977,14 +6305,37 @@ async function startUptimeWindowPolling() {
 
 async function maybeStartDetachedUptimeWorker() {
   if (isWorkerMode()) return;
-  const serviceStatus = await getUptimeServiceStatusV2().catch(() => ({ active: false }));
-  if (serviceStatus.active && serviceStatus.processId && Number(serviceStatus.processId) !== process.pid) return;
-  const child = execFile(process.execPath, buildWorkerArgs(), {
-    detached: true,
-    windowsHide: true,
-    stdio: 'ignore'
-  });
-  child.unref();
+  if (uptimeWorkerLaunchPromise) return uptimeWorkerLaunchPromise;
+  const launch = (async () => {
+    const serviceStatus = await getUptimeServiceStatusV2().catch(() => ({ active: false }));
+    if (serviceStatus.active && serviceStatus.processId && Number(serviceStatus.processId) !== process.pid) {
+      uptimeWorkerLaunchError = '';
+      return { started: false, processId: Number(serviceStatus.processId) };
+    }
+    return new Promise((resolve, reject) => {
+      const child = execFile(process.execPath, buildWorkerArgs(), {
+        detached: true,
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.unref();
+        resolve({ started: true, processId: child.pid });
+      });
+    });
+  })();
+  uptimeWorkerLaunchPromise = launch;
+  try {
+    const result = await launch;
+    uptimeWorkerLaunchError = '';
+    return result;
+  } catch (error) {
+    uptimeWorkerLaunchError = `Background worker could not start: ${String(error?.message || error)}`;
+    throw error;
+  } finally {
+    if (uptimeWorkerLaunchPromise === launch) uptimeWorkerLaunchPromise = null;
+  }
 }
 
 async function initializeUptimeWorker() {
@@ -6530,6 +6881,12 @@ function createWindow(options = {}) {
     }
   });
 
+  vncSessionManager = new VncSessionManager({
+    onEvent: (event) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send('vnc:event', event);
+    }
+  });
   rdpSessionManager = new RdpSessionManager({
     onEvent: (event) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -6550,13 +6907,20 @@ function createWindow(options = {}) {
     if (disposition.hideWindow) mainWindow.hide();
     if (disposition.hideDock) app.dock?.hide();
   });
-  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('rdp:fullscreen-changed', true));
-  mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('rdp:fullscreen-changed', false));
+  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('vnc:fullscreen-changed', true));
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow?.webContents.send('vnc:fullscreen-changed', false);
+    restoreVncWindowState();
+  });
   mainWindow.on('closed', () => {
     serverMonitoringSessionManager.stopAll();
     rdpSessionManager?.closeAll().catch(() => {});
+    vncSessionManager?.closeAll().catch(() => {});
+    releaseAllVncNetworkSessions().catch(() => {});
+    releaseAllWindowsVpnProfiles().catch(() => {});
     rdpSessionManager = null;
-    rdpRestoreBounds = null;
+    vncSessionManager = null;
+    vncRestoreWindowState = null;
     mainWindow = null;
   });
   mainWindow.webContents.on('console-message', (event) => {
@@ -6596,35 +6960,415 @@ function toConnectionConfig(project) {
   return config;
 }
 
+function normalizeProjectProxy(proxy = {}) {
+  return {
+    mode: ['none', 'windows-vpn', 'socks5', 'http-connect'].includes(String(proxy.mode || '')) ? String(proxy.mode) : 'none',
+    windowsVpnProfile: String(proxy.windowsVpnProfile || '').trim(),
+    host: String(proxy.host || '').trim(),
+    port: proxy.port === '' || proxy.port == null ? '' : Number(proxy.port || ''),
+    username: String(proxy.username || '').trim(),
+    password: String(proxy.password || '')
+  };
+}
+
+function proxyModeUsesManualEndpoint(mode) {
+  return mode === 'socks5' || mode === 'http-connect';
+}
+
+function projectProxyValidationError(project) {
+  const proxy = normalizeProjectProxy(project?.proxy || {});
+  if (['vnc', 'rdp'].includes(project?.serverType) && proxyModeUsesManualEndpoint(proxy.mode)) {
+    return 'VNC connections currently support only direct access or a Windows VPN profile.';
+  }
+  if (proxy.mode === 'windows-vpn' && !proxy.windowsVpnProfile) return 'Windows VPN profile is required.';
+  if (proxyModeUsesManualEndpoint(proxy.mode) && !proxy.host) return 'Proxy host is required.';
+  if (proxyModeUsesManualEndpoint(proxy.mode) && !(Number(proxy.port || 0) > 0)) return 'Proxy port is required.';
+  return null;
+}
+
+function normalizeWindowsVpnProfilesOutput(stdout = '') {
+  const raw = String(stdout || '').trim();
+  if (!raw) return [];
+  const parsed = JSON.parse(raw);
+  const list = Array.isArray(parsed) ? parsed : [parsed];
+  return list
+    .map((profile) => ({
+      name: String(profile?.Name || profile?.name || '').trim(),
+      connected: String(profile?.ConnectionStatus || profile?.connectionStatus || '').trim().toLowerCase() === 'connected'
+    }))
+    .filter((profile) => profile.name);
+}
+
+async function listWindowsVpnProfiles() {
+  if (process.platform !== 'win32') return [];
+  try {
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-Command', 'Get-VpnConnection | Select-Object Name, ConnectionStatus | ConvertTo-Json -Compress'],
+      { windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024 }
+    );
+    return normalizeWindowsVpnProfilesOutput(stdout);
+  } catch (error) {
+    const detail = String(error?.stderr || error?.stdout || error?.message || '').trim();
+    if (/cannot find/i.test(detail) || /no msft_vpnconnection/i.test(detail)) return [];
+    throw new Error(detail ? `Could not load Windows VPN profiles. ${detail}` : 'Could not load Windows VPN profiles.');
+  }
+}
+
+async function connectWindowsVpnProfile(profileName) {
+  const name = String(profileName || '').trim();
+  if (!name) throw new Error('Windows VPN profile is required.');
+  try {
+    await execFileAsync('rasdial.exe', [name], { windowsHide: true, timeout: 60000, maxBuffer: 1024 * 1024 });
+  } catch (error) {
+    const detail = `${error?.stdout || ''}\n${error?.stderr || ''}\n${error?.message || ''}`.trim();
+    if (/already connected/i.test(detail)) return;
+    throw new Error(detail ? `Could not connect Windows VPN profile "${name}". ${detail}` : `Could not connect Windows VPN profile "${name}".`);
+  }
+}
+
+async function disconnectWindowsVpnProfile(profileName) {
+  const name = String(profileName || '').trim();
+  if (!name) return;
+  try {
+    await execFileAsync('rasdial.exe', [name, '/disconnect'], { windowsHide: true, timeout: 30000, maxBuffer: 1024 * 1024 });
+  } catch (error) {
+    const detail = `${error?.stdout || ''}\n${error?.stderr || ''}\n${error?.message || ''}`.trim();
+    if (/no connections/i.test(detail) || /could not find/i.test(detail)) return;
+    throw new Error(detail ? `Could not disconnect Windows VPN profile "${name}". ${detail}` : `Could not disconnect Windows VPN profile "${name}".`);
+  }
+}
+
+async function acquireWindowsVpnProfile(profileName) {
+  const name = String(profileName || '').trim();
+  if (!name) throw new Error('Windows VPN profile is required.');
+  const key = name.toLowerCase();
+  const active = activeWindowsVpnProfiles.get(key);
+  if (active) {
+    active.count += 1;
+    return {
+      profileName: active.profileName,
+      async release() {
+        await releaseWindowsVpnProfileLease(key);
+      }
+    };
+  }
+
+  const profiles = await listWindowsVpnProfiles();
+  const profile = profiles.find((item) => item.name.toLowerCase() === key);
+  if (!profile) throw new Error(`Windows VPN profile "${name}" was not found on this device.`);
+  if (!profile.connected) await connectWindowsVpnProfile(profile.name);
+
+  activeWindowsVpnProfiles.set(key, {
+    profileName: profile.name,
+    count: 1,
+    connectedByApp: !profile.connected
+  });
+
+  return {
+    profileName: profile.name,
+    async release() {
+      await releaseWindowsVpnProfileLease(key);
+    }
+  };
+}
+
+async function releaseWindowsVpnProfileLease(key) {
+  const active = activeWindowsVpnProfiles.get(key);
+  if (!active) return;
+  active.count -= 1;
+  if (active.count > 0) return;
+  activeWindowsVpnProfiles.delete(key);
+  if (active.connectedByApp) await disconnectWindowsVpnProfile(active.profileName).catch(() => {});
+}
+
+async function releaseAllVncNetworkSessions() {
+  const sessions = [...activeVncNetworkSessions.values()];
+  activeVncNetworkSessions.clear();
+  await Promise.all(sessions.map((networkAccess) => networkAccess?.release?.().catch(() => {})));
+}
+
+async function releaseAllWindowsVpnProfiles() {
+  const profiles = [...activeWindowsVpnProfiles.values()];
+  activeWindowsVpnProfiles.clear();
+  await Promise.all(
+    profiles.map((profile) => (profile?.connectedByApp ? disconnectWindowsVpnProfile(profile.profileName).catch(() => {}) : Promise.resolve()))
+  );
+}
+
+function onceAsync(fn) {
+  let settled = false;
+  return async () => {
+    if (settled) return;
+    settled = true;
+    await fn();
+  };
+}
+
+function createConnectedSocket(host, port) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host, port: Number(port || 0) });
+    const cleanup = () => {
+      socket.removeListener('connect', onConnect);
+      socket.removeListener('error', onError);
+      socket.removeListener('timeout', onTimeout);
+    };
+    const onConnect = () => {
+      cleanup();
+      socket.setTimeout(0);
+      socket.setNoDelay(true);
+      resolve(socket);
+    };
+    const onError = (error) => {
+      cleanup();
+      socket.destroy();
+      reject(error);
+    };
+    const onTimeout = () => {
+      cleanup();
+      socket.destroy();
+      reject(new Error(`Timed out connecting to ${host}:${port}.`));
+    };
+    socket.setTimeout(20000);
+    socket.once('connect', onConnect);
+    socket.once('error', onError);
+    socket.once('timeout', onTimeout);
+  });
+}
+
+function readSocketUntil(socket, matcher) {
+  return new Promise((resolve, reject) => {
+    let buffer = Buffer.alloc(0);
+    const cleanup = () => {
+      socket.removeListener('data', onData);
+      socket.removeListener('error', onError);
+      socket.removeListener('close', onClose);
+      socket.removeListener('end', onClose);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error('Proxy connection closed before the handshake completed.'));
+    };
+    const onData = (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      const match = matcher(buffer);
+      if (!match) return;
+      cleanup();
+      if (buffer.length > match.consume) socket.unshift(buffer.subarray(match.consume));
+      resolve(buffer.subarray(0, match.consume));
+    };
+    socket.on('data', onData);
+    socket.once('error', onError);
+    socket.once('close', onClose);
+    socket.once('end', onClose);
+  });
+}
+
+function socksReplyMessage(code) {
+  return {
+    0x01: 'general SOCKS failure',
+    0x02: 'connection blocked by ruleset',
+    0x03: 'network unreachable',
+    0x04: 'host unreachable',
+    0x05: 'connection refused',
+    0x06: 'TTL expired',
+    0x07: 'command not supported',
+    0x08: 'address type not supported'
+  }[code] || `SOCKS server replied with code ${code}`;
+}
+
+async function openSocks5Socket(proxy, targetHost, targetPort) {
+  const socket = await createConnectedSocket(proxy.host, proxy.port);
+  try {
+    const methods = proxy.username ? [0x00, 0x02] : [0x00];
+    socket.write(Buffer.from([0x05, methods.length, ...methods]));
+    const methodReply = await readSocketUntil(socket, (buffer) => (buffer.length >= 2 ? { consume: 2 } : null));
+    if (methodReply[0] !== 0x05) throw new Error('SOCKS5 proxy returned an invalid handshake response.');
+    if (methodReply[1] === 0xFF) throw new Error('SOCKS5 proxy rejected all authentication methods.');
+
+    if (methodReply[1] === 0x02) {
+      const username = Buffer.from(proxy.username || '', 'utf8');
+      const password = Buffer.from(proxy.password || '', 'utf8');
+      socket.write(Buffer.concat([
+        Buffer.from([0x01, username.length]),
+        username,
+        Buffer.from([password.length]),
+        password
+      ]));
+      const authReply = await readSocketUntil(socket, (buffer) => (buffer.length >= 2 ? { consume: 2 } : null));
+      if (authReply[1] !== 0x00) throw new Error('SOCKS5 proxy authentication failed.');
+    }
+
+    const hostBytes = Buffer.from(String(targetHost || ''), 'utf8');
+    const portBytes = Buffer.alloc(2);
+    portBytes.writeUInt16BE(Number(targetPort || 0), 0);
+    socket.write(Buffer.concat([
+      Buffer.from([0x05, 0x01, 0x00, 0x03, hostBytes.length]),
+      hostBytes,
+      portBytes
+    ]));
+
+    const reply = await readSocketUntil(socket, (buffer) => {
+      if (buffer.length < 5) return null;
+      let replyLength = 0;
+      if (buffer[3] === 0x01) replyLength = 10;
+      else if (buffer[3] === 0x03) replyLength = 7 + buffer[4];
+      else if (buffer[3] === 0x04) replyLength = 22;
+      else return { consume: buffer.length };
+      return buffer.length >= replyLength ? { consume: replyLength } : null;
+    });
+    if (reply[1] !== 0x00) throw new Error(`SOCKS5 proxy could not reach ${targetHost}:${targetPort} because ${socksReplyMessage(reply[1])}.`);
+    return socket;
+  } catch (error) {
+    socket.destroy();
+    throw error;
+  }
+}
+
+async function openHttpConnectSocket(proxy, targetHost, targetPort) {
+  const socket = await createConnectedSocket(proxy.host, proxy.port);
+  try {
+    const headers = [
+      `CONNECT ${targetHost}:${targetPort} HTTP/1.1`,
+      `Host: ${targetHost}:${targetPort}`
+    ];
+    if (proxy.username) {
+      const credentials = Buffer.from(`${proxy.username}:${proxy.password || ''}`, 'utf8').toString('base64');
+      headers.push(`Proxy-Authorization: Basic ${credentials}`);
+    }
+    headers.push('', '');
+    socket.write(headers.join('\r\n'));
+    const response = await readSocketUntil(socket, (buffer) => {
+      const boundary = buffer.indexOf('\r\n\r\n');
+      return boundary >= 0 ? { consume: boundary + 4 } : null;
+    });
+    const statusLine = response.toString('utf8').split('\r\n')[0] || '';
+    const statusCode = Number(statusLine.split(' ')[1] || 0);
+    if (statusCode !== 200) throw new Error(`HTTP proxy tunnel failed with ${statusLine || 'an unknown response'}.`);
+    return socket;
+  } catch (error) {
+    socket.destroy();
+    throw error;
+  }
+}
+
+async function prepareProjectNetworkAccess(project, { targetHost, targetPort, protocol = 'ssh' } = {}) {
+  const proxy = normalizeProjectProxy(project?.proxy || {});
+  if (proxy.mode === 'none') return { sock: null, release: async () => {} };
+  if (proxy.mode === 'windows-vpn') {
+    const lease = await acquireWindowsVpnProfile(proxy.windowsVpnProfile);
+    return {
+      sock: null,
+      release: onceAsync(async () => {
+        await lease.release();
+      })
+    };
+  }
+  if (['rdp', 'vnc'].includes(protocol)) {
+    throw new Error(`${protocol.toUpperCase()} currently supports only direct access or a Windows VPN profile.`);
+  }
+
+  const sock = proxy.mode === 'socks5'
+    ? await openSocks5Socket(proxy, targetHost, targetPort)
+    : await openHttpConnectSocket(proxy, targetHost, targetPort);
+
+  return {
+    sock,
+    release: onceAsync(async () => {
+      if (!sock.destroyed) sock.destroy();
+    })
+  };
+}
+
+async function connectClientWithProjectRoute(connection, project, config, { protocol = 'ssh' } = {}) {
+  const networkAccess = await prepareProjectNetworkAccess(project, {
+    targetHost: config.host,
+    targetPort: config.port,
+    protocol
+  });
+  try {
+    connection.connect(networkAccess.sock ? { ...config, sock: networkAccess.sock } : config);
+  } catch (error) {
+    await networkAccess.release();
+    throw error;
+  }
+  return networkAccess;
+}
+
+function normalizedConnectionPort(value, fallback = 0) {
+  const port = Number(value || 0);
+  if (!Number.isFinite(port) || port <= 0) return Number(fallback || 0);
+  return port;
+}
+
+function isPlainFtpPort(value) {
+  const port = normalizedConnectionPort(value, 0);
+  return port === 21 || port === 990;
+}
+
 function toFtpConnectionConfig(project) {
   const ssh = project.ssh || {};
   const ftp = project.ftp || {};
+  const sshPort = normalizedConnectionPort(ssh.port, 22) || 22;
+  const ftpPort = normalizedConnectionPort(ftp.port, 0);
+  const plainFtpEndpoint = isPlainFtpPort(ftpPort);
   const hasFtpKey = String(ftp.privateKey || '').trim() !== '';
   const hasFtpPassword = String(ftp.password || '').trim() !== '';
   const hasSshKey = String(ssh.privateKey || '').trim() !== '';
   const hasSshPassword = String(ssh.password || '').trim() !== '';
   let authType = ssh.authType || 'password';
 
-  if (ftp.authType === 'key') authType = hasFtpKey || hasSshKey ? 'key' : hasSshPassword ? 'password' : 'key';
-  else if (ftp.authType === 'password') authType = hasFtpPassword || hasSshPassword ? 'password' : hasSshKey ? 'key' : 'password';
-  else if (hasFtpKey) authType = 'key';
-  else if (hasFtpPassword) authType = 'password';
+  if (!plainFtpEndpoint) {
+    if (ftp.authType === 'key') authType = hasFtpKey || hasSshKey ? 'key' : hasSshPassword ? 'password' : 'key';
+    else if (ftp.authType === 'password') authType = hasFtpPassword || hasSshPassword ? 'password' : hasSshKey ? 'key' : 'password';
+    else if (hasFtpKey) authType = 'key';
+    else if (hasFtpPassword) authType = 'password';
+  }
 
   const config = {
-    host: ftp.host || ssh.host,
-    port: Number(ftp.port || ssh.port || 22),
-    username: ftp.username || ssh.username,
+    host: plainFtpEndpoint ? ssh.host : (ftp.host || ssh.host),
+    port: plainFtpEndpoint ? sshPort : (ftpPort || sshPort || 22),
+    username: plainFtpEndpoint ? ssh.username : (ftp.username || ssh.username),
     readyTimeout: Number(ssh.timeout || 20000)
   };
 
   if (authType === 'key') {
-    config.privateKey = ftp.privateKey || ssh.privateKey;
-    if (ftp.passphrase || ssh.passphrase) config.passphrase = ftp.passphrase || ssh.passphrase;
+    config.privateKey = plainFtpEndpoint ? ssh.privateKey : (ftp.privateKey || ssh.privateKey);
+    if (plainFtpEndpoint ? ssh.passphrase : (ftp.passphrase || ssh.passphrase)) {
+      config.passphrase = plainFtpEndpoint ? ssh.passphrase : (ftp.passphrase || ssh.passphrase);
+    }
   } else {
-    config.password = ftp.password || ssh.password;
+    config.password = plainFtpEndpoint ? ssh.password : (ftp.password || ssh.password);
   }
 
   return config;
+}
+
+function normalizeFtpConnectionError(error, project, config = {}) {
+  const message = String(error?.message || '').trim();
+  const handshakeTimeout = error?.level === 'client-timeout' || /timed out while waiting for handshake/i.test(message);
+  const configuredPlainFtpPort = isPlainFtpPort(project?.ftp?.port);
+  if (!handshakeTimeout && !configuredPlainFtpPort) return error;
+
+  const host = String(config.host || project?.ssh?.host || project?.ftp?.host || '').trim();
+  const port = normalizedConnectionPort(config.port, 22) || 22;
+  if (configuredPlainFtpPort) {
+    return Object.assign(
+      new Error(`DeployerX file browsing uses SFTP over SSH, not plain FTP. Connect to the SSH/SFTP service at ${host || 'your server'}:${port} or clear the FTP host/port to reuse the SSH settings.`),
+      { code: 'FTP_REQUIRES_SFTP', cause: error }
+    );
+  }
+  if (handshakeTimeout) {
+    return Object.assign(
+      new Error(`Could not reach the SSH/SFTP service at ${host || 'the saved server'}:${port}. Check that SSH is reachable and that the saved file-transfer endpoint is an SFTP server.`),
+      { code: 'SFTP_CONNECTION_TIMEOUT', cause: error }
+    );
+  }
+  return error;
 }
 
 function validateProject(project) {
@@ -6637,16 +7381,19 @@ function validateProject(project) {
 }
 
 function validateConnectionProject(project) {
-  if (project?.serverType === 'rdp') {
-    const rdp = project.rdp || {};
-    if (!project.name) return 'Server name is required.';
-    if (!rdp.host) return 'Windows computer or IP is required.';
-    if (!rdp.username) return 'Windows username is required.';
-    if (!rdp.password) return 'Windows password is required.';
+  const proxyError = projectProxyValidationError(project);
+  if (proxyError) return proxyError;
+  if (['vnc', 'rdp'].includes(project?.serverType)) {
+    const protocol = project.serverType === 'rdp' ? 'RDP' : 'VNC';
+    const connection = protocol === 'RDP' ? project.rdp || {} : project.vnc || {};
+    if (!project.name) return 'Server Name is required.';
+    if (!connection.host) return `${protocol} server or IP is required.`;
+    if (protocol === 'RDP' && !connection.username) return 'RDP username is required.';
+    if (!connection.password) return `${protocol} password is required.`;
     return null;
   }
   const ssh = project.ssh || {};
-  if (!project.name) return 'Server name is required.';
+  if (!project.name) return 'Server Name is required.';
   if (!ssh.host) return 'Server host is required.';
   if (!ssh.username) return 'SSH username is required.';
   if (ssh.authType === 'key' && !ssh.privateKey) return 'SSH private key is required.';
@@ -6714,6 +7461,8 @@ function normalizeProjectImport(project) {
           .filter(Boolean)
       : [];
   const ssh = project?.ssh || {};
+  const proxy = project?.proxy || {};
+  const vnc = project?.vnc || {};
   const rdp = project?.rdp || {};
   const ftp = project?.ftp || {};
 
@@ -6723,10 +7472,11 @@ function normalizeProjectImport(project) {
     name: String(project?.name || 'Imported server').trim() || 'Imported server',
     group: String(project?.group || '').trim(),
     pinned: Boolean(project?.pinned),
-    serverType: project?.serverType || 'ubuntu',
+    serverType: ['rdp', 'vnc'].includes(project?.serverType) ? project.serverType : project?.serverType || 'ubuntu',
     commands,
     uptimeMonitors: normalizeUptimeMonitors(project?.uptimeMonitors),
     variables: project?.variables && typeof project.variables === 'object' ? project.variables : {},
+    proxy: normalizeProjectProxy(proxy),
     ssh: normalizeProjectSsh(ssh),
     rdp: {
       host: rdp.host || '',
@@ -6734,6 +7484,12 @@ function normalizeProjectImport(project) {
       username: rdp.username || '',
       domain: rdp.domain || '',
       password: rdp.password || ''
+    },
+    vnc: {
+      host: vnc.host || '',
+      port: Number(vnc.port || 5900),
+      username: vnc.username || '',
+      password: vnc.password || ''
     },
     ftp: {
       host: ftp.host || '',
@@ -6940,8 +7696,15 @@ async function executeDeployment(project, upload, runId) {
   if (validationError) throw new Error(validationError);
 
   const connection = new Client();
-  const deploymentState = { connection, currentStream: null, stopped: false };
+  const deploymentState = { connection, currentStream: null, stopped: false, networkAccess: null };
   activeDeployments.set(runId, deploymentState);
+
+  try {
+    deploymentState.networkAccess = await connectClientWithProjectRoute(connection, project, toConnectionConfig(project), { protocol: 'ssh' });
+  } catch (error) {
+    activeDeployments.delete(runId);
+    throw error;
+  }
 
   return new Promise((resolve, reject) => {
     connection.on('ready', async () => {
@@ -6971,24 +7734,31 @@ async function executeDeployment(project, upload, runId) {
     connection.on('error', (error) => {
       emitDeployment(runId, 'failed', error.message);
       activeDeployments.delete(runId);
+      deploymentState.networkAccess?.release().catch(() => {});
       reject(error);
     });
 
     connection.on('close', () => {
       activeDeployments.delete(runId);
+      deploymentState.networkAccess?.release().catch(() => {});
     });
-
-    connection.connect(toConnectionConfig(project));
   });
 }
 
-function startTerminal(project, sessionId, size = {}) {
+async function startTerminal(project, sessionId, size = {}) {
   const validationError = validateConnectionProject(project);
   if (validationError) throw new Error(validationError);
 
   const connection = new Client();
-  const terminalState = { connection, stream: null };
+  const terminalState = { connection, stream: null, projectId: String(project.id || ''), networkAccess: null };
   activeTerminals.set(sessionId, terminalState);
+
+  try {
+    terminalState.networkAccess = await connectClientWithProjectRoute(connection, project, toConnectionConfig(project), { protocol: 'ssh' });
+  } catch (error) {
+    activeTerminals.delete(sessionId);
+    throw error;
+  }
 
   connection.on('ready', () => {
     emitTerminal(sessionId, 'log', 'SSH connected.\r\n');
@@ -7020,6 +7790,7 @@ function startTerminal(project, sessionId, size = {}) {
         }
         stream.on('close', () => {
           emitTerminal(sessionId, 'closed', 'Terminal closed.');
+          serverMonitoringSessionManager.stopByConnection(connection);
           activeTerminals.delete(sessionId);
           connection.end();
         });
@@ -7033,17 +7804,19 @@ function startTerminal(project, sessionId, size = {}) {
 
   connection.on('error', (error) => {
     emitTerminal(sessionId, 'failed', error.message);
+    serverMonitoringSessionManager.stopByConnection(connection);
     activeTerminals.delete(sessionId);
+    terminalState.networkAccess?.release().catch(() => {});
   });
 
   connection.on('close', () => {
     if (activeTerminals.has(sessionId)) {
       emitTerminal(sessionId, 'closed', 'Terminal closed.');
+      serverMonitoringSessionManager.stopByConnection(connection);
       activeTerminals.delete(sessionId);
     }
+    terminalState.networkAccess?.release().catch(() => {});
   });
-
-  connection.connect(toConnectionConfig(project));
 }
 
 function resizeTerminal(sessionId, cols, rows) {
@@ -7422,34 +8195,44 @@ function connectFtp(project, sessionId) {
   if (validationError) throw new Error(validationError);
 
   const connection = new Client();
-  const ftpState = { connection, sftp: null };
+  const ftpState = { connection, sftp: null, networkAccess: null };
   activeFtpSessions.set(sessionId, ftpState);
+  const config = toFtpConnectionConfig(project);
 
-  return new Promise((resolve, reject) => {
-    const fail = (error) => {
+  return (async () => {
+    try {
+      ftpState.networkAccess = await connectClientWithProjectRoute(connection, project, config, { protocol: 'sftp' });
+    } catch (error) {
       activeFtpSessions.delete(sessionId);
-      connection.end();
-      reject(error);
-    };
+      throw error;
+    }
+    return new Promise((resolve, reject) => {
+      const fail = (error) => {
+        activeFtpSessions.delete(sessionId);
+        connection.end();
+        ftpState.networkAccess?.release().catch(() => {});
+        reject(normalizeFtpConnectionError(error, project, config));
+      };
 
-    connection.on('ready', () => {
-      connection.sftp((error, sftp) => {
-        if (error) {
-          fail(error);
-          return;
-        }
+      connection.on('ready', () => {
+        connection.sftp((error, sftp) => {
+          if (error) {
+            fail(error);
+            return;
+          }
 
-        ftpState.sftp = sftp;
-        resolve({ sessionId, path: '/' });
+          ftpState.sftp = sftp;
+          resolve({ sessionId, path: '/' });
+        });
+      });
+
+      connection.on('error', fail);
+      connection.on('close', () => {
+        activeFtpSessions.delete(sessionId);
+        ftpState.networkAccess?.release().catch(() => {});
       });
     });
-
-    connection.on('error', fail);
-    connection.on('close', () => {
-      activeFtpSessions.delete(sessionId);
-    });
-    connection.connect(toFtpConnectionConfig(project));
-  });
+  })();
 }
 
 async function listFtpDirectory(sessionId, remotePath = '/') {
@@ -7777,6 +8560,7 @@ function disconnectFtp(sessionId) {
   if (!session) return false;
   session.connection.end();
   activeFtpSessions.delete(sessionId);
+  session.networkAccess?.release().catch(() => {});
   return true;
 }
 
@@ -7787,6 +8571,7 @@ function stopDeployment(runId) {
   if (deployment.currentStream) deployment.currentStream.close();
   deployment.connection.end();
   activeDeployments.delete(runId);
+  deployment.networkAccess?.release().catch(() => {});
   emitDeployment(runId, 'failed', 'Emergency stop requested.');
   return true;
 }
@@ -7795,9 +8580,11 @@ function stopTerminal(sessionId) {
   cancelTerminalUpload(sessionId);
   const terminal = activeTerminals.get(sessionId);
   if (!terminal) return false;
+  serverMonitoringSessionManager.stopByConnection(terminal.connection);
   if (terminal.stream) terminal.stream.close();
   terminal.connection.end();
   activeTerminals.delete(sessionId);
+  terminal.networkAccess?.release().catch(() => {});
   emitTerminal(sessionId, 'closed', 'Terminal stopped.');
   return true;
 }
@@ -7856,6 +8643,8 @@ app.whenReady().then(async () => {
 
   await initializeBackupControlDatabase();
   await initializeUptimeControlPlane().catch(() => {});
+  await restoreMcpIntegration().catch(() => {});
+  startMcpHealthWatchdog();
   createWindow();
   if (pendingSecondInstanceArguments) {
     const argv = pendingSecondInstanceArguments;
@@ -7864,7 +8653,6 @@ app.whenReady().then(async () => {
   }
   createTray();
   initializeAutoUpdater();
-  await restoreMcpIntegration();
   await maybeStartDetachedUptimeWorker().catch(() => {});
   await startUptimeWindowPolling();
 
@@ -7881,6 +8669,9 @@ app.on('before-quit', () => {
   isAppQuitting = true;
   serverMonitoringSessionManager.stopAll();
   rdpSessionManager?.closeAll().catch(() => {});
+  vncSessionManager?.closeAll().catch(() => {});
+  releaseAllVncNetworkSessions().catch(() => {});
+  releaseAllWindowsVpnProfiles().catch(() => {});
   databaseQueryService?.closeAll();
   databaseResultExportService?.closeAll();
   databaseDefinitionExecutor?.closeAll();
@@ -7893,6 +8684,10 @@ app.on('before-quit', () => {
   if (tray && !tray.isDestroyed()) tray.destroy();
   tray = null;
   if (mcpServer) mcpServer.stop().catch(() => {});
+  if (mcpRestartTimer) clearTimeout(mcpRestartTimer);
+  mcpRestartTimer = null;
+  if (mcpHealthTimer) clearInterval(mcpHealthTimer);
+  mcpHealthTimer = null;
   if (backupScheduledWorkerService && isWorkerMode()) backupScheduledWorkerService.stop({ drain: false }).catch(() => {});
   if (uptimeScheduledWorkerService && isWorkerMode()) uptimeScheduledWorkerService.stop({ drain: false }).catch(() => {});
   if (uptimeControlDatabase) uptimeControlDatabase.close().catch(() => {});
@@ -8408,36 +9203,133 @@ ipcMain.handle('database-manager:local-resources:bind', wrapDatabaseManagerIpc(a
   return getDatabaseLocalResourceStore().bind({ workspaceId: context.workspaceId, profileId: profile.id, kind, path: selection.filePaths[0] });
 }));
 
+ipcMain.handle('vnc:start', async (_event, payload = {}) => {
+  if (!vncSessionManager) throw new Error('VNC is not ready.');
+  const projectId = String(payload.projectId || '');
+  const vnc = payload?.vnc && typeof payload.vnc === 'object' ? payload.vnc : {};
+  const store = projectId ? await readCurrentStore().catch(() => ({ projects: [] })) : { projects: [] };
+  const project = Array.isArray(store.projects)
+    ? store.projects.find((item) => String(item.id || '') === projectId) || null
+    : null;
+  const networkAccess = project
+    ? await prepareProjectNetworkAccess(project, {
+        targetHost: String(vnc.host || project.vnc?.host || project.rdp?.host || '').trim(),
+        targetPort: Number(vnc.port || project.vnc?.port || 5900),
+        protocol: 'vnc'
+      })
+    : { release: async () => {} };
+  try {
+    const session = await vncSessionManager.start(payload);
+    activeVncNetworkSessions.set(session.sessionId, networkAccess);
+    return session;
+  } catch (error) {
+    await networkAccess.release?.().catch(() => {});
+    throw error;
+  }
+});
+
 ipcMain.handle('rdp:start', async (_event, payload = {}) => {
   if (!rdpSessionManager) throw new Error('Remote Desktop is not ready.');
-  return rdpSessionManager.start(payload);
+  const projectId = String(payload.projectId || '');
+  const rdp = payload?.rdp && typeof payload.rdp === 'object' ? payload.rdp : {};
+  const store = projectId ? await readCurrentStore().catch(() => ({ projects: [] })) : { projects: [] };
+  const project = Array.isArray(store.projects)
+    ? store.projects.find((item) => String(item.id || '') === projectId) || null
+    : null;
+  const networkAccess = project
+    ? await prepareProjectNetworkAccess(project, {
+        targetHost: String(rdp.host || project.rdp?.host || '').trim(),
+        targetPort: Number(rdp.port || project.rdp?.port || 3389),
+        protocol: 'rdp'
+      })
+    : { release: async () => {} };
+  try {
+    const session = await rdpSessionManager.start(payload);
+    activeVncNetworkSessions.set(session.sessionId, networkAccess);
+    return session;
+  } catch (error) {
+    await networkAccess.release?.().catch(() => {});
+    throw error;
+  }
 });
 
 ipcMain.handle('rdp:wasm', async () => fs.readFile(RDP_WASM_FILE));
 
 ipcMain.handle('rdp:stop', async (_event, sessionId) => {
-  return rdpSessionManager?.stop(sessionId) || false;
+  const stopped = rdpSessionManager?.stop(sessionId) || false;
+  const networkAccess = activeVncNetworkSessions.get(sessionId);
+  activeVncNetworkSessions.delete(sessionId);
+  await networkAccess?.release?.().catch(() => {});
+  return stopped;
 });
 
-ipcMain.handle('rdp:fullscreen', async (_event, payload) => {
+ipcMain.handle('vnc:stop', async (_event, sessionId) => {
+  const stopped = vncSessionManager?.stop(sessionId) || false;
+  const networkAccess = activeVncNetworkSessions.get(sessionId);
+  activeVncNetworkSessions.delete(sessionId);
+  await networkAccess?.release?.().catch(() => {});
+  return stopped;
+});
+
+function transitionMainWindowFullscreen(enabled) {
+  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(false);
+  if (mainWindow.isFullScreen() === enabled) return Promise.resolve(enabled);
+  const window = mainWindow;
+  const eventName = enabled ? 'enter-full-screen' : 'leave-full-screen';
+  return new Promise((resolve) => {
+    let settled = false;
+    const retryTimers = [];
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallbackTimer);
+      retryTimers.forEach(clearTimeout);
+      window.removeListener(eventName, finish);
+      resolve(!window.isDestroyed() && window.isFullScreen());
+    };
+    const requestTransition = () => {
+      if (window.isDestroyed() || window.isFullScreen() === enabled) {
+        finish();
+        return;
+      }
+      window.setFullScreen(enabled);
+    };
+    const fallbackTimer = setTimeout(finish, 2200);
+    window.once(eventName, finish);
+    [0, 220, 650].forEach((delay) => retryTimers.push(setTimeout(requestTransition, delay)));
+  });
+}
+
+function restoreVncWindowState() {
+  if (!vncRestoreWindowState) return;
+  const restoreState = vncRestoreWindowState;
+  vncRestoreWindowState = null;
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFullScreen()) return;
+    if (restoreState.maximized) mainWindow.maximize();
+    else mainWindow.setBounds(restoreState.bounds);
+  }, 120);
+}
+
+ipcMain.handle('vnc:fullscreen', async (_event, payload) => {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   const request = payload && typeof payload === 'object' ? payload : { enabled: payload };
   const enabled = Boolean(request.enabled);
   if (!enabled) {
-    mainWindow.setFullScreen(false);
-    if (rdpRestoreBounds) {
-      const restoreBounds = rdpRestoreBounds;
-      rdpRestoreBounds = null;
-      setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFullScreen()) mainWindow.setBounds(restoreBounds);
-      }, 120);
-    }
-    return false;
+    const fullscreen = await transitionMainWindowFullscreen(false);
+    restoreVncWindowState();
+    return fullscreen;
   }
 
-  if (!rdpRestoreBounds) rdpRestoreBounds = mainWindow.getBounds();
-  if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
-  return mainWindow.isFullScreen();
+  if (!vncRestoreWindowState) {
+    vncRestoreWindowState = {
+      bounds: mainWindow.getBounds(),
+      maximized: mainWindow.isMaximized()
+    };
+  }
+  const fullscreen = await transitionMainWindowFullscreen(true);
+  if (!fullscreen) restoreVncWindowState();
+  return fullscreen;
 });
 
 ipcMain.handle('backup:secrets:list', async () => {
@@ -11044,7 +11936,6 @@ ipcMain.handle('mcp-integration:get', async () => {
   return publicMcpIntegration(settings.mcpIntegration);
 });
 ipcMain.handle('mcp-integration:start', async (_event, payload = {}) => startMcpIntegration(payload));
-ipcMain.handle('mcp-integration:stop', async () => stopMcpIntegration());
 ipcMain.handle('mcp-integration:rotate-token', async () => rotateMcpToken());
 ipcMain.handle('mcp-integration:test', async () => testMcpIntegration());
 
@@ -11347,6 +12238,8 @@ ipcMain.handle('projects:save', async (_event, project) => {
   return normalized;
 });
 
+ipcMain.handle('network:vpn-profiles:list', async () => listWindowsVpnProfiles());
+
 ipcMain.handle('projects:delete', async (_event, id) => {
   await deleteProjectFromCurrentStore(id);
   return true;
@@ -11638,20 +12531,24 @@ ipcMain.handle('deployment:stop', async (_event, runId) => stopDeployment(runId)
 
 ipcMain.handle('terminal:start', async (_event, payload) => {
   const sessionId = payload.sessionId || `${Date.now()}`;
-  startTerminal(payload.project, sessionId, { cols: payload.cols, rows: payload.rows });
+  startTerminal(payload.project, sessionId, { cols: payload.cols, rows: payload.rows }).catch((error) => {
+    emitTerminal(sessionId, 'failed', error.message || 'Could not connect SSH.');
+  });
   return { sessionId };
 });
 
 ipcMain.handle('server-monitoring:start', async (_event, payload = {}) => {
   const project = payload.project || {};
-  if (project.serverType === 'rdp') throw new Error('Real-time monitoring currently requires an SSH-capable server.');
-  const validationError = validateConnectionProject(project);
-  if (validationError) throw new Error(validationError);
+  if (['vnc', 'rdp'].includes(project.serverType)) throw new Error('Real-time monitoring currently requires an SSH-capable server.');
+  const terminalSessionId = String(payload.terminalSessionId || '');
+  const terminalState = activeTerminals.get(terminalSessionId);
+  if (!terminalState?.connection || !terminalState.stream) throw new Error('Connect SSH before starting real-time monitoring.');
+  if (terminalState.projectId !== String(project.id || '')) throw new Error('The SSH terminal does not belong to the selected server.');
   const sessionId = String(payload.sessionId || `${Date.now()}-${crypto.randomUUID()}`);
   return serverMonitoringSessionManager.start({
     sessionId,
     projectId: String(project.id || ''),
-    connectionConfig: toConnectionConfig(project)
+    connection: terminalState.connection
   });
 });
 
@@ -11755,31 +12652,41 @@ const uptimeIpcMain = {
   }
 };
 
-uptimeIpcMain.handle('uptime:monitors:list', async (_event, options = {}) => {
-  const context = await uptimeOperationalContext();
-  return getUptimeControlDatabaseV2().listMonitors(context.workspaceId, options);
-});
-
-uptimeIpcMain.handle('uptime:monitors:get', async (_event, payload = {}) => {
-  const context = await uptimeOperationalContext();
-  return getUptimeControlDatabaseV2().getMonitor(context.workspaceId, payload.id);
-});
+uptimeIpcMain.handle('uptime:monitors:list', async (_event, options = {}) => listUptimeMonitorsOperation(options));
+uptimeIpcMain.handle('uptime:monitors:get', async (_event, payload = {}) => getUptimeMonitorOperation(payload));
 
 uptimeIpcMain.handle('uptime:monitors:create', async (_event, input = {}) => {
   const context = await uptimeOperationalContext();
   const prepared = await prepareUptimeMonitorForSave(context, input);
+  let monitor;
   try {
     if (!Object.prototype.hasOwnProperty.call(prepared.payload, 'nextCheckAt')) {
-      prepared.payload.nextCheckAt = ['paused', 'disabled'].includes(String(prepared.payload.state || '').toLowerCase()) ? null : nowIso();
+      const disabled = ['paused', 'disabled'].includes(String(prepared.payload.state || '').toLowerCase());
+      prepared.payload.nextCheckAt = disabled
+        ? null
+        : new Date(Date.now() + Number(prepared.payload.timeoutMs || 10000) + 5000).toISOString();
     }
-    const monitor = await getUptimeControlDatabaseV2().createMonitor(context.workspaceId, context.actorId, prepared.payload);
-    emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
-    await maybeStartDetachedUptimeWorker().catch(() => {});
-    return monitor;
+    monitor = await getUptimeControlDatabaseV2().createMonitor(context.workspaceId, context.actorId, prepared.payload);
   } catch (error) {
     await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
     throw error;
   }
+  if (monitor.state === 'enabled') {
+    const transition = await executeUptimeMonitorCheck({
+      controlDatabase: getUptimeControlDatabaseV2(),
+      incidentPolicy: uptimeIncidentPolicyService,
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      monitor,
+      secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
+      probeId: `local-windows:${backupDeviceId || process.pid}`,
+      scheduledAt: nowIso()
+    });
+    monitor = transition.monitor;
+  }
+  emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
+  await maybeStartDetachedUptimeWorker().catch(() => {});
+  return monitor;
 });
 
 uptimeIpcMain.handle('uptime:monitors:update', async (_event, input = {}) => {
@@ -11793,6 +12700,7 @@ uptimeIpcMain.handle('uptime:monitors:update', async (_event, input = {}) => {
     const previousRefs = Object.values(current.config?.secretHeaderRefs || {});
     const currentRefs = new Set(Object.values(monitor.config?.secretHeaderRefs || {}).map(String));
     await cleanupUptimeSecretReferences(context, previousRefs.filter((id) => !currentRefs.has(String(id))));
+    if (monitor.state === 'enabled') await maybeStartDetachedUptimeWorker().catch(() => {});
     emitUptimeEvent('uptime:monitor-updated-v2', { monitorId: monitor.id });
     return monitor;
   } catch (error) {
@@ -11814,12 +12722,7 @@ uptimeIpcMain.handle('uptime:monitors:delete', async (_event, payload = {}) => {
   return result;
 });
 
-uptimeIpcMain.handle('uptime:monitors:test', async (_event, input = {}) => {
-  const context = await uptimeOperationalContext();
-  const current = input.id ? await getUptimeControlDatabaseV2().getMonitor(context.workspaceId, input.id) : null;
-  const prepared = prepareUptimeMonitorForTest(context, input, current);
-  return runMonitorCheck(prepared.monitor, { secretResolver: prepared.secretResolver });
-});
+uptimeIpcMain.handle('uptime:monitors:test', async (_event, input = {}) => testUptimeMonitorOperation(input));
 
 uptimeIpcMain.handle('uptime:monitors:run-now', async (_event, payload = {}) => {
   const context = await uptimeOperationalContext();
@@ -11827,10 +12730,23 @@ uptimeIpcMain.handle('uptime:monitors:run-now', async (_event, payload = {}) => 
   const monitor = await database.getMonitor(context.workspaceId, payload.id);
   if (!monitor) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
   if (monitor.state !== 'enabled') throw Object.assign(new Error('Enable the monitor before running it.'), { code: 'UPTIME_MONITOR_NOT_ENABLED' });
-  const queued = await database.updateMonitor(context.workspaceId, context.actorId, monitor.id, { nextCheckAt: nowIso() }, monitor.revision);
+  const scheduledAt = nowIso();
+  const leased = await database.updateMonitor(context.workspaceId, context.actorId, monitor.id, {
+    nextCheckAt: new Date(Date.now() + Number(monitor.timeoutMs || 10000) + 5000).toISOString()
+  }, monitor.revision);
+  const transition = await executeUptimeMonitorCheck({
+    controlDatabase: database,
+    incidentPolicy: uptimeIncidentPolicyService,
+    workspaceId: context.workspaceId,
+    actorId: context.actorId,
+    monitor: leased,
+    secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
+    probeId: `local-windows:${backupDeviceId || process.pid}`,
+    scheduledAt
+  });
   await maybeStartDetachedUptimeWorker().catch(() => {});
-  emitUptimeEvent('uptime:monitor-run-queued-v2', { monitorId: monitor.id });
-  return { queued: true, monitorId: monitor.id, revision: queued.revision };
+  emitUptimeEvent('uptime:monitor-run-completed-v2', { monitorId: monitor.id });
+  return { queued: false, completed: true, monitorId: monitor.id, revision: transition.monitor.revision };
 });
 
 uptimeIpcMain.handle('uptime:checks:list', async (_event, payload = {}) => {
@@ -11960,7 +12876,18 @@ ipcMain.handle('local:delete', async (_event, payload = {}) => deleteLocalEntry(
 
 ipcMain.handle('ftp:connect', async (_event, payload) => {
   const sessionId = payload.sessionId || `${Date.now()}`;
-  return connectFtp(payload.project, sessionId);
+  try {
+    const result = await connectFtp(payload.project, sessionId);
+    return { ok: true, ...result };
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: String(error?.code || 'FTP_CONNECT_FAILED'),
+        message: String(error?.message || 'Could not connect the file browser.')
+      }
+    };
+  }
 });
 
 ipcMain.handle('ftp:list', async (_event, payload) => listFtpDirectory(payload.sessionId, payload.path));
@@ -11988,5 +12915,8 @@ ipcMain.handle('ftp:disconnect', async (_event, sessionId) => disconnectFtp(sess
 ipcMain.handle('emergency:stop', async () => {
   emergencyStop();
   await rdpSessionManager?.closeAll();
+  await vncSessionManager?.closeAll();
+  await releaseAllVncNetworkSessions();
+  await releaseAllWindowsVpnProfiles();
   return true;
 });

@@ -936,3 +936,70 @@ Decisions:
 Errors or limitations:
 
 - No remaining known issue for the requested Monitors heading description.
+
+### 2026-08-07 - Task 32: Monitor Detail Top Spacing
+
+Completed:
+
+- Removed the redundant top divider and 18px inner top padding from the monitor
+  detail surface.
+- Kept the standard panel padding as the single spacing boundary below the
+  Uptime tabs, moving the detail header upward without changing chart or action
+  dimensions.
+- Added a renderer contract assertion preventing the divider and duplicate top
+  padding from returning.
+
+Verification:
+
+- Focused Uptime renderer tests passed both tests.
+- The Electron responsive-layout acceptance test passed with no overflow,
+  header collision, or clipped-control regressions.
+- The scoped whitespace check passed with existing line-ending warnings only.
+
+Not completed:
+
+- No development server or build command was run, in accordance with project
+  instructions.
+
+Decisions:
+
+- Retain the parent panel's 20px desktop spacing rather than stacking an
+  additional detail-specific divider and 18px inset beneath it.
+
+Errors or limitations:
+
+- No remaining known issue for the requested monitor-detail top spacing.
+
+### 2026-08-07 - Task 33: Monitor Detail Action Alignment
+
+Completed:
+
+- Standardized Run Now, Pause/Resume, Edit, and Delete at a fixed 32px height.
+- Standardized Edit and Delete as 32px square outlined icon buttons while
+  retaining the destructive red treatment for Delete.
+- Extended Electron acceptance with a populated monitor-detail view and exact
+  height, icon-width, and Delete-frame measurements.
+
+Verification:
+
+- Focused Uptime renderer tests passed both tests.
+- The Electron responsive-layout acceptance test passed across seven captures,
+  including the new monitor-detail scenario.
+- The detail capture confirmed four equal 32px action heights, two equal 32px
+  icon-button widths, and no overflow, overlap, or clipped controls.
+- JavaScript syntax and scoped whitespace checks passed with existing
+  line-ending warnings only.
+
+Not completed:
+
+- No development server or build command was run, in accordance with project
+  instructions.
+
+Decisions:
+
+- Preserve action hierarchy through solid, neutral outline, and danger-outline
+  treatments while keeping the physical control dimensions identical.
+
+Errors or limitations:
+
+- No remaining known issue for the requested monitor-detail action alignment.

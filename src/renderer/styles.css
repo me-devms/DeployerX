@@ -580,6 +580,10 @@ button:disabled {
   font-weight: 650;
 }
 
+#topDatabasesButton {
+  display: none;
+}
+
 .top-nav-action:hover {
   background: var(--surface-subtle);
   color: var(--ink);
@@ -865,6 +869,13 @@ select.project-dropdown-native {
 .auth-type-switcher .workspace-switcher-menu {
   right: auto;
   left: 0;
+}
+
+.server-type-switcher .workspace-switcher-menu {
+  max-height: min(184px, var(--server-type-menu-space, 184px));
+}
+
+.auth-type-switcher .workspace-switcher-menu {
   max-height: min(280px, var(--server-type-menu-space, 280px));
 }
 
@@ -896,8 +907,13 @@ select.project-dropdown-native {
   left: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  max-height: 210px;
+  max-height: min(210px, var(--group-menu-space, 210px));
   overflow: hidden;
+}
+
+.group-switcher .workspace-switcher-menu.opens-up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .group-switcher .workspace-switcher-option {
@@ -1872,6 +1888,21 @@ select.project-dropdown-native {
   line-height: 18px;
 }
 
+.backup-job-source-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backup-job-source-heading > div {
+  min-width: 0;
+}
+
+.backup-job-source-heading > .button {
+  flex: 0 0 auto;
+}
+
 .backup-job-choice-list {
   display: grid;
   gap: 8px;
@@ -1894,6 +1925,16 @@ select.project-dropdown-native {
 }
 
 .backup-job-choice:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.backup-job-source-summary {
+  grid-template-columns: minmax(0, 1fr) auto;
+  cursor: default;
+}
+
+.backup-job-source-summary.is-selected {
   border-color: var(--primary);
   background: var(--primary-soft);
 }
@@ -2179,6 +2220,48 @@ select.project-dropdown-native {
   overflow-y: auto;
 }
 
+.backup-job-source-picker-label {
+  padding: 12px 12px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.backup-job-saved-source-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.backup-job-saved-source {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.backup-job-saved-source:hover:not(:disabled),
+.backup-job-saved-source:focus-visible,
+.backup-job-saved-source.is-current {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.backup-job-saved-source:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .backup-job-source-picker-body .backup-source-add-menu {
   position: static;
   width: 100%;
@@ -2209,6 +2292,18 @@ select.project-dropdown-native {
   font-weight: 700;
 }
 
+.backup-job-mode-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.backup-job-mode-options > .backup-job-option:last-of-type,
+.backup-job-options > .backup-job-policy-fields,
+.backup-job-notification-options > .backup-job-choice-list,
+.backup-job-notification-options > .backup-job-inline-empty,
+.backup-job-bandwidth-options > .backup-job-calendar-fields {
+  grid-column: 1 / -1;
+}
+
 .backup-job-option,
 .backup-job-check {
   display: grid;
@@ -2232,7 +2327,7 @@ select.project-dropdown-native {
   margin: 2px 0 0;
 }
 
-.backup-job-policy-fields {
+.field-grid.backup-job-policy-fields {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -4036,6 +4131,7 @@ select.project-dropdown-native {
   .backup-job-options,
   .backup-job-resource-grid,
   .backup-job-policy-fields,
+  .field-grid.backup-job-policy-fields,
   .backup-job-schedule-editor,
   .backup-job-weekly,
   .backup-job-calendar-times {
@@ -4044,6 +4140,11 @@ select.project-dropdown-native {
 
   .backup-job-choice {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .backup-job-source-summary,
+  .backup-job-saved-source {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .backup-job-choice-status {
@@ -5712,6 +5813,69 @@ html[data-theme] .project-grid .project-card:focus-visible {
 
 .server-monitoring-header {
   align-items: center;
+  padding-block: 14px 12px;
+}
+
+.vnc-display-selector {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.vnc-display-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 80;
+  display: grid;
+  width: 230px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  padding: 5px;
+  box-shadow: 0 12px 28px rgba(24, 24, 27, 0.16), 0 2px 6px rgba(24, 24, 27, 0.08);
+}
+
+.vnc-display-menu-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  padding: 6px 8px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vnc-display-menu-item:hover,
+.vnc-display-menu-item:focus-visible {
+  background: var(--surface-subtle);
+  outline: 0;
+}
+
+.vnc-display-menu-item.active {
+  background: var(--surface-subtle);
+  font-weight: 650;
+}
+
+.vnc-display-menu-item .button-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.vnc-display-menu-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.vnc-display-menu-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
 }
 
 .server-monitoring-actions {
@@ -5742,7 +5906,9 @@ html[data-theme] .project-grid .project-card:focus-visible {
 
 .server-monitoring-status.is-live i { background: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, .12); }
 .server-monitoring-status.is-connecting i,
+.server-monitoring-status.is-connecting-ssh i,
 .server-monitoring-status.is-reconnecting i { background: #d97706; }
+.server-monitoring-status.is-ssh-required i { background: #64748b; }
 .server-monitoring-status.is-error i,
 .server-monitoring-status.is-unsupported i { background: #dc2626; }
 
@@ -5754,8 +5920,38 @@ html[data-theme] .project-grid .project-card:focus-visible {
 }
 
 #serverMonitoringDashboard {
+  position: relative;
   display: grid;
   gap: 12px;
+}
+
+.server-monitoring-connect-overlay {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 5;
+  display: none;
+  height: calc(100vh - 58px - var(--app-header-height) - 32px);
+  max-height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(248, 250, 252, .28);
+}
+
+#serverMonitoringDashboard.is-ssh-locked .server-monitoring-connect-overlay {
+  display: flex;
+}
+
+#serverMonitoringDashboard.is-ssh-locked > :not(.server-monitoring-connect-overlay) {
+  filter: blur(4px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.server-monitoring-connect-button {
+  min-width: 158px;
+  min-height: 42px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .2);
 }
 
 .server-monitoring-empty {
@@ -6185,6 +6381,43 @@ textarea:focus {
 
 .modal-secret {
   margin-top: 16px;
+}
+
+.windows-protocol-field {
+  width: min(280px, 100%);
+  margin: 12px 0 16px;
+}
+
+.windows-protocol-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  height: 38px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft, #f4f4f5);
+}
+
+.windows-protocol-option {
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.windows-protocol-option.active {
+  color: #ffffff;
+  background: var(--ink);
+}
+
+.windows-protocol-option:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .secret-input {
@@ -6802,6 +7035,11 @@ textarea:focus {
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ssh-directory-status,
+.ssh-directory-list {
+  user-select: none;
 }
 
 .ssh-directory-list {
@@ -7771,9 +8009,14 @@ html[data-theme] .ftp-filter input:focus {
 }
 
 .rdp-canvas {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   border: 0;
   outline: 0;
   background: #101214;
@@ -7781,6 +8024,18 @@ html[data-theme] .ftp-filter input:focus {
   pointer-events: none;
   contain: strict;
   will-change: contents;
+}
+
+.rdp-canvas canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  outline: 0;
+}
+
+canvas.rdp-canvas {
+  display: block;
+  object-fit: contain;
 }
 
 .rdp-canvas:focus-visible {
@@ -7839,8 +8094,15 @@ html[data-theme] .ftp-filter input:focus {
 }
 
 .app-shell.rdp-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  background: #101214;
 }
 
 .app-shell.rdp-fullscreen .app-topbar,
@@ -7852,20 +8114,40 @@ html[data-theme] .ftp-filter input:focus {
 .app-shell.rdp-fullscreen .workspace {
   grid-column: 1;
   grid-row: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: #101214;
 }
 
 .app-shell.rdp-fullscreen #projectView {
   grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: #101214;
 }
 
 .app-shell.rdp-fullscreen .rdp-workspace {
   position: relative;
   grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: #101214;
 }
 
 .app-shell.rdp-fullscreen .rdp-viewport {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
   border-radius: 0;
+  background: #101214;
 }
 
 .app-shell.rdp-fullscreen .rdp-toolbar {
@@ -8316,9 +8598,9 @@ html[data-theme] .ftp-filter input:focus {
 }
 
 .server-modal-card {
-  width: min(1040px, 78vw);
+  width: min(760px, calc(100vw - 32px));
   max-height: min(860px, calc(100dvh - 32px));
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   border-radius: 8px;
 }
 
@@ -8658,6 +8940,47 @@ html[data-theme] .ftp-filter input:focus {
   display: none;
 }
 
+.project-modal-card .secret-input {
+  position: relative;
+  display: block;
+}
+
+.project-modal-card .secret-input input {
+  padding-right: 44px;
+}
+
+.project-modal-card .secret-input .secret-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: translateY(-50%);
+}
+
+.project-modal-card .secret-input .secret-toggle:hover,
+.project-modal-card .secret-input .secret-toggle:focus-visible {
+  border-color: transparent;
+  background: var(--surface-subtle);
+}
+
+.project-modal-card .windows-endpoint-grid {
+  grid-template-columns: minmax(0, 1fr) 140px;
+}
+
+.project-modal-card .windows-credentials-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.windows-endpoint-grid,
+.windows-credentials-grid {
+  gap: 12px;
+}
+
 .project-modal-card .form-section {
   gap: 10px;
 }
@@ -8684,11 +9007,71 @@ html[data-theme] .ftp-filter input:focus {
 
 .server-wizard-progress {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
   border-bottom: 1px solid var(--line);
   padding: 16px 24px;
   list-style: none;
+}
+
+.server-modal-top {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(480px, 2fr);
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding: 14px 20px;
+}
+
+.server-modal-top > .modal-header {
+  display: block;
+  min-width: 0;
+  border-bottom: 0;
+  padding: 0;
+}
+
+.server-modal-top > .modal-header #projectModalCloseButton {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.server-modal-top > .server-wizard-progress {
+  width: min(100%, 400px);
+  align-self: center;
+  justify-self: end;
+  border-bottom: 0;
+  padding: 0 34px 0 0;
+}
+
+.server-modal-top .server-wizard-step {
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  justify-items: start;
+  gap: 0 5px;
+  padding-inline: 2px;
+  text-align: left;
+}
+
+.server-modal-top .server-wizard-step-number {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+}
+
+.server-modal-top .server-wizard-step-item:not(:last-child)::after {
+  display: none;
+}
+
+.server-modal-top .server-wizard-step-copy strong {
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.server-modal-top .server-wizard-step-copy small {
+  font-size: 9px;
+  line-height: 12px;
 }
 
 .server-wizard-step-item {
@@ -9478,10 +9861,10 @@ html[data-theme] .ftp-filter input:focus {
 }
 
 .server-wizard-progress.windows-flow {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.server-wizard-progress.windows-flow .server-wizard-step-item:nth-child(2)::after {
+.server-wizard-progress.windows-flow .server-wizard-step-item:nth-child(3)::after {
   display: none;
 }
 
@@ -12030,6 +12413,11 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   font-weight: 700;
 }
 
+.mcp-tool-count {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .mcp-doc-section > p {
   margin: 9px 0 0;
   color: var(--muted);
@@ -12104,6 +12492,11 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   color: var(--muted);
   font-size: 12px;
   line-height: 18px;
+}
+
+.mcp-tool-list .mcp-tool-empty {
+  grid-column: 1 / -1;
+  border-bottom: 0;
 }
 
 @media (max-width: 720px) {
@@ -12534,23 +12927,45 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   }
 
   .project-modal-card .project-fields {
-    grid-template-columns: minmax(0, 1fr) 180px;
+    grid-template-columns: minmax(260px, 420px) minmax(200px, 280px);
     align-items: start;
+    justify-content: start;
   }
 
   .project-modal-card .ssh-host-field {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 
-  .project-modal-card .ssh-endpoint-grid {
-    grid-template-columns: minmax(0, 1fr) 140px;
+  .project-modal-card .ssh-endpoint-grid,
+  .project-modal-card .modal-columns,
+  .project-modal-card .windows-endpoint-grid {
+    grid-template-columns: minmax(280px, 520px) 140px;
+    justify-content: start;
+  }
+
+  .project-modal-card .windows-credentials-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+
+  .project-modal-card .ssh-user-fields {
+    grid-template-columns: minmax(220px, 380px) minmax(220px, 320px);
+  }
+
+  .project-modal-card .ssh-user-editor > .modal-secret,
+  .project-modal-card #projectStepPanelFtp > .modal-secret {
+    max-width: 520px;
   }
 
   .project-modal-card .modal-secret {
     margin-top: 12px;
   }
 
+  .project-modal-card .windows-credentials-grid .modal-secret {
+    margin-top: 0;
+  }
+
   .project-modal-card .key-grid {
+    max-width: 712px;
     gap: 12px;
   }
 
@@ -12559,7 +12974,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   }
 
   .server-modal-card .project-modal-body {
-    min-height: clamp(320px, 44dvh, 500px);
+    min-height: 0;
     padding: 22px 24px 24px;
   }
 }
@@ -12727,7 +13142,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 
   .server-modal-card {
     width: min(100%, 760px);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .project-modal-card .modal-body {
@@ -13251,6 +13666,10 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   gap: 14px;
 }
 
+.dashboard-operations-grid.database-hidden {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .dashboard-lower-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(250px, 0.9fr) minmax(290px, 1fr);
@@ -13616,7 +14035,23 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   .dashboard-quick-actions { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 800px) {
+  .server-modal-top {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .server-modal-top > .server-wizard-progress {
+    padding-right: 0;
+  }
+}
+
 @media (max-width: 560px) {
+  .project-modal-card .windows-endpoint-grid,
+  .project-modal-card .windows-credentials-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .server-wizard-progress {
     padding: 14px 12px;
   }
@@ -13684,8 +14119,12 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
     max-height: calc(100dvh - 24px);
   }
 
-  #projectModal .server-modal-card .modal-header {
+  #projectModal .server-modal-card .server-modal-top {
     padding: 12px 18px;
+  }
+
+  #projectModal .server-modal-card .modal-header {
+    padding: 0;
   }
 
   #projectModal .server-modal-card .modal-header p {
@@ -13694,19 +14133,15 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   }
 
   #projectModal .server-wizard-progress {
-    padding: 10px 18px;
+    padding: 0;
   }
 
   #projectModal .server-wizard-step {
     gap: 3px;
   }
 
-  #projectModal .server-wizard-step-copy small {
-    display: none;
-  }
-
   #projectModal .server-modal-card .project-modal-body {
-    min-height: clamp(280px, 42dvh, 340px);
+    min-height: 0;
     padding: 14px 18px 16px;
   }
 
@@ -13931,7 +14366,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   font-weight: 650;
   letter-spacing: 0.04em;
   line-height: 16px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .dashboard-system-overview {
@@ -14472,7 +14907,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   font-weight: 600;
   letter-spacing: 0;
   line-height: 15px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .dashboard-system-overview { gap: 14px; }
@@ -14888,7 +15323,8 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 }
 
 @media (max-width: 1180px) {
-  .dashboard-operations-grid {
+  .dashboard-operations-grid,
+  .dashboard-operations-grid.database-hidden {
     grid-template-columns: 1fr;
   }
 
@@ -15001,6 +15437,10 @@ body.project-view-active .terminal-main {
 body.project-view-active #projectView:not(.hidden) {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+body.project-view-active .app-shell.rdp-fullscreen #projectView:not(.hidden) {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 :root[data-theme="termius-dark"],
@@ -19166,6 +19606,12 @@ html[data-theme] .backup-recovery-search-input input:focus {
   margin-top: 12px;
 }
 
+.uptime-fleet-list,
+.uptime-timeline {
+  align-content: start;
+  grid-auto-rows: minmax(54px, auto);
+}
+
 .uptime-fleet-row,
 .uptime-incident-row {
   display: grid;
@@ -21293,6 +21739,7 @@ html[data-theme] .settings-monitoring-autostart input:checked {
 .backup-destination-section legend {
   width: 100%;
   margin: 0 0 8px;
+  padding-top: 5px;
   color: var(--ink);
   font-size: 12px;
   font-weight: 700;
@@ -21646,4 +22093,19 @@ html[data-database-access-window="true"] #databaseQueryProfile:disabled {
   color: var(--ink);
   cursor: default;
   opacity: 1;
+}
+
+/* Keep the dashboard summary balanced when Database Manager is unavailable. */
+.dashboard-stats-grid.database-hidden {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .dashboard-stats-grid.database-hidden {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-stats-grid.database-hidden .dashboard-stat-card:last-child {
+    grid-column: 1 / -1;
+  }
 }

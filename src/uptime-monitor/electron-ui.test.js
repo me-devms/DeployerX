@@ -76,6 +76,7 @@ test('renders responsive Uptime operations views without viewport overflow or co
     }
     if (result.panel === 'overview') {
       assert.equal(result.overviewBottomGapTooLarge, false, 'Overview cards should fill the available panel height');
+      assert.equal(result.fleetRowsStretched, false, 'Fleet Health rows should stay compact and top-aligned');
     }
     assert.equal(result.cardOverlap, false, `${result.panel} KPI overlap`);
     assert.deepEqual(result.clippedText, [], `${result.panel} clipped commands or headings`);

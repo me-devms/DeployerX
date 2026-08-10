@@ -2,12 +2,37 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const { Client } = require('ssh2');
+const { buildCollectorCommand, executeCollectorCommand, parseCollectorOutput } = require('./server-monitoring/linux-collector');
 
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([MCP_PROTOCOL_VERSION, '2025-03-26']);
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
+
+const MONITOR_PROPERTIES = {
+  name: { type: 'string', description: 'Human-readable monitor name.' },
+  projectId: { type: ['string', 'null'], description: 'Optional saved DeployerX server ID to link this monitor to.' },
+  group: { type: 'string', description: 'Optional monitor group.' },
+  tags: { type: 'array', items: { type: 'string' } },
+  type: { type: 'string', enum: ['http', 'tcp', 'tls'] },
+  state: { type: 'string', enum: ['enabled', 'paused', 'disabled'], default: 'enabled' },
+  intervalSec: { type: 'integer', minimum: 30, maximum: 86400, default: 60 },
+  timeoutMs: { type: 'integer', minimum: 1000, maximum: 120000, default: 10000 },
+  config: {
+    type: 'object',
+    description: 'Type-specific configuration. HTTP uses url, method, headers, secretHeaders, body, followRedirects, verifyTls, expectedStatusRanges, and assertions. TCP uses host and port. TLS uses host, port, serverName, verifyTls, expiryWarningDays, and expiryCriticalDays.',
+    additionalProperties: true
+  },
+  alertPolicy: {
+    type: 'object',
+    description: 'Optional thresholds: failureThreshold, recoveryThreshold, repeatEveryMinutes, latencyWarningMs, latencyCriticalMs, notifyOnWarning, and notifyOnRecovery.',
+    additionalProperties: true
+  },
+  notificationRouteIds: { type: 'array', items: { type: 'string' } }
+};
+
+const LIST_LIMIT_PROPERTY = { type: 'integer', minimum: 1, maximum: 10000, default: 500 };
 
 const TOOLS = [
   {
@@ -16,6 +41,18 @@ const TOOLS = [
     description: 'List saved SSH/SFTP server aliases and opaque IDs. Connection details and credentials are never returned.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_get_server_metrics',
+    title: 'Get live server metrics',
+    description: 'Collect a current Linux server health snapshot over SSH, including CPU, memory, load, network, storage, processes, OS, and system uptime.',
+    inputSchema: {
+      type: 'object',
+      properties: { server_id: { type: 'string', description: 'Opaque ID from deployerx_list_servers.' } },
+      required: ['server_id'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
   {
     name: 'deployerx_ssh_execute',
@@ -130,6 +167,237 @@ const TOOLS = [
       additionalProperties: false
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_status',
+    title: 'Get Uptime status',
+    description: 'Get the Uptime worker health, current monitor states, and active incidents in one current snapshot.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_list_monitors',
+    title: 'List uptime monitors',
+    description: 'List uptime monitors and their latest runtime status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        state: { type: 'string', enum: ['enabled', 'paused', 'disabled'] },
+        projectId: { type: 'string' },
+        includeDeleted: { type: 'boolean', default: false },
+        limit: LIST_LIMIT_PROPERTY
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_get_monitor',
+    title: 'Get an uptime monitor',
+    description: 'Get one uptime monitor, including configuration, revision, and current runtime status.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, includeDeleted: { type: 'boolean', default: false } },
+      required: ['id'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_create_monitor',
+    title: 'Create an uptime monitor',
+    description: 'Create an HTTP, TCP, or TLS uptime monitor. Enabled monitors run an initial persisted health check immediately. Sensitive HTTP header values belong in config.secretHeaders.',
+    inputSchema: {
+      type: 'object',
+      properties: MONITOR_PROPERTIES,
+      required: ['name', 'type', 'config'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  },
+  {
+    name: 'deployerx_uptime_update_monitor',
+    title: 'Update an uptime monitor',
+    description: 'Update an existing uptime monitor. Supply the current revision returned by get or list to prevent overwriting concurrent changes.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, revision: { type: 'integer', minimum: 1 }, ...MONITOR_PROPERTIES },
+      required: ['id', 'revision'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  },
+  {
+    name: 'deployerx_uptime_delete_monitor',
+    title: 'Delete an uptime monitor',
+    description: 'Soft-delete an uptime monitor and remove its stored sensitive-header references.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, revision: { type: 'integer', minimum: 1 } },
+      required: ['id', 'revision'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_test_monitor',
+    title: 'Test an uptime monitor',
+    description: 'Run a non-persisted test of a new monitor definition or an existing monitor with optional changes.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, ...MONITOR_PROPERTIES },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  },
+  {
+    name: 'deployerx_uptime_run_monitor_now',
+    title: 'Run an uptime monitor now',
+    description: 'Queue an enabled uptime monitor for an immediate persisted check.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  },
+  {
+    name: 'deployerx_uptime_list_checks',
+    title: 'List uptime checks',
+    description: 'List persisted check results for one monitor.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        monitorId: { type: 'string' },
+        from: { type: 'string', format: 'date-time' },
+        to: { type: 'string', format: 'date-time' },
+        outcome: { type: 'string', enum: ['up', 'warning', 'down', 'unknown', 'maintenance'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100000, default: 500 }
+      },
+      required: ['monitorId'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_list_incidents',
+    title: 'List uptime incidents',
+    description: 'List uptime incidents, optionally filtered by monitor, state, or time range.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        monitorId: { type: 'string' },
+        state: { type: 'string', enum: ['open', 'acknowledged', 'resolved'] },
+        from: { type: 'string', format: 'date-time' },
+        to: { type: 'string', format: 'date-time' },
+        limit: LIST_LIMIT_PROPERTY
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_acknowledge_incident',
+    title: 'Acknowledge an uptime incident',
+    description: 'Acknowledge an open incident using its current revision.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, revision: { type: 'integer', minimum: 1 }, note: { type: 'string', maxLength: 1000 } },
+      required: ['id', 'revision'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_list_maintenance',
+    title: 'List uptime maintenance windows',
+    description: 'List maintenance windows, including active, future, or deleted entries.',
+    inputSchema: {
+      type: 'object',
+      properties: { activeAt: { type: 'string', format: 'date-time' }, includeDeleted: { type: 'boolean', default: false }, limit: LIST_LIMIT_PROPERTY },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_create_maintenance',
+    title: 'Create an uptime maintenance window',
+    description: 'Create a maintenance window scoped to the workspace, group, project, or selected monitors.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, state: { type: 'string', enum: ['enabled', 'disabled'], default: 'enabled' },
+        startsAt: { type: 'string', format: 'date-time' }, endsAt: { type: 'string', format: 'date-time' },
+        timezone: { type: 'string', default: 'UTC' }, reason: { type: 'string' },
+        scope: { type: 'object', description: 'Scope object with type workspace, group, project, or monitors and the corresponding identifiers.', additionalProperties: true },
+        recurrence: { type: ['object', 'null'], additionalProperties: true }
+      },
+      required: ['name', 'startsAt', 'endsAt', 'scope'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_update_maintenance',
+    title: 'Update an uptime maintenance window',
+    description: 'Update a maintenance window using its current revision.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' }, revision: { type: 'integer', minimum: 1 }, name: { type: 'string' },
+        state: { type: 'string', enum: ['enabled', 'disabled'] }, startsAt: { type: 'string', format: 'date-time' },
+        endsAt: { type: 'string', format: 'date-time' }, timezone: { type: 'string' }, reason: { type: 'string' },
+        scope: { type: 'object', additionalProperties: true }, recurrence: { type: ['object', 'null'], additionalProperties: true }
+      },
+      required: ['id', 'revision'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_delete_maintenance',
+    title: 'Delete an uptime maintenance window',
+    description: 'Soft-delete a maintenance window using its current revision.',
+    inputSchema: {
+      type: 'object', properties: { id: { type: 'string' }, revision: { type: 'integer', minimum: 1 } },
+      required: ['id', 'revision'], additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_worker_status',
+    title: 'Get uptime worker status',
+    description: 'Get scheduling worker heartbeat, concurrency, autostart, and error status.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_get_settings',
+    title: 'Get uptime settings',
+    description: 'Get uptime worker autostart, concurrency, retention, and minimum interval settings.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_update_settings',
+    title: 'Update uptime settings',
+    description: 'Update uptime worker autostart and maximum check concurrency.',
+    inputSchema: {
+      type: 'object',
+      properties: { autostartEnabled: { type: 'boolean' }, maximumConcurrency: { type: 'integer', minimum: 1, maximum: 32 } },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_uptime_get_report',
+    title: 'Get an uptime report',
+    description: 'Calculate an uptime, latency, checks, incidents, and maintenance report for a time range.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', format: 'date-time' }, to: { type: 'string', format: 'date-time' },
+        monitorId: { type: 'string' }, projectId: { type: 'string' }, group: { type: 'string' }, includeDeleted: { type: 'boolean', default: false }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }
 ];
 
@@ -325,6 +593,27 @@ async function executeSshCommand(project, command, timeoutMs) {
   });
 }
 
+async function collectServerMetrics(project) {
+  const client = await connect(project, false);
+  try {
+    const firstOutput = await executeCollectorCommand(client, buildCollectorCommand(), { timeoutMs: 10000 });
+    const first = parseCollectorOutput(firstOutput, { sampledAt: Date.now() });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const secondOutput = await executeCollectorCommand(
+      client,
+      buildCollectorCommand({ includeStatic: true, includeStorage: true, includeProcesses: true }),
+      { timeoutMs: 10000 }
+    );
+    return parseCollectorOutput(secondOutput, {
+      previousCounters: first.counters,
+      previousSample: first.sample,
+      sampledAt: Date.now()
+    }).sample;
+  } finally {
+    client.end();
+  }
+}
+
 function publicServer(project) {
   return {
     id: String(project.id),
@@ -345,8 +634,9 @@ function toolResult(result) {
 }
 
 class DeployerXMcpServer {
-  constructor({ getProjects }) {
+  constructor({ getProjects, uptimeOperations = {} }) {
     this.getProjects = getProjects;
+    this.uptimeOperations = uptimeOperations;
     this.server = null;
     this.port = 0;
     this.token = '';
@@ -360,6 +650,10 @@ class DeployerXMcpServer {
       url: this.port ? `http://127.0.0.1:${this.port}/mcp` : '',
       lastError: this.lastError
     };
+  }
+
+  tools() {
+    return TOOLS.map(({ name, title, description }) => ({ name, title, description }));
   }
 
   async start({ port, token }) {
@@ -475,7 +769,7 @@ class DeployerXMcpServer {
 
   async projects() {
     const projects = await this.getProjects();
-    return (Array.isArray(projects) ? projects : []).filter((project) => project?.serverType !== 'rdp' && project?.ssh?.host);
+    return (Array.isArray(projects) ? projects : []).filter((project) => !['vnc', 'rdp'].includes(project?.serverType) && project?.ssh?.host);
   }
 
   async projectById(serverId) {
@@ -498,8 +792,47 @@ class DeployerXMcpServer {
       return { servers: (await this.projects()).map(publicServer) };
     }
 
+    const uptimeOperationNames = {
+      deployerx_uptime_status: 'getStatus',
+      deployerx_uptime_list_monitors: 'listMonitors',
+      deployerx_uptime_get_monitor: 'getMonitor',
+      deployerx_uptime_create_monitor: 'createMonitor',
+      deployerx_uptime_update_monitor: 'updateMonitor',
+      deployerx_uptime_delete_monitor: 'deleteMonitor',
+      deployerx_uptime_test_monitor: 'testMonitor',
+      deployerx_uptime_run_monitor_now: 'runMonitorNow',
+      deployerx_uptime_list_checks: 'listChecks',
+      deployerx_uptime_list_incidents: 'listIncidents',
+      deployerx_uptime_acknowledge_incident: 'acknowledgeIncident',
+      deployerx_uptime_list_maintenance: 'listMaintenance',
+      deployerx_uptime_create_maintenance: 'createMaintenance',
+      deployerx_uptime_update_maintenance: 'updateMaintenance',
+      deployerx_uptime_delete_maintenance: 'deleteMaintenance',
+      deployerx_uptime_worker_status: 'getWorkerStatus',
+      deployerx_uptime_get_settings: 'getSettings',
+      deployerx_uptime_update_settings: 'updateSettings',
+      deployerx_uptime_get_report: 'getReport'
+    };
+    const uptimeOperationName = uptimeOperationNames[name];
+    if (uptimeOperationName) {
+      const operation = this.uptimeOperations[uptimeOperationName];
+      if (typeof operation !== 'function') throw new Error('Uptime monitoring is not available yet. Keep DeployerX open and try again.');
+      const result = await operation(args);
+      const collectionKeys = {
+        deployerx_uptime_list_monitors: 'monitors',
+        deployerx_uptime_get_monitor: 'monitor',
+        deployerx_uptime_list_checks: 'checks',
+        deployerx_uptime_list_incidents: 'incidents',
+        deployerx_uptime_list_maintenance: 'maintenance'
+      };
+      return collectionKeys[name] ? { [collectionKeys[name]]: result } : result;
+    }
+
     const project = await this.projectById(args.server_id);
     try {
+      if (name === 'deployerx_get_server_metrics') {
+        return { server_id: String(project.id), sample: await collectServerMetrics(project) };
+      }
       if (name === 'deployerx_ssh_execute') {
         const command = asNonEmptyString(args.command, 'command');
         const timeoutMs = clamp(args.timeout_ms, 1000, 300000, 120000);
@@ -595,8 +928,8 @@ class DeployerXMcpServer {
           result: {
             protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.has(requestedVersion) ? requestedVersion : MCP_PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: 'DeployerX', title: 'DeployerX SSH and SFTP', version: '1.0.0' },
-            instructions: 'Use server IDs from deployerx_list_servers. DeployerX keeps hostnames and credentials private.'
+            serverInfo: { name: 'DeployerX', title: 'DeployerX servers and uptime monitoring', version: '1.1.0' },
+            instructions: 'Use server IDs from deployerx_list_servers for SSH, SFTP, and live metrics. Uptime tools manage monitors, checks, incidents, maintenance, worker settings, and reports without exposing stored credentials.'
           }
         };
       }

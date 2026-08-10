@@ -33,6 +33,7 @@ test('keeps SSH shells isolated by tab and starts every terminal at the filesyst
   assert.equal(source.includes('await window.deployerx.stopTerminal(session.sessionId)'), true, 'closing a tab stops only its own shell');
   assert.equal(source.includes('if (!isVisibleTerminalSession(terminalSession)) return;'), true, 'background connections cannot steal focus');
   assert.equal(source.includes("document.body.classList.toggle('project-view-active', isProject)"), true, 'project view locks document scrolling');
+  assert.match(source, /els\.connectTerminalButton\.addEventListener\('click', \(\) => \{\s+connectTerminal\(\)\.catch\(\(error\) => showAlert\(error\.message \|\| 'Could not connect SSH\.'\)\);\s+\}\);/, 'connect button must call connectTerminal without passing the click event as the project');
 });
 
 test('keeps the terminal shell fixed while xterm owns output scrolling', async () => {
@@ -41,4 +42,9 @@ test('keeps the terminal shell fixed while xterm owns output scrolling', async (
   assert.match(styles, /body\.project-view-active \{\s+overflow: hidden;/, 'document does not scroll in project view');
   assert.match(styles, /body\.project-view-active \.app-shell \{\s+height: 100dvh;\s+min-height: 0;\s+overflow: hidden;/, 'app shell stays locked to the viewport');
   assert.match(styles, /body\.project-view-active #projectView:not\(\.hidden\) \{\s+display: grid;\s+grid-template-rows: auto minmax\(0, 1fr\);/, 'project header and terminal use fixed grid rows');
+});
+
+test('prevents native text highlighting in the SSH directory browser', async () => {
+  const styles = await fs.readFile(path.join(rendererDirectory, 'styles.css'), 'utf8');
+  assert.match(styles, /\.ssh-directory-status,\s*\.ssh-directory-list\s*\{\s*user-select:\s*none;/s);
 });

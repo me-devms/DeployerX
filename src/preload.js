@@ -56,7 +56,6 @@ contextBridge.exposeInMainWorld('deployerx', {
   setTheme: (themeId) => ipcRenderer.invoke('theme:set', themeId),
   getMcpIntegration: () => ipcRenderer.invoke('mcp-integration:get'),
   startMcpIntegration: (payload) => ipcRenderer.invoke('mcp-integration:start', payload),
-  stopMcpIntegration: () => ipcRenderer.invoke('mcp-integration:stop'),
   rotateMcpToken: () => ipcRenderer.invoke('mcp-integration:rotate-token'),
   testMcpIntegration: () => ipcRenderer.invoke('mcp-integration:test'),
   setSetupMode: (mode) => ipcRenderer.invoke('setup:setMode', mode),
@@ -83,10 +82,13 @@ contextBridge.exposeInMainWorld('deployerx', {
   deleteProject: (id) => ipcRenderer.invoke('projects:delete', id),
   exportProjects: (projectIds) => ipcRenderer.invoke('projects:export', projectIds),
   importProjects: () => ipcRenderer.invoke('projects:import'),
+  listWindowsVpnProfiles: () => ipcRenderer.invoke('network:vpn-profiles:list'),
   startRdp: (payload) => ipcRenderer.invoke('rdp:start', payload),
   loadRdpWasm: () => ipcRenderer.invoke('rdp:wasm'),
   stopRdp: (sessionId) => ipcRenderer.invoke('rdp:stop', sessionId),
-  setRdpFullscreen: (payload) => ipcRenderer.invoke('rdp:fullscreen', payload),
+  startVnc: (payload) => ipcRenderer.invoke('vnc:start', payload),
+  stopVnc: (sessionId) => ipcRenderer.invoke('vnc:stop', sessionId),
+  setVncFullscreen: (payload) => ipcRenderer.invoke('vnc:fullscreen', payload),
   exportAccount: () => ipcRenderer.invoke('account:export'),
   importAccount: () => ipcRenderer.invoke('account:import'),
   listBackupSecrets: () => ipcRenderer.invoke('backup:secrets:list'),
@@ -573,10 +575,15 @@ contextBridge.exposeInMainWorld('deployerx', {
     ipcRenderer.on('rdp:event', handler);
     return () => ipcRenderer.removeListener('rdp:event', handler);
   },
-  onRdpFullscreenChanged: (callback) => {
+  onVncEvent: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('vnc:event', handler);
+    return () => ipcRenderer.removeListener('vnc:event', handler);
+  },
+  onVncFullscreenChanged: (callback) => {
     const handler = (_event, enabled) => callback(Boolean(enabled));
-    ipcRenderer.on('rdp:fullscreen-changed', handler);
-    return () => ipcRenderer.removeListener('rdp:fullscreen-changed', handler);
+    ipcRenderer.on('vnc:fullscreen-changed', handler);
+    return () => ipcRenderer.removeListener('vnc:fullscreen-changed', handler);
   },
   onUptimeEvent: (callback) => {
     const handler = (_event, message) => callback(message);

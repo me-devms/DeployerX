@@ -43,6 +43,37 @@ test('normalizes legacy and multiple SSH users while mirroring the default user'
   assert.equal(multiple.privateKey, 'private-key');
 });
 
+test('reuses SSH endpoint details when the file browser is pointed at a plain FTP port', async () => {
+  const main = await fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const source = `${readFunction(main, 'normalizedConnectionPort')}\n${readFunction(main, 'isPlainFtpPort')}\n${readFunction(main, 'toFtpConnectionConfig')}\nthis.toFtpConnectionConfig = toFtpConnectionConfig;`;
+  const context = {};
+  vm.runInNewContext(source, context);
+  const toFtpConnectionConfig = context.toFtpConnectionConfig;
+
+  const config = toFtpConnectionConfig({
+    ssh: {
+      host: 'ssh.example.test',
+      port: 22,
+      username: 'root',
+      authType: 'password',
+      password: 'ssh-secret',
+      timeout: 20000
+    },
+    ftp: {
+      host: 'ftp.example.test',
+      port: 21,
+      username: 'ftp-user',
+      authType: 'password',
+      password: 'ftp-secret'
+    }
+  });
+
+  assert.equal(config.host, 'ssh.example.test');
+  assert.equal(config.port, 22);
+  assert.equal(config.username, 'root');
+  assert.equal(config.password, 'ssh-secret');
+});
+
 test('wires the responsive SSH user editor and validation controls', async () => {
   const [html, renderer, styles, main] = await Promise.all([
     fs.readFile(path.join(__dirname, 'index.html'), 'utf8'),
@@ -68,6 +99,7 @@ test('wires the responsive SSH user editor and validation controls', async () =>
   assert.match(renderer, /connectionProject\.ssh = \{/);
   assert.match(styles, /\.ssh-user-tabs\s*\{/);
   assert.match(styles, /\.terminal-user-option\s*\{/);
+  assert.match(styles, /\.server-type-switcher \.workspace-switcher-menu\s*\{\s*max-height: min\(184px, var\(--server-type-menu-space, 184px\)\);/);
   assert.match(styles, /@media \(max-width: 560px\)[\s\S]*\.ssh-user-editor-heading/);
   assert.match(main, /if \(defaultUser\) defaultUser\[field\] = ssh\[field\]/);
 });
@@ -78,8 +110,86 @@ test('keeps the Add Server command template menu inside the modal', async () => 
     fs.readFile(path.join(__dirname, 'styles.css'), 'utf8')
   ]);
 
-  assert.match(renderer, /function openModalTemplateMenu\(\)[\s\S]*const spaceBelow[\s\S]*const spaceAbove[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
+  assert.match(renderer, /function dropdownVerticalSpace\(trigger[\s\S]*trigger\.closest\('\.modal-body'\)[\s\S]*spaceBelow[\s\S]*spaceAbove/);
+  assert.match(renderer, /function openModalTemplateMenu\(\)[\s\S]*dropdownVerticalSpace\(els\.modalTemplateButton\)[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
+  assert.match(renderer, /function openModalServerTypeMenu\(\)[\s\S]*dropdownVerticalSpace\(els\.modalServerTypeButton\)[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
+  assert.match(renderer, /function openModalProjectGroupMenu\(\)[\s\S]*desiredMenuHeight[\s\S]*dropdownVerticalSpace\(els\.modalProjectGroupButton\)[\s\S]*spaceBelow < desiredMenuHeight && spaceAbove > spaceBelow[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
+  assert.match(renderer, /function openUptimeMonitorTypeMenu\(\)[\s\S]*dropdownVerticalSpace\(els\.uptimeMonitorTypeButton\)[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
   assert.match(renderer, /--template-menu-space/);
   assert.match(styles, /\.modal-template-switcher \.workspace-switcher-menu\.opens-up\s*\{[\s\S]*bottom: calc\(100% \+ 6px\)/);
+  assert.match(styles, /\.group-switcher \.workspace-switcher-menu\.opens-up\s*\{[\s\S]*bottom: calc\(100% \+ 6px\)/);
+  assert.match(styles, /max-height: min\(210px, var\(--group-menu-space, 210px\)\)/);
   assert.match(styles, /max-height: min\(280px, var\(--template-menu-space, 280px\)\)/);
+});
+
+test('keeps optional Proxy and FTP steps after SSH and allows saving from SSH', async () => {
+  const [html, renderer, styles] = await Promise.all([
+    fs.readFile(path.join(__dirname, 'index.html'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'styles.css'), 'utf8')
+  ]);
+
+  const serverStep = html.indexOf('id="projectStepButtonServer"');
+  const sshStep = html.indexOf('id="projectStepButtonSsh"');
+  const proxyStep = html.indexOf('id="projectStepButtonProxy"');
+  const ftpStep = html.indexOf('id="projectStepButtonFtp"');
+  assert.ok(serverStep < sshStep && sshStep < proxyStep && proxyStep < ftpStep);
+  assert.match(html, /projectStepButtonSsh[^>]+data-project-step-button="1"/);
+  assert.match(html, /projectStepButtonProxy[^>]+data-project-step-button="2"/);
+  assert.match(html, /<strong>Proxy<\/strong>\s*<small>Optional<\/small>/);
+  assert.match(html, /<strong>FTP<\/strong>\s*<small>Optional<\/small>/);
+  assert.match(html, />\s*Save Server\s*</);
+  assert.match(html, /<div class="server-modal-top">[\s\S]*?<header class="modal-header">[\s\S]*?<ol class="server-wizard-progress"[\s\S]*?<\/div>/);
+  assert.match(html, /class="field-grid windows-credentials-grid"[\s\S]*?id="modalRdpUsername"[\s\S]*?id="modalRdpPassword"[\s\S]*?<\/div>\s*<\/div>/);
+  assert.match(renderer, /panels\[nextStep\]\?\.id === 'projectStepPanelSsh' \|\| nextStep === panels\.length - 1/);
+  assert.match(renderer, /savingFromConnectionStep \? state\.modalStep : panels\.length - 1/);
+  assert.match(styles, /\.server-wizard-progress\s*\{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /\.server-wizard-progress\.windows-flow\s*\{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /\.server-modal-card\s*\{[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\) auto/);
+  assert.match(styles, /\.server-modal-card\s*\{[\s\S]*?max-height: min\(860px, calc\(100dvh - 32px\)\)/);
+  assert.doesNotMatch(styles, /\.server-modal-card\s*\{[^}]*\n\s*height:/);
+  assert.match(styles, /\.server-modal-top\s*\{[\s\S]*?grid-template-columns: minmax\(190px, 0\.8fr\) minmax\(480px, 2fr\)/);
+  assert.match(styles, /\.server-modal-top > \.server-wizard-progress\s*\{[\s\S]*?width: min\(100%, 400px\)[\s\S]*?justify-self: end/);
+  assert.match(styles, /\.server-modal-top \.server-wizard-step\s*\{[\s\S]*?grid-template-columns: 20px minmax\(0, 1fr\)/);
+  assert.match(styles, /\.server-modal-top \.server-wizard-step-item:not\(:last-child\)::after\s*\{\s*display: none/);
+  assert.match(styles, /\.server-modal-card \.project-modal-body\s*\{\s*min-height: 0/);
+  assert.match(styles, /\.project-modal-card \.secret-input\s*\{[\s\S]*?position: relative;[\s\S]*?display: block/);
+  assert.match(styles, /\.project-modal-card \.secret-input \.secret-toggle\s*\{[\s\S]*?position: absolute;[\s\S]*?right: 4px/);
+  assert.match(styles, /\.project-modal-card \.windows-credentials-grid\s*\{\s*grid-template-columns: repeat\(auto-fit, minmax\(190px, 1fr\)\)/);
+  assert.match(styles, /@media \(max-width: 560px\)[\s\S]*?\.project-modal-card \.windows-endpoint-grid,[\s\S]*?\.project-modal-card \.windows-credentials-grid\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.project-modal-card \.ssh-endpoint-grid,[\s\S]*?grid-template-columns: minmax\(280px, 520px\) 140px/);
+});
+
+test('supports RDP and VNC for Windows server profiles and remote control', async () => {
+  const [html, renderer, preload, main, rdpClient, vncClient, rfb] = await Promise.all([
+    fs.readFile(path.join(__dirname, 'index.html'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'preload.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'rdp-client.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'vnc-client.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'vendor', 'novnc', 'core', 'rfb.js'), 'utf8')
+  ]);
+
+  assert.match(html, /<option value="vnc">Windows<\/option>/);
+  assert.match(html, /id="modalRdpPort"[^>]+value="5900"/);
+  assert.match(html, /data-windows-protocol="rdp">RDP<\/button>/);
+  assert.match(html, /data-windows-protocol="vnc">VNC<\/button>/);
+  assert.match(html, /VNC Server \/ IP/);
+  assert.match(html, /VNC Password/);
+  assert.match(html, /id="modalRdpDomain"/);
+  assert.match(html, /Windows Remote Desktop session/);
+  assert.match(renderer, /import\(protocol === 'rdp' \? '\.\/rdp-client\.js' : '\.\/vnc-client\.js'\)/);
+  assert.match(renderer, /window\.deployerx\.startVnc\(/);
+  assert.match(renderer, /window\.deployerx\.startRdp\(/);
+  assert.match(renderer, /window\.deployerx\.loadRdpWasm\(/);
+  assert.match(renderer, /window\.deployerx\.stopRdp\(/);
+  assert.match(preload, /startRdp: \(payload\) => ipcRenderer\.invoke\('rdp:start', payload\)/);
+  assert.match(preload, /startVnc: \(payload\) => ipcRenderer\.invoke\('vnc:start', payload\)/);
+  assert.match(main, /ipcMain\.handle\('rdp:start'/);
+  assert.match(main, /ipcMain\.handle\('vnc:start'/);
+  assert.match(rdpClient, /SessionBuilder/);
+  assert.match(vncClient, /import RFB from '.\/vendor\/novnc\/core\/rfb\.js'/);
+  assert.match(vncClient, /VNC_HANDSHAKE_TIMEOUT_MS = 12000/);
+  assert.doesNotMatch(rfb, /encs\.push\(encodings\.encodingH264\)/);
 });

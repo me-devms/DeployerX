@@ -60,9 +60,29 @@ if defined VERSION_ARG (
 )
 
 if defined VERSION_ARG (
-  echo Creating DeployerX Windows installer and portable EXE for version %VERSION_ARG%...
+  echo Creating DeployerX and DB Access Manager Windows artifacts for version %VERSION_ARG%...
 ) else (
-  echo Creating DeployerX Windows installer and portable EXE...
+  echo Creating DeployerX and DB Access Manager Windows artifacts...
+)
+
+where pnpm >nul 2>nul
+if errorlevel 1 (
+  echo pnpm is required to build DeployerX DB Access Manager.
+  echo Install pnpm 10.30.3, then run this file again.
+  if defined PACKAGE_BACKUP copy /y "!PACKAGE_BACKUP!" "package.json" >nul
+  if defined PACKAGE_BACKUP del /q "!PACKAGE_BACKUP!" >nul 2>nul
+  pause
+  exit /b 1
+)
+
+where cargo >nul 2>nul
+if errorlevel 1 (
+  echo Rust Cargo is required to build DeployerX DB Access Manager.
+  echo Install the Rust Windows MSVC toolchain, then run this file again.
+  if defined PACKAGE_BACKUP copy /y "!PACKAGE_BACKUP!" "package.json" >nul
+  if defined PACKAGE_BACKUP del /q "!PACKAGE_BACKUP!" >nul 2>nul
+  pause
+  exit /b 1
 )
 
 call npm run package:win

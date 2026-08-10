@@ -131,7 +131,7 @@ async function resolveRequestHeaders(config, secretResolver, monitor) {
   return headers;
 }
 
-function requestOnce({ requestUrl, method, headers, body, timeoutMs, verifyTls, maximumResponseBytes, clients }) {
+function requestOnce({ requestUrl, method, headers, body, timeoutMs, verifyTls, maximumResponseBytes, captureBody, clients }) {
   return new Promise((resolve, reject) => {
     const started = process.hrtime.bigint();
     const client = requestUrl.protocol === 'https:' ? clients.https : clients.http;
@@ -145,6 +145,20 @@ function requestOnce({ requestUrl, method, headers, body, timeoutMs, verifyTls, 
     const request = client.request(requestUrl, { method, headers, rejectUnauthorized: verifyTls }, (response) => {
       const chunks = [];
       let size = 0;
+      if (!captureBody) {
+        const contentLength = Number(response.headers['content-length']);
+        finish(null, {
+          statusCode: Number(response.statusCode || 0),
+          headers: sanitizedHeaders(response.headers),
+          body: '',
+          bodyBytes: Number.isFinite(contentLength) ? contentLength : null,
+          latencyMs: elapsedMilliseconds(started),
+          certificate: certificateDetails(response.socket)
+        });
+        response.destroy();
+        request.destroy();
+        return;
+      }
       response.on('data', (chunk) => {
         size += chunk.length;
         if (size > maximumResponseBytes) {
@@ -187,8 +201,9 @@ async function runHttpCheck(monitor, options = {}) {
   const redirects = [];
   const clients = options.clients || { http, https };
   const maximumResponseBytes = Number(options.maximumResponseBytes || DEFAULT_MAXIMUM_RESPONSE_BYTES);
+  const captureBody = (config.assertions || []).some((assertion) => ['body', 'jsonpath'].includes(assertion.target));
   for (let redirectCount = 0; ; redirectCount += 1) {
-    const response = await requestOnce({ requestUrl, method, headers, body, timeoutMs: monitor.timeoutMs, verifyTls: config.verifyTls, maximumResponseBytes, clients });
+    const response = await requestOnce({ requestUrl, method, headers, body, timeoutMs: monitor.timeoutMs, verifyTls: config.verifyTls, maximumResponseBytes, captureBody, clients });
     const location = response.headers.location;
     if (config.followRedirects && REDIRECT_STATUSES.has(response.statusCode) && location) {
       if (redirectCount >= config.maximumRedirects) {
