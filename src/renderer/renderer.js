@@ -680,6 +680,7 @@ function blankTerminalSession(projectId = '', { tabId = '', label = '', startupD
     directorySelectedPath: '',
     directoryLoading: false,
     directoryError: '',
+    directoryUnavailable: false,
     directoryRequestId: 0,
     directoryMarkerBuffer: '',
     directoryPromptMarkerSeen: false,
@@ -719,6 +720,23 @@ function createTerminalTabSession(projectId, { startupDirectory = '/' } = {}) {
     label: `Terminal ${nextNumber}`,
     startupDirectory: inheritedDirectory ? normalizeRemoteShellPath(inheritedDirectory) : ''
   });
+}
+
+function renumberTerminalTabs(projectId, tabs = state.terminalSessions[projectId]) {
+  if (!projectId || !Array.isArray(tabs)) return;
+  tabs.forEach((session, index) => {
+    session.label = `Terminal ${index + 1}`;
+  });
+  state.terminalTabCounters[projectId] = tabs.length;
+}
+
+function terminalTabDisplayLabel(session, project = state.activeProject) {
+  const baseLabel = session?.label || 'Terminal';
+  const savedUsers = Array.isArray(project?.ssh?.users)
+    ? project.ssh.users.filter((user) => user?.id)
+    : [];
+  const username = String(session?.sshUsername || '').trim();
+  return savedUsers.length > 1 && username ? `${baseLabel} - ${username}` : baseLabel;
 }
 
 function getTerminalTabs(projectId = state.activeProject?.id, create = false) {
@@ -857,7 +875,9 @@ function setTerminalSessionDirectory(session, directory, { setHome = false } = {
   if (setHome || !session.homeDirectory) session.homeDirectory = normalized;
   if (isVisibleTerminalSession(session)) {
     renderSshUploadPanel(session);
-    refreshSshDirectory(session, normalized).catch(() => {});
+    const needsDirectoryLoad = previous !== normalized
+      || (!session.directoryLoading && !session.directoryUnavailable && session.directoryPath !== normalized);
+    if (needsDirectoryLoad) refreshSshDirectory(session, normalized).catch(() => {});
   }
 }
 
@@ -871,13 +891,13 @@ function renderSshUploadPanel(session = getTerminalSession()) {
     : currentPath;
   els.sshDirectoryPath.disabled = !connected || waitingForPathUpdate;
   els.sshDirectoryUpButton.disabled = !connected || waitingForPathUpdate || !currentPath || currentPath === '/';
-  els.sshDirectoryRefreshButton.disabled = !connected || waitingForPathUpdate || !currentPath;
+  els.sshDirectoryRefreshButton.disabled = !connected || waitingForPathUpdate || !currentPath || Boolean(session?.directoryUnavailable);
   const selectedDirectoryEntry = session?.directoryEntries?.find((entry) => entry.path === session.directorySelectedPath);
-  els.sshDirectoryDownloadButton.disabled = !connected || waitingForPathUpdate || !selectedDirectoryEntry;
+  els.sshDirectoryDownloadButton.disabled = !connected || waitingForPathUpdate || !selectedDirectoryEntry || Boolean(session?.directoryUnavailable);
 
   const upload = session?.upload || blankTerminalUploadState();
   const uploadInFlight = Boolean(upload.active || pendingActions.has('terminal:upload'));
-  const canUpload = Boolean(connected && currentPath && !waitingForPathUpdate && !uploadInFlight);
+  const canUpload = Boolean(connected && currentPath && !waitingForPathUpdate && !session?.directoryUnavailable && !uploadInFlight);
   els.sshUploadButton.disabled = !canUpload;
 
   els.sshUploadProgress.classList.toggle('hidden', !upload.active);
@@ -968,6 +988,11 @@ async function refreshSshDirectory(session = getTerminalSession(), pathOverride 
     return;
   }
   const remotePath = normalizeRemoteShellPath(pathOverride || session.currentDirectory || session.homeDirectory || '.');
+  if (session.directoryUnavailable) {
+    session.directoryError = 'SFTP file browsing is unavailable on this server. Enable the SSH SFTP subsystem, then reconnect.';
+    if (isVisibleTerminalSession(session)) renderSshUploadPanel(session);
+    return;
+  }
   const requestId = Number(session.directoryRequestId || 0) + 1;
   session.directoryRequestId = requestId;
   session.directoryLoading = true;
@@ -976,6 +1001,15 @@ async function refreshSshDirectory(session = getTerminalSession(), pathOverride 
   try {
     const result = await window.deployerx.listTerminalDirectory({ sessionId: session.sessionId, path: remotePath });
     if (session.directoryRequestId !== requestId) return;
+    if (result.unavailable) {
+      session.directoryUnavailable = true;
+      session.directoryPath = normalizeRemoteShellPath(result.path || remotePath);
+      session.directoryParentPath = normalizeRemoteShellPath(result.parentPath || parentFtpPath(session.directoryPath));
+      session.directoryEntries = [];
+      session.directorySelectedPath = '';
+      session.directoryError = result.message || 'SFTP file browsing is unavailable on this server.';
+      return;
+    }
     session.directoryPath = normalizeRemoteShellPath(result.path || remotePath);
     session.directoryParentPath = normalizeRemoteShellPath(result.parentPath || parentFtpPath(session.directoryPath));
     session.directoryEntries = Array.isArray(result.items) ? result.items : [];
@@ -1206,7 +1240,7 @@ async function createSshDirectory() {
 function getSshDirectoryContextItems(entry = null) {
   const session = getTerminalSession();
   const connected = Boolean(session?.sessionId && session.connected);
-  const ready = Boolean(connected && !session.pendingDirectoryCandidate && !session.directoryLoading);
+  const ready = Boolean(connected && !session.pendingDirectoryCandidate && !session.directoryLoading && !session.directoryUnavailable);
   return [
     { label: 'Open', disabled: !ready || !entry, action: () => openSshDirectoryEntry(entry) },
     { label: 'Open with...', disabled: !ready || !entry || entry.type === 'directory', action: () => openSshDirectoryEntryWith(entry) },
@@ -1452,14 +1486,15 @@ function renderTerminalTabs(projectId = state.activeProject?.id) {
     const tab = document.createElement('div');
     const isActive = session.tabId === activeTabId;
     const isConnecting = Boolean(session.sessionId && !session.connected);
+    const displayLabel = terminalTabDisplayLabel(session);
     tab.className = `terminal-tab${isActive ? ' active' : ''}${session.connected ? ' connected' : ''}${isConnecting ? ' connecting' : ''}`;
     tab.dataset.terminalTabId = session.tabId;
     tab.innerHTML = `
-      <button class="terminal-tab-select" type="button" role="tab" aria-controls="terminal" aria-selected="${isActive}" tabindex="${isActive ? '0' : '-1'}" data-terminal-tab-select="${escapeHtml(session.tabId)}">
+      <button class="terminal-tab-select" type="button" role="tab" aria-controls="terminal" aria-selected="${isActive}" tabindex="${isActive ? '0' : '-1'}" title="${escapeHtml(displayLabel)}" data-terminal-tab-select="${escapeHtml(session.tabId)}">
         <span class="terminal-tab-status" aria-hidden="true"></span>
-        <span class="terminal-tab-label">${escapeHtml(session.label || 'Terminal')}</span>
+        <span class="terminal-tab-label">${escapeHtml(displayLabel)}</span>
       </button>
-      <button class="terminal-tab-close" type="button" aria-label="Close ${escapeHtml(session.label || 'terminal')}" title="Close terminal" data-terminal-tab-close="${escapeHtml(session.tabId)}">
+      <button class="terminal-tab-close" type="button" aria-label="Close ${escapeHtml(displayLabel)}" title="Close terminal" data-terminal-tab-close="${escapeHtml(session.tabId)}">
         ${icon('x')}
       </button>`;
     els.terminalTabs.appendChild(tab);
@@ -1524,6 +1559,7 @@ async function closeTerminalTab(tabId) {
     const replacement = createTerminalTabSession(projectId);
     tabs.push(replacement);
   }
+  renumberTerminalTabs(projectId, tabs);
   if (!wasActive) {
     renderTerminalTabs(projectId);
     renderProjects();
@@ -4338,7 +4374,11 @@ function savedProjectGroups(projects = state.projects) {
 function closeModalProjectGroupMenu({ focusTrigger = false } = {}) {
   els.modalProjectGroupMenu.classList.add('hidden');
   els.modalProjectGroupMenu.classList.remove('opens-up');
-  els.modalProjectGroupMenu.style.removeProperty('--group-menu-space');
+  els.modalProjectGroupMenu.style.removeProperty('top');
+  els.modalProjectGroupMenu.style.removeProperty('right');
+  els.modalProjectGroupMenu.style.removeProperty('bottom');
+  els.modalProjectGroupMenu.style.removeProperty('left');
+  els.modalProjectGroupMenu.style.removeProperty('width');
   els.modalProjectGroupButton.setAttribute('aria-expanded', 'false');
   if (focusTrigger) els.modalProjectGroupButton.focus();
 }
@@ -4404,18 +4444,27 @@ function renderProjectGroupOptions(selectedValue = els.modalProjectGroup.value, 
   }
 }
 
+function positionModalProjectGroupMenu() {
+  const triggerRect = els.modalProjectGroupButton.getBoundingClientRect();
+  const viewportGap = 8;
+  const menuGap = 6;
+  const width = Math.min(triggerRect.width, window.innerWidth - viewportGap * 2);
+  const desiredMenuHeight = Math.ceil(els.modalProjectGroupMenu.getBoundingClientRect().height);
+  const spaceBelow = Math.max(0, window.innerHeight - triggerRect.bottom - viewportGap - menuGap);
+  const spaceAbove = Math.max(0, triggerRect.top - viewportGap - menuGap);
+  const opensUp = spaceBelow < desiredMenuHeight && spaceAbove > spaceBelow;
+  const left = Math.min(Math.max(viewportGap, triggerRect.left), window.innerWidth - width - viewportGap);
+  els.modalProjectGroupMenu.classList.toggle('opens-up', opensUp);
+  els.modalProjectGroupMenu.style.left = `${left}px`;
+  els.modalProjectGroupMenu.style.width = `${width}px`;
+  els.modalProjectGroupMenu.style.top = opensUp ? 'auto' : `${triggerRect.bottom + menuGap}px`;
+  els.modalProjectGroupMenu.style.bottom = opensUp ? `${window.innerHeight - triggerRect.top + menuGap}px` : 'auto';
+}
+
 function openModalProjectGroupMenu() {
   els.modalProjectGroupMenu.classList.remove('hidden', 'opens-up');
-  els.modalProjectGroupMenu.style.setProperty('--group-menu-space', '210px');
   els.modalProjectGroupMenu.style.visibility = 'hidden';
-  const desiredMenuHeight = Math.min(210, Math.ceil(els.modalProjectGroupMenu.getBoundingClientRect().height));
-  const menuSpace = dropdownVerticalSpace(els.modalProjectGroupButton);
-  const spaceBelow = menuSpace.spaceBelow;
-  const spaceAbove = menuSpace.spaceAbove;
-  const opensUp = spaceBelow < desiredMenuHeight && spaceAbove > spaceBelow;
-  const availableSpace = Math.min(desiredMenuHeight, opensUp ? spaceAbove : spaceBelow);
-  els.modalProjectGroupMenu.classList.toggle('opens-up', opensUp);
-  els.modalProjectGroupMenu.style.setProperty('--group-menu-space', `${availableSpace}px`);
+  positionModalProjectGroupMenu();
   els.modalProjectGroupMenu.style.removeProperty('visibility');
   els.modalProjectGroupButton.setAttribute('aria-expanded', 'true');
   requestAnimationFrame(() => {
@@ -7896,7 +7945,7 @@ function renderDatabasePlugins() {
     </div>
     ${error ? `<div class="database-manager-error" role="alert">${escapeHtml(error)}</div>` : ''}
     ${state.databaseManager.plugins.loading ? '<div class="database-manager-loading" role="status" aria-live="polite">Loading plugin catalog...</div>' : ''}
-    <div class="database-plugin-catalog-heading"><div><h3>Database plugins</h3><p>Bundled integrations are ready to use. Add approved drivers from the registry when needed.</p></div><label class="database-plugin-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input type="search" value="${escapeHtml(state.databaseManager.plugins.search)}" placeholder="Search plugins" aria-label="Search database plugins" data-database-plugin-search /></label></div>
+    <div class="database-plugin-catalog-heading"><div><h3>Database plugins</h3><p>Bundled integrations are ready to use. Add approved drivers from the registry when needed.</p></div><label class="database-plugin-search app-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input type="search" value="${escapeHtml(state.databaseManager.plugins.search)}" placeholder="Search plugins" aria-label="Search database plugins" data-database-plugin-search /></label></div>
     <div class="database-plugin-filters" role="group" aria-label="Filter plugins">
       <button class="${filter === 'all' ? 'active' : ''}" type="button" data-database-plugin-filter="all">All <span>${plugins.length}</span></button>
       <button class="${filter === 'installed' ? 'active' : ''}" type="button" data-database-plugin-filter="installed">Installed <span>${installedCount}</span></button>
@@ -25148,6 +25197,7 @@ async function ensureTerminal(terminalSession, project) {
   terminalSession.directorySelectedPath = '';
   terminalSession.directoryLoading = false;
   terminalSession.directoryError = '';
+  terminalSession.directoryUnavailable = false;
   terminalSession.directoryMarkerBuffer = '';
   terminalSession.directoryPromptMarkerSeen = false;
   state.terminalSessionProjectIds[sessionId] = project.id;
@@ -27669,6 +27719,12 @@ els.modalProjectGroupMenu.addEventListener('keydown', (event) => {
 });
 document.addEventListener('click', (event) => {
   if (!els.modalProjectGroupDropdown.contains(event.target)) closeModalProjectGroupMenu();
+});
+window.addEventListener('resize', () => {
+  if (els.modalProjectGroupButton.getAttribute('aria-expanded') === 'true') positionModalProjectGroupMenu();
+});
+els.projectModal.querySelector('.project-modal-body')?.addEventListener('scroll', () => {
+  if (els.modalProjectGroupButton.getAttribute('aria-expanded') === 'true') positionModalProjectGroupMenu();
 });
 els.modalTemplateButton.addEventListener('click', () => {
   if (els.modalTemplateButton.getAttribute('aria-expanded') === 'true') closeModalTemplateMenu();

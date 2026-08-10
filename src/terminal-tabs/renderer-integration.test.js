@@ -36,6 +36,19 @@ test('keeps SSH shells isolated by tab and starts every terminal at the filesyst
   assert.match(source, /els\.connectTerminalButton\.addEventListener\('click', \(\) => \{\s+connectTerminal\(\)\.catch\(\(error\) => showAlert\(error\.message \|\| 'Could not connect SSH\.'\)\);\s+\}\);/, 'connect button must call connectTerminal without passing the click event as the project');
 });
 
+test('keeps terminal tab numbers contiguous and identifies multi-user sessions', async () => {
+  const [source, styles] = await Promise.all([
+    fs.readFile(path.join(rendererDirectory, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(rendererDirectory, 'styles.css'), 'utf8')
+  ]);
+
+  assert.match(source, /function renumberTerminalTabs\([\s\S]*?session\.label = `Terminal \$\{index \+ 1\}`;[\s\S]*?terminalTabCounters\[projectId\] = tabs\.length;/, 'remaining tabs are renumbered from one');
+  assert.match(source, /tabs\.splice\(index, 1\);[\s\S]*?renumberTerminalTabs\(projectId, tabs\);/, 'closing a tab compacts the sequence');
+  assert.match(source, /savedUsers\.length > 1 && username \? `\$\{baseLabel\} - \$\{username\}` : baseLabel/, 'multi-user tabs include the selected username');
+  assert.equal(source.includes('terminalTabDisplayLabel(session)'), true, 'rendered labels use the user-aware display name');
+  assert.match(styles, /\.terminal-tab \{[\s\S]*?width: 190px;[\s\S]*?min-width: 190px;/, 'tabs reserve enough width for usernames');
+});
+
 test('keeps the terminal shell fixed while xterm owns output scrolling', async () => {
   const styles = await fs.readFile(path.join(rendererDirectory, 'styles.css'), 'utf8');
 

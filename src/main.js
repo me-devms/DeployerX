@@ -7750,7 +7750,7 @@ async function startTerminal(project, sessionId, size = {}) {
   if (validationError) throw new Error(validationError);
 
   const connection = new Client();
-  const terminalState = { connection, stream: null, projectId: String(project.id || ''), networkAccess: null };
+  const terminalState = { connection, stream: null, projectId: String(project.id || ''), networkAccess: null, sftpUnavailable: false };
   activeTerminals.set(sessionId, terminalState);
 
   try {
@@ -8061,6 +8061,24 @@ function openSftpChannel(connection) {
   });
 }
 
+function isSftpSubsystemUnavailableError(error) {
+  const message = String(error?.message || error || '');
+  return Number(error?.code) === 127
+    || /exit code 127.*establishing SFTP session/i.test(message)
+    || /SFTP subsystem.*(?:unavailable|not found|failed)/i.test(message);
+}
+
+function unavailableTerminalDirectory(remotePath) {
+  const normalizedPath = normalizeRemotePath(remotePath);
+  return {
+    path: normalizedPath,
+    parentPath: parentRemotePath(normalizedPath),
+    items: [],
+    unavailable: true,
+    message: 'SFTP file browsing is unavailable on this server. Enable the SSH SFTP subsystem, then reconnect.'
+  };
+}
+
 async function withTerminalSftp(sessionId, operation) {
   const { connection } = terminalSessionOrThrow(sessionId);
   const sftp = await openSftpChannel(connection);
@@ -8284,31 +8302,40 @@ async function readTerminalHomeDirectory(sessionId) {
 }
 
 async function listTerminalDirectory(sessionId, remotePath = '.') {
-  return withTerminalSftp(sessionId, async (sftp) => {
-    const normalizedPath = normalizeRemotePath(remotePath);
-    const items = await sftpReaddir(sftp, normalizedPath);
-    return {
-      path: normalizedPath,
-      parentPath: parentRemotePath(normalizedPath),
-      items: items
-        .map((item) => {
-          const attrs = item.attrs || {};
-          const isDirectory = Boolean(attrs.isDirectory?.());
-          return {
-            name: item.filename,
-            path: joinRemotePath(normalizedPath, item.filename),
-            type: isDirectory ? 'directory' : 'file',
-            size: Number(attrs.size || 0),
-            modifiedAt: attrs.mtime ? new Date(attrs.mtime * 1000).toISOString() : '',
-            mode: attrs.mode ? attrs.mode.toString(8) : ''
-          };
-        })
-        .sort((left, right) => {
-          if (left.type !== right.type) return left.type === 'directory' ? -1 : 1;
-          return left.name.localeCompare(right.name);
-        })
-    };
-  });
+  const terminal = terminalSessionOrThrow(sessionId);
+  const normalizedPath = normalizeRemotePath(remotePath);
+  if (terminal.sftpUnavailable) return unavailableTerminalDirectory(normalizedPath);
+
+  try {
+    return await withTerminalSftp(sessionId, async (sftp) => {
+      const items = await sftpReaddir(sftp, normalizedPath);
+      return {
+        path: normalizedPath,
+        parentPath: parentRemotePath(normalizedPath),
+        items: items
+          .map((item) => {
+            const attrs = item.attrs || {};
+            const isDirectory = Boolean(attrs.isDirectory?.());
+            return {
+              name: item.filename,
+              path: joinRemotePath(normalizedPath, item.filename),
+              type: isDirectory ? 'directory' : 'file',
+              size: Number(attrs.size || 0),
+              modifiedAt: attrs.mtime ? new Date(attrs.mtime * 1000).toISOString() : '',
+              mode: attrs.mode ? attrs.mode.toString(8) : ''
+            };
+          })
+          .sort((left, right) => {
+            if (left.type !== right.type) return left.type === 'directory' ? -1 : 1;
+            return left.name.localeCompare(right.name);
+          })
+      };
+    });
+  } catch (error) {
+    if (!isSftpSubsystemUnavailableError(error)) throw error;
+    terminal.sftpUnavailable = true;
+    return unavailableTerminalDirectory(normalizedPath);
+  }
 }
 
 async function readTerminalFile(sessionId, remotePath) {

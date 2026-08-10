@@ -3,6 +3,16 @@ const path = require('path');
 const fs = require('fs/promises');
 const os = require('os');
 
+const themes = [
+  'deployerx-light',
+  'termius-dark',
+  'tokyo-day',
+  'catppuccin-mocha',
+  'gruvbox-dark',
+  'solarized-light'
+];
+const darkThemes = new Set(['termius-dark', 'catppuccin-mocha', 'gruvbox-dark']);
+
 app.disableHardwareAcceleration();
 
 async function prepare(window) {
@@ -88,6 +98,53 @@ app.whenReady().then(async () => {
     const desktopPath = path.join(captureRoot, 'dashboard-desktop.png');
     await fs.writeFile(desktopPath, (await window.webContents.capturePage()).toPNG());
 
+    const themeAudit = [];
+    const themeScreenshots = {};
+    for (const themeId of themes) {
+      const result = await window.webContents.executeJavaScript(`(async () => {
+        document.documentElement.dataset.theme = ${JSON.stringify(themeId)};
+        activeThemeId = ${JSON.stringify(themeId)};
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const resolveColor = (variable) => {
+          const probe = document.createElement('span');
+          probe.style.backgroundColor = 'var(' + variable + ')';
+          document.body.appendChild(probe);
+          const color = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return color;
+        };
+        const rows = [...document.querySelectorAll('.dashboard-operation-row')];
+        const metrics = [...document.querySelectorAll('.dashboard-operation-metrics span')];
+        return {
+          themeId: ${JSON.stringify(themeId)},
+          surface: resolveColor('--surface'),
+          surfaceSubtle: resolveColor('--surface-subtle'),
+          line: resolveColor('--line'),
+          ink: resolveColor('--ink'),
+          muted: resolveColor('--muted'),
+          statsBackground: getComputedStyle(document.querySelector('.dashboard-stats-grid')).backgroundColor,
+          panelBackgrounds: [...document.querySelectorAll('.dashboard-operations-panel')].map((panel) => getComputedStyle(panel).backgroundColor),
+          statIconBackgrounds: [...document.querySelectorAll('.dashboard-stat-icon')].map((icon) => getComputedStyle(icon).backgroundColor),
+          rowBackgrounds: rows.map((row) => getComputedStyle(row).backgroundColor),
+          rowBorders: rows.map((row) => getComputedStyle(row).borderTopColor),
+          rowForegrounds: rows.map((row) => getComputedStyle(row.querySelector('strong')).color),
+          rowMutedForegrounds: rows.map((row) => getComputedStyle(row.querySelector('small')).color),
+          metricBackgrounds: metrics.map((metric) => getComputedStyle(metric).backgroundColor),
+          metricBorders: metrics.map((metric) => getComputedStyle(metric).borderTopColor)
+        };
+      })()`);
+      window.webContents.invalidate();
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      await window.webContents.capturePage();
+      window.webContents.invalidate();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const screenshotPath = path.join(captureRoot, `dashboard-${themeId}.png`);
+      await fs.writeFile(screenshotPath, (await window.webContents.capturePage()).toPNG());
+      themeScreenshots[themeId] = screenshotPath;
+      themeAudit.push(result);
+    }
+    await window.webContents.executeJavaScript(`document.documentElement.dataset.theme = 'deployerx-light'; activeThemeId = 'deployerx-light';`);
+
     const navigation = await window.webContents.executeJavaScript(`(() => {
       document.querySelector('[data-dashboard-uptime-incident]')?.click();
       const uptime = { view: state.currentView, tab: state.uptime.activeTab };
@@ -155,7 +212,27 @@ app.whenReady().then(async () => {
       database: text.database.toLowerCase(),
       hiddenStats: hiddenDatabase.stats.toLowerCase()
     };
+    const themesValid = themeAudit.every((result) => {
+      const controlsMatch = result.statsBackground === result.surface
+        && result.panelBackgrounds.length === 3
+        && result.panelBackgrounds.every((color) => color === result.surface)
+        && result.statIconBackgrounds.length === 6
+        && result.statIconBackgrounds.every((color) => color === result.surfaceSubtle)
+        && result.rowBackgrounds.length === 3
+        && result.metricBackgrounds.length === 4
+        && result.rowBackgrounds.every((color) => color === result.surfaceSubtle)
+        && result.rowBorders.every((color) => color === result.line)
+        && result.rowForegrounds.every((color) => color === result.ink)
+        && result.rowMutedForegrounds.every((color) => color === result.muted)
+        && result.metricBackgrounds.every((color) => color === result.surfaceSubtle)
+        && result.metricBorders.every((color) => color === result.line);
+      const darkSurfacesAreNotWhite = !darkThemes.has(result.themeId)
+        || ![result.statsBackground, ...result.panelBackgrounds, ...result.statIconBackgrounds, ...result.rowBackgrounds, ...result.metricBackgrounds]
+          .includes('rgb(255, 255, 255)');
+      return controlsMatch && darkSurfacesAreNotWhite;
+    });
     const valid = text.cards === 3 && text.databaseSurfacesAvailable
+      && themesValid
       && normalizedText.stats.includes('uptime alerts') && normalizedText.stats.includes('active backups') && normalizedText.stats.includes('databases')
       && normalizedText.uptime.includes('api health') && normalizedText.uptime.includes('http 503 from upstream')
       && normalizedText.backup.includes('1 backup in progress') && normalizedText.backup.includes('nightly production')
@@ -182,7 +259,7 @@ app.whenReady().then(async () => {
       && hiddenDatabase.after.listDatabaseProfiles === hiddenDatabase.before.listDatabaseProfiles
       && hiddenDatabase.after.listDatabaseConnectionStatuses === hiddenDatabase.before.listDatabaseConnectionStatuses
       && [desktop, mobile].every((result) => !result.overflow && result.cards.every((card) => card.left >= 0 && card.right <= result.viewport.width + 1));
-    process.stdout.write(`${JSON.stringify({ ok: valid, text, navigation, hiddenDatabase, desktop, mobile, screenshots: { desktopPath, mobilePath } })}\n`);
+    process.stdout.write(`${JSON.stringify({ ok: valid, text, navigation, hiddenDatabase, desktop, mobile, themes: themeAudit, screenshots: { desktopPath, mobilePath, themes: themeScreenshots } })}\n`);
     if (!valid) process.exitCode = 1;
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);

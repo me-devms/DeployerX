@@ -434,7 +434,7 @@
             <span>Export Account</span>
           </button>
           <div class="sidebar-section">
-            <label class="sidebar-search" for="serverSearch">
+            <label class="sidebar-search app-search" for="serverSearch">
               <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <use href="#icon-search"></use>
               </svg>
@@ -602,7 +602,7 @@
               <span class="server-overview-item is-command"><strong id="serversOverviewCommands">0</strong><small>Commands</small></span>
             </div>
             <div class="header-actions">
-              <label class="server-toolbar-search server-filter-input">
+              <label class="server-toolbar-search server-filter-input app-search">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
                 <input id="serversFilterSearch" type="search" aria-label="Search servers" placeholder="Search servers" />
               </label>
@@ -784,7 +784,7 @@
             <section class="uptime-panel" data-uptime-panel="monitors">
               <div id="uptimeMonitorTableCard" class="uptime-table-card">
                 <div class="uptime-table-toolbar">
-                  <label class="uptime-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="uptimeSearchInput" type="search" placeholder="Search monitors, targets, groups, or tags" /></label>
+                  <label class="uptime-search app-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="uptimeSearchInput" type="search" placeholder="Search monitors, targets, groups, or tags" /></label>
                   <div class="uptime-table-toolbar-actions">
                     <div id="uptimeMonitorBulkActions" class="uptime-panel-actions"><button id="uptimeRunSelectedButton" class="button outline compact" type="button" disabled><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg>Run Selected</button><button id="uptimePauseSelectedButton" class="button outline compact" type="button" disabled>Pause</button><button id="uptimeResumeSelectedButton" class="button outline compact" type="button" disabled>Resume</button><button id="uptimeDeleteSelectedButton" class="button plain danger compact icon-only" type="button" disabled title="Delete Selected" aria-label="Delete Selected Monitors"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-trash"></use></svg></button></div>
                     <button id="uptimeMonitorFilterButton" class="button outline compact uptime-filter-button" type="button" aria-expanded="false" aria-controls="uptimeMonitorFilterPanel"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-filter"></use></svg>Filters<span id="uptimeMonitorFilterCount" class="uptime-filter-count hidden">0</span></button>
@@ -808,7 +808,7 @@
             <section class="uptime-panel" data-uptime-panel="incidents">
               <div id="uptimeIncidentTableCard" class="uptime-table-card">
                 <div class="uptime-table-toolbar">
-                  <label class="uptime-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="uptimeIncidentSearchInput" type="search" placeholder="Search incidents, monitors, or summaries" /></label>
+                  <label class="uptime-search app-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="uptimeIncidentSearchInput" type="search" placeholder="Search incidents, monitors, or summaries" /></label>
                   <div class="uptime-table-toolbar-actions">
                     <button id="uptimeIncidentFilterButton" class="button outline compact uptime-filter-button" type="button" aria-expanded="false" aria-controls="uptimeIncidentFilterPanel"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-filter"></use></svg>Filters<span id="uptimeIncidentFilterCount" class="uptime-filter-count hidden">0</span></button>
                     <div id="uptimeIncidentFilterPanel" class="uptime-table-filter-panel hidden">
@@ -1057,7 +1057,7 @@
                   </aside>
                   <section class="backup-recovery-browser" aria-label="Snapshot browser">
                     <form id="backupRecoverySearchForm" class="backup-recovery-search" role="search">
-                      <label class="backup-recovery-search-input">
+                      <label class="backup-recovery-search-input app-search">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
                         <input id="backupRecoverySearchInput" type="search" maxlength="200" placeholder="Search this recovery point" autocomplete="off" />
                       </label>
@@ -1160,7 +1160,7 @@
 
             <section id="databaseConnectionsPanel" class="database-manager-panel" role="tabpanel" aria-labelledby="databaseConnectionsTab">
               <div class="database-catalog-toolbar">
-                <label class="database-search">
+                <label class="database-search app-search">
                   <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
                   <input id="databaseProfileSearch" type="search" placeholder="Search databases" aria-label="Search database profiles" />
                 </label>
@@ -1262,7 +1262,7 @@
                   </div>
                   <div class="database-library-panels">
                     <div id="databaseSchemaLibraryPanel" class="database-library-panel" role="tabpanel" aria-labelledby="databaseSchemaLibraryTab">
-                      <label class="database-schema-search">
+                      <label class="database-schema-search app-search">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg>
                         <input id="databaseSchemaSearch" type="search" aria-label="Search database schema" placeholder="Search tables and columns">
                       </label>
@@ -1275,7 +1275,7 @@
                       </section>
                     </div>
                     <div id="databaseSavedLibraryPanel" class="database-library-panel hidden" role="tabpanel" aria-labelledby="databaseSavedLibraryTab">
-                      <label class="database-schema-search">
+                      <label class="database-schema-search app-search">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg>
                         <input id="databaseSavedQuerySearch" type="search" aria-label="Search saved queries" placeholder="Search saved queries">
                       </label>
@@ -1375,7 +1375,7 @@
                 <label><span>Connection</span><select id="databaseLogsProfile" aria-label="Filter operational logs by connection"><option value="">All connections</option></select></label>
                 <label><span>Category</span><select id="databaseLogsCategory" aria-label="Filter operational logs by category"><option value="">All categories</option><option value="query">Queries</option><option value="task">Tasks</option><option value="connection">Connections</option><option value="schema">Schema</option><option value="driver">Drivers</option></select></label>
                 <label><span>Severity</span><select id="databaseLogsSeverity" aria-label="Filter operational logs by severity"><option value="">All severities</option><option value="info">Info</option><option value="success">Success</option><option value="warning">Warning</option><option value="error">Error</option></select></label>
-                <label class="database-log-search"><span>Search</span><div><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="databaseLogsSearch" type="search" maxlength="200" placeholder="Search logs" aria-label="Search operational logs"></div></label>
+                <label class="database-log-search"><span>Search</span><div class="app-search"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg><input id="databaseLogsSearch" type="search" maxlength="200" placeholder="Search logs" aria-label="Search operational logs"></div></label>
                 <button id="databaseLogsRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh operational logs" title="Refresh logs"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-refresh"></use></svg></button>
               </div>
               <div id="databaseLogsError" class="database-manager-error hidden" role="alert"></div>
@@ -1616,11 +1616,11 @@
                     <span class="ftp-badge">Local</span>
                     <strong id="ftpLocalStatus">Local files</strong>
                   </div>
-                  <label class="ftp-filter">
+                  <label class="ftp-filter app-search">
                     <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                       <use href="#icon-search"></use>
                     </svg>
-                    <input id="ftpLocalFilter" type="text" inputmode="search" placeholder="Search files" aria-label="Search local files" />
+                    <input id="ftpLocalFilter" type="search" placeholder="Search files" aria-label="Search local files" />
                   </label>
                 </div>
                 <div class="ftp-path-row">
@@ -1670,11 +1670,11 @@
                     </div>
                   </div>
                   <div class="ftp-pane-controls">
-                    <label class="ftp-filter">
+                    <label class="ftp-filter app-search">
                       <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <use href="#icon-search"></use>
                       </svg>
-                      <input id="ftpRemoteFilter" type="text" inputmode="search" placeholder="Search files" aria-label="Search server files" />
+                      <input id="ftpRemoteFilter" type="search" placeholder="Search files" aria-label="Search server files" />
                     </label>
                     <button id="connectFtpButton" class="button solid compact" type="button" aria-label="Connect FTP" title="Connect FTP">
                       <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -2264,7 +2264,7 @@
 
                 <div class="template-page">
                   <section class="template-list-panel" aria-label="Templates">
-                    <label class="template-search" aria-label="Search templates">
+                    <label class="template-search app-search" aria-label="Search templates">
                       <svg class="template-search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <use href="#icon-search"></use>
                       </svg>
@@ -3311,7 +3311,7 @@ tool_timeout_sec = 300</pre>
 
         <section id="databaseProfileChooser" class="database-profile-step database-profile-chooser" aria-label="Choose a database">
           <div class="database-profile-chooser-toolbar">
-            <label class="database-profile-search">
+            <label class="database-profile-search app-search">
               <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
               <input id="databaseProfileCatalogueSearch" type="search" placeholder="Search databases..." autocomplete="off" />
             </label>
@@ -5998,7 +5998,10 @@ tool_timeout_sec = 300</pre>
         <div class="modal-body export-picker-body">
           <label class="field">
             <span>Search</span>
-            <input id="exportPickerSearch" type="search" placeholder="Search by name" />
+            <span class="app-search">
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
+              <input id="exportPickerSearch" type="search" placeholder="Search by name" />
+            </span>
           </label>
 
           <label class="export-select-all">

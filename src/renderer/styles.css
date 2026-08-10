@@ -2,6 +2,7 @@
   --bg: #f7f8fb;
   --surface: #ffffff;
   --surface-subtle: #f4f4f5;
+  --control-bg: #ffffff;
   --ink: #18181b;
   --muted: #71717a;
   --faint: #a1a1aa;
@@ -14,6 +15,7 @@
   --danger: #dc2626;
   --terminal: #000000;
   --terminal-text: #d4d4d8;
+  --monitor-lock-overlay: rgba(247, 248, 251, 0.58);
   --app-header-height: 72px;
 }
 
@@ -89,7 +91,7 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 40px 24px;
-  background: #ffffff;
+  background: var(--bg);
   color: var(--ink);
 }
 
@@ -281,7 +283,7 @@ button:disabled {
   justify-content: space-between;
   gap: 20px;
   border-bottom: 1px solid var(--line);
-  background: #ffffff;
+  background: var(--surface);
   padding: 0 20px;
 }
 
@@ -903,17 +905,20 @@ select.project-dropdown-native {
 }
 
 .group-switcher .workspace-switcher-menu {
+  position: fixed;
+  z-index: 140;
+  top: auto;
   right: auto;
+  bottom: auto;
   left: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  max-height: min(210px, var(--group-menu-space, 210px));
+  max-height: none;
   overflow: hidden;
 }
 
 .group-switcher .workspace-switcher-menu.opens-up {
   top: auto;
-  bottom: calc(100% + 6px);
 }
 
 .group-switcher .workspace-switcher-option {
@@ -923,7 +928,9 @@ select.project-dropdown-native {
 
 .group-switcher .group-option-list {
   min-height: 0;
+  max-height: 102px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .group-switcher .group-create-footer {
@@ -1136,7 +1143,7 @@ select.project-dropdown-native {
   margin: 2px 0 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--muted);
   padding: 0 10px;
 }
@@ -1283,7 +1290,7 @@ select.project-dropdown-native {
   border-radius: 6px;
   border: 1px solid var(--line);
   color: var(--muted);
-  background: #ffffff;
+  background: var(--surface);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1293,7 +1300,7 @@ select.project-dropdown-native {
   gap: 8px;
   flex: 0 0 auto;
   border-top: 1px solid var(--line);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--muted);
   font-size: 13px;
 }
@@ -4861,7 +4868,7 @@ select.project-dropdown-native {
 .button.outline {
   border-color: var(--line);
   color: var(--ink);
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 1px 1px rgba(24, 24, 27, 0.04);
 }
 
@@ -5021,9 +5028,17 @@ select.project-dropdown-native {
 }
 
 .servers-view-header {
+  position: relative;
+  top: auto;
+  z-index: 3;
   justify-content: flex-start;
   gap: 22px;
   padding-block: 10px;
+}
+
+.servers-view {
+  container-name: servers-view;
+  container-type: inline-size;
 }
 
 .servers-view-title {
@@ -5116,7 +5131,10 @@ select.project-dropdown-native {
 
 .server-toolbar-search {
   width: clamp(180px, 16vw, 240px);
+  min-width: 200px;
   flex: 0 1 240px;
+  overflow: hidden;
+  border-radius: 7px;
 }
 
 #serversFilterButton.active {
@@ -5487,6 +5505,7 @@ html[data-theme] .project-grid .project-card:focus-visible {
 
 .server-inventory-row {
   position: relative;
+  isolation: isolate;
   min-height: 72px;
   border-bottom: 1px solid var(--line);
   padding: 10px 16px;
@@ -5816,6 +5835,18 @@ html[data-theme] .project-grid .project-card:focus-visible {
   padding-block: 14px 12px;
 }
 
+@container servers-view (max-width: 1220px) {
+  .servers-view-header {
+    flex-wrap: wrap;
+    gap: 10px 18px;
+  }
+
+  .server-overview-inline {
+    order: 3;
+    width: 100%;
+  }
+}
+
 .vnc-display-selector {
   position: relative;
   flex: 0 0 auto;
@@ -5935,7 +5966,7 @@ html[data-theme] .project-grid .project-card:focus-visible {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: rgba(248, 250, 252, .28);
+  background: var(--monitor-lock-overlay);
 }
 
 #serverMonitoringDashboard.is-ssh-locked .server-monitoring-connect-overlay {
@@ -5943,7 +5974,7 @@ html[data-theme] .project-grid .project-card:focus-visible {
 }
 
 #serverMonitoringDashboard.is-ssh-locked > :not(.server-monitoring-connect-overlay) {
-  filter: blur(4px);
+  filter: blur(2px);
   pointer-events: none;
   user-select: none;
 }
@@ -5951,7 +5982,7 @@ html[data-theme] .project-grid .project-card:focus-visible {
 .server-monitoring-connect-button {
   min-width: 158px;
   min-height: 42px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, .2);
+  box-shadow: 0 12px 28px var(--theme-shadow);
 }
 
 .server-monitoring-empty {
@@ -6326,7 +6357,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
-  background: #ffffff;
+  background-color: var(--control-bg);
   box-shadow: 0 1px 1px rgba(24, 24, 27, 0.04);
   outline: none;
 }
@@ -6368,7 +6399,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus,
 select:focus,
 textarea:focus {
   border-color: var(--focus);
-  box-shadow: 0 0 0 3px rgba(28, 28, 29, 0.14);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
 .modal-columns {
@@ -6597,8 +6628,8 @@ textarea:focus {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
-  width: 150px;
-  min-width: 150px;
+  width: 190px;
+  min-width: 190px;
   height: 32px;
   align-items: center;
   border-right: 1px solid var(--line);
@@ -7466,76 +7497,35 @@ textarea:focus {
 }
 
 .ftp-filter {
-  position: relative;
+  --app-search-height: 30px;
   display: inline-flex;
   min-width: 200px;
-  min-height: 28px;
+  min-height: 30px;
+  height: 30px;
   align-items: center;
+  gap: 8px;
   width: min(220px, 100%);
+  box-sizing: border-box;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-subtle);
-  padding: 0 10px 0 32px;
+  padding: 0 9px;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .ftp-filter .button-icon {
-  position: absolute;
-  top: 50%;
-  left: 10px;
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
   color: var(--muted);
-  transform: translateY(-50%);
   pointer-events: none;
 }
 
 .ftp-filter:focus-within {
   border-color: var(--primary);
   background: var(--surface);
-  box-shadow: none;
-}
-
-.ftp-filter input {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--ink);
-  caret-color: var(--ink);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 28px;
-  padding: 0;
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.ftp-filter input:focus {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-html[data-theme] .ftp-filter input,
-html[data-theme] .ftp-filter input:focus {
-  border-color: transparent;
-  outline: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.ftp-filter input::-webkit-search-cancel-button,
-.ftp-filter input::-webkit-search-decoration {
-  display: none;
-}
-
-.ftp-filter input::placeholder {
-  color: var(--muted);
-  opacity: 1;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 .ftp-pane-controls {
@@ -7798,7 +7788,7 @@ html[data-theme] .ftp-filter input:focus {
   gap: 8px;
   border: 1px solid rgba(24, 24, 27, 0.12);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 18px 44px rgba(24, 24, 27, 0.18);
   padding: 10px;
 }
@@ -7832,7 +7822,7 @@ html[data-theme] .ftp-filter input:focus {
   gap: 2px;
   border: 1px solid rgba(24, 24, 27, 0.12);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 18px 44px rgba(24, 24, 27, 0.18);
   padding: 6px;
 }
@@ -7870,7 +7860,7 @@ html[data-theme] .ftp-filter input:focus {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--muted);
   font-size: 18px;
   line-height: 1;
@@ -8874,7 +8864,7 @@ canvas.rdp-canvas {
 .export-picker-row {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   padding: 10px;
 }
 
@@ -9115,7 +9105,7 @@ canvas.rdp-canvas {
   place-items: center;
   border: 1px solid #d4d4d8;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--surface);
   color: #71717a;
   font-size: 12px;
   font-weight: 700;
@@ -9328,7 +9318,7 @@ canvas.rdp-canvas {
   min-height: 32px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--ink);
   padding: 5px 12px;
   font-size: 13px;
@@ -9796,7 +9786,7 @@ canvas.rdp-canvas {
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--ink);
   padding: 18px;
   text-align: left;
@@ -10184,7 +10174,7 @@ canvas.rdp-canvas {
   gap: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--ink);
   font-size: 13px;
   font-weight: 650;
@@ -10544,7 +10534,7 @@ html[data-theme] .verify-note strong {
   gap: 6px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--muted);
   padding: 4px 10px;
   font-size: 12px;
@@ -10910,9 +10900,11 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
 
 /* Selectable application themes */
 :root[data-theme="deployerx-light"] {
+  color-scheme: light;
   --bg: #f7f8fb;
   --surface: #ffffff;
   --surface-subtle: #f4f4f5;
+  --control-bg: #ffffff;
   --ink: #18181b;
   --muted: #71717a;
   --faint: #a1a1aa;
@@ -10923,12 +10915,15 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
   --terminal: #000000;
   --terminal-text: #d4d4d8;
   --theme-shadow: rgba(24, 24, 27, 0.14);
+  --monitor-lock-overlay: rgba(247, 248, 251, 0.58);
 }
 
 :root[data-theme="termius-dark"] {
+  color-scheme: dark;
   --bg: #0d1117;
   --surface: #151b23;
   --surface-subtle: #1b2330;
+  --control-bg: #1b2330;
   --ink: #d7e0e7;
   --muted: #8b9aa8;
   --faint: #60707d;
@@ -10939,12 +10934,15 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
   --terminal: #000000;
   --terminal-text: #d7e0e7;
   --theme-shadow: rgba(0, 0, 0, 0.3);
+  --monitor-lock-overlay: rgba(13, 17, 23, 0.58);
 }
 
 :root[data-theme="tokyo-day"] {
+  color-scheme: light;
   --bg: #eef2f8;
   --surface: #ffffff;
   --surface-subtle: #f4f6fa;
+  --control-bg: #ffffff;
   --ink: #263044;
   --muted: #667085;
   --faint: #98a2b3;
@@ -10955,12 +10953,15 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
   --terminal: #000000;
   --terminal-text: #c0caf5;
   --theme-shadow: rgba(31, 41, 55, 0.1);
+  --monitor-lock-overlay: rgba(238, 242, 248, 0.58);
 }
 
 :root[data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
   --bg: #11111b;
   --surface: #1e1e2e;
   --surface-subtle: #252538;
+  --control-bg: #252538;
   --ink: #cdd6f4;
   --muted: #a6adc8;
   --faint: #6c7086;
@@ -10971,12 +10972,15 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
   --terminal: #000000;
   --terminal-text: #cdd6f4;
   --theme-shadow: rgba(0, 0, 0, 0.32);
+  --monitor-lock-overlay: rgba(17, 17, 27, 0.58);
 }
 
 :root[data-theme="gruvbox-dark"] {
+  color-scheme: dark;
   --bg: #1d2021;
   --surface: #282828;
   --surface-subtle: #32302f;
+  --control-bg: #32302f;
   --ink: #ebdbb2;
   --muted: #a89984;
   --faint: #7c6f64;
@@ -10987,12 +10991,15 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
   --terminal: #000000;
   --terminal-text: #ebdbb2;
   --theme-shadow: rgba(0, 0, 0, 0.3);
+  --monitor-lock-overlay: rgba(29, 32, 33, 0.58);
 }
 
 :root[data-theme="solarized-light"] {
+  color-scheme: light;
   --bg: #fdf6e3;
   --surface: #eee8d5;
   --surface-subtle: #e6dfc9;
+  --control-bg: #fdf6e3;
   --ink: #586e75;
   --muted: #74878b;
   --faint: #93a1a1;
@@ -11003,6 +11010,7 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
   --terminal: #000000;
   --terminal-text: #586e75;
   --theme-shadow: rgba(88, 110, 117, 0.12);
+  --monitor-lock-overlay: rgba(253, 246, 227, 0.58);
 }
 
 .theme-settings-card {
@@ -11161,13 +11169,32 @@ html[data-theme] .ftp-browser {
   color: var(--ink);
 }
 
-html[data-theme] input,
+html[data-theme] input:not([type="checkbox"]):not([type="radio"]),
 html[data-theme] select,
 html[data-theme] textarea,
 html[data-theme] .workspace-switcher-trigger,
 html[data-theme] .workspace-switcher-menu {
   border-color: var(--line);
-  background: var(--surface);
+  background-color: var(--control-bg);
+  color: var(--ink);
+}
+
+html[data-theme] input:-webkit-autofill,
+html[data-theme] input:-webkit-autofill:hover,
+html[data-theme] input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ink);
+  box-shadow: 0 0 0 1000px var(--control-bg) inset;
+  caret-color: var(--ink);
+}
+
+html[data-theme] input::placeholder,
+html[data-theme] textarea::placeholder {
+  color: var(--faint);
+  opacity: 1;
+}
+
+html[data-theme] select option {
+  background: var(--control-bg);
   color: var(--ink);
 }
 
@@ -11444,7 +11471,7 @@ html[data-theme]:not([data-theme="tokyo-day"]):not([data-theme="solarized-light"
   gap: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   padding: 20px 12px;
 }
 
@@ -11662,7 +11689,7 @@ html[data-theme]:not([data-theme="tokyo-day"]):not([data-theme="solarized-light"
   gap: 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--surface);
   padding: 18px;
 }
 
@@ -13239,7 +13266,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 }
 
 .sidebar {
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .sidebar-body,
@@ -13471,7 +13498,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 .sidebar-add-server-button {
   height: 40px;
   border-color: #d1d5db;
-  background: #ffffff;
+  background: var(--surface);
   color: #374151;
   font-weight: 500;
 }
@@ -13512,7 +13539,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   gap: 8px;
   border: 1px solid #dce3ee;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   color: #475569;
   padding: 0 12px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
@@ -13532,7 +13559,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 .dashboard-view-header .top-icon-action {
   border-color: #dfe5ef;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--primary);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
@@ -13561,7 +13588,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 .dashboard-panel {
   border: 1px solid #e1e7f0;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 5px 18px rgba(30, 41, 59, 0.055);
 }
 
@@ -13744,7 +13771,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 .dashboard-operation-row:hover,
 .dashboard-operation-row:focus-visible {
   border-color: #b8c5d7;
-  background: #ffffff;
+  background: var(--surface);
   outline: 0;
 }
 
@@ -13903,7 +13930,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   position: absolute;
   inset: 23px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--surface);
   content: "";
 }
 
@@ -14158,7 +14185,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 .dashboard-view-header {
   min-height: 88px;
   border-bottom: 1px solid #e5e7eb;
-  background: #ffffff;
+  background: var(--surface);
   padding: 18px 28px;
 }
 
@@ -14219,7 +14246,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   overflow: hidden;
   border: 1px solid #e1e5eb;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
 }
 
@@ -14315,7 +14342,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   min-width: 0;
   border: 1px solid #e1e5eb;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   padding: 18px 20px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
 }
@@ -15082,7 +15109,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 
 .dashboard-view-header .top-icon-action {
   border-color: #d5e2e7;
-  background: #ffffff;
+  background: var(--surface);
   color: #58717e;
 }
 
@@ -15094,7 +15121,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 
 .dashboard-stats-grid {
   border-color: #d7e4e9;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 8px 24px rgba(37, 63, 75, 0.06);
 }
 
@@ -15161,7 +15188,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 
 .dashboard-panel {
   border-color: #d7e4e9;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 10px 28px rgba(37, 63, 75, 0.055);
 }
 
@@ -18965,6 +18992,59 @@ html[data-theme] .dashboard-quick-action {
   background: var(--surface-subtle);
 }
 
+html[data-theme] .dashboard-operation-row,
+html[data-theme] .dashboard-operation-metrics span {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+html[data-theme] .dashboard-operation-row:hover,
+html[data-theme] .dashboard-operation-row:focus-visible,
+html[data-theme] .dashboard-stat-card:hover,
+html[data-theme] .readiness-row:hover {
+  border-color: color-mix(in srgb, var(--primary) 46%, var(--line));
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-subtle));
+}
+
+html[data-theme] .dashboard-operation-summary,
+html[data-theme] .dashboard-operation-empty {
+  border-color: var(--line);
+}
+
+html[data-theme] .dashboard-operation-copy strong,
+html[data-theme] .dashboard-operation-summary strong,
+html[data-theme] .dashboard-operation-metrics strong {
+  color: var(--ink);
+}
+
+html[data-theme] .dashboard-operation-copy small,
+html[data-theme] .dashboard-operation-metrics small {
+  color: var(--muted);
+}
+
+html[data-theme] .dashboard-period {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+html[data-theme] .dashboard-stat-card .dashboard-stat-icon,
+html[data-theme] .quick-action-icon,
+html[data-theme] .activity-icon {
+  border-color: var(--line);
+  background: var(--surface-subtle) !important;
+}
+
+html[data-theme] .system-overview-metric i,
+html[data-theme] .readiness-meter {
+  background: var(--surface-subtle);
+}
+
+html[data-theme] .dashboard-status-chart {
+  box-shadow: 0 0 0 7px var(--surface-subtle);
+}
+
 html[data-theme] .terminal-frame,
 html[data-theme] .main-terminal-output {
   background: var(--terminal);
@@ -19011,6 +19091,27 @@ html[data-theme] .dashboard-view-header h1 {
 
 html[data-theme] .dashboard-view-header p {
   color: var(--muted);
+}
+
+html[data-theme] .server-filter-input {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+html[data-theme] .server-filter-input input[type="search"]:not([type="checkbox"]):not([type="radio"]),
+html[data-theme] .server-filter-input input[type="search"]:not([type="checkbox"]):not([type="radio"]):focus {
+  appearance: none;
+  border: 0;
+  background-color: transparent;
+  box-shadow: none;
+  outline: 0;
+}
+
+html[data-theme] .server-filter-input input[type="search"]::-webkit-search-cancel-button,
+html[data-theme] .server-filter-input input[type="search"]::-webkit-search-decoration {
+  display: none;
+  appearance: none;
 }
 
 /* Final dropdown and terminal component overrides for every active theme. */
@@ -20611,6 +20712,10 @@ html[data-theme] .backup-recovery-search-input input:focus {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
+.uptime-monitor-modal-card .modal-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .uptime-wizard-progress {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -20979,6 +21084,14 @@ html[data-theme] .settings-monitoring-autostart input:checked {
   .uptime-monitor-modal-card {
     width: min(100%, 920px);
     max-height: calc(100dvh - 20px);
+  }
+
+  .uptime-monitor-modal-card .modal-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .uptime-monitor-modal-card .span-2 {
+    grid-column: auto;
   }
 
   .uptime-http-request-grid {
@@ -22108,4 +22221,98 @@ html[data-database-access-window="true"] #databaseQueryProfile:disabled {
   .dashboard-stats-grid.database-hidden .dashboard-stat-card:last-child {
     grid-column: 1 / -1;
   }
+}
+
+/* Canonical search input used across every renderer workspace and theme. */
+body .app-search,
+html[data-theme] body .app-search {
+  display: flex;
+  min-height: var(--app-search-height, 36px);
+  height: var(--app-search-height, 36px);
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  padding: 0 10px;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+body .app-search:hover,
+html[data-theme] body .app-search:hover {
+  border-color: color-mix(in srgb, var(--ink) 24%, var(--line));
+}
+
+body .app-search:focus-within,
+html[data-theme] body .app-search:focus-within {
+  border-color: var(--focus);
+  outline: 0;
+  background: var(--surface);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+body .app-search > svg,
+body .app-search > .button-icon,
+html[data-theme] body .app-search > svg,
+html[data-theme] body .app-search > .button-icon {
+  position: static;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transform: none;
+  pointer-events: none;
+}
+
+.app-search > input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme] .app-search > input:not([type="checkbox"]):not([type="radio"]) {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: calc(var(--app-search-height, 36px) - 2px);
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  caret-color: var(--ink);
+  padding: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.app-search > input:not([type="checkbox"]):not([type="radio"]):focus,
+html[data-theme] .app-search > input:not([type="checkbox"]):not([type="radio"]):focus {
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-search > input::placeholder,
+html[data-theme] .app-search > input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.app-search > input::-webkit-search-cancel-button,
+.app-search > input::-webkit-search-decoration {
+  display: none;
+}
+
+body .app-search:has(> input:disabled),
+html[data-theme] body .app-search:has(> input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
