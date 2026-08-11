@@ -10,6 +10,7 @@
   --primary: #1c1c1d;
   --primary-hover: #343436;
   --primary-soft: #f1f1f2;
+  --primary-contrast: #ffffff;
   --focus: var(--primary);
   --success: #15803d;
   --danger: #dc2626;
@@ -168,7 +169,7 @@ button:disabled {
   border: 0;
   border-radius: 999px;
   background: var(--primary);
-  color: #ffffff;
+  color: var(--primary-contrast);
   font-weight: 700;
   line-height: 20px;
   padding: 11px 18px;
@@ -375,7 +376,7 @@ button:disabled {
 .top-profile-action {
   border-color: var(--primary);
   background: var(--primary);
-  color: #ffffff;
+  color: var(--primary-contrast);
   font-size: 13px;
   font-weight: 750;
 }
@@ -4363,7 +4364,7 @@ select.project-dropdown-native {
 
 .project-tab.active {
   background: var(--primary);
-  color: #ffffff;
+  color: var(--primary-contrast);
 }
 
 .project-tab .button-icon {
@@ -4722,8 +4723,8 @@ select.project-dropdown-native {
 }
 
 .button.solid.is-loading::after {
-  border-color: rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
+  border-color: color-mix(in srgb, var(--primary-contrast) 35%, transparent);
+  border-top-color: var(--primary-contrast);
 }
 
 .button.danger.is-loading::after {
@@ -4853,7 +4854,7 @@ select.project-dropdown-native {
 
 .button.solid {
   border-color: var(--primary);
-  color: #ffffff;
+  color: var(--primary-contrast);
   background: var(--primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
@@ -7093,6 +7094,7 @@ textarea:focus {
   background: transparent;
   color: var(--ink);
   text-align: left;
+  text-transform: none;
 }
 
 .ssh-directory-row:hover,
@@ -7559,8 +7561,9 @@ textarea:focus {
   gap: 0;
 }
 
-.ftp-path-field input {
-  height: 28px;
+.ftp-path-row .ftp-path-field input {
+  min-height: 30px;
+  height: 30px;
   border-color: var(--line);
   border-radius: 6px;
   background: var(--surface-subtle);
@@ -7569,7 +7572,7 @@ textarea:focus {
 }
 
 .ftp-path-field-local input {
-  padding-right: 40px;
+  padding-right: 34px;
 }
 
 .ftp-path-row > .button.icon-only {
@@ -7579,17 +7582,23 @@ textarea:focus {
   height: 28px;
 }
 
-.ftp-path-picker-button {
+.ftp-path-field .ftp-path-picker-button {
   position: absolute;
   top: 50%;
-  right: 6px;
+  right: 3px;
   transform: translateY(-50%);
-  min-width: 28px;
-  min-height: 28px;
-  width: 28px;
-  height: 28px;
+  min-width: 24px;
+  min-height: 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
   border-color: transparent !important;
   box-shadow: none !important;
+}
+
+.ftp-path-field .ftp-path-picker-button .button-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .ftp-pane .button.outline {
@@ -7733,6 +7742,7 @@ textarea:focus {
   color: var(--ink);
   padding: 0 14px;
   text-align: left;
+  text-transform: none;
   transition: background 140ms ease, border-color 140ms ease;
 }
 
@@ -10969,6 +10979,7 @@ html[data-theme] .profile-password-fields .secret-toggle:focus-visible {
   --primary: #cba6f7;
   --primary-hover: #d8b9fa;
   --primary-soft: #332744;
+  --primary-contrast: #181825;
   --terminal: #000000;
   --terminal-text: #cdd6f4;
   --theme-shadow: rgba(0, 0, 0, 0.32);

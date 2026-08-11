@@ -43,3 +43,14 @@ test('dashboard operation surfaces follow the active theme', async () => {
   assert.match(styles, /html\[data-theme\] \.dashboard-operation-row:hover,[\s\S]*?background: color-mix\(in srgb, var\(--primary\) 8%, var\(--surface-subtle\)\);/);
   assert.match(styles, /html\[data-theme\] \.dashboard-stat-card \.dashboard-stat-icon,[\s\S]*?background: var\(--surface-subtle\) !important;/);
 });
+
+test('Catppuccin primary controls use dark text on the light mauve accent', async () => {
+  const styles = await fs.readFile(stylesPath, 'utf8');
+  const catppuccin = styles.match(/:root\[data-theme="catppuccin-mocha"\] \{([\s\S]*?)\n\}/)?.[1] || '';
+
+  assert.match(catppuccin, /--primary:\s*#cba6f7;/i);
+  assert.match(catppuccin, /--primary-contrast:\s*#181825;/i);
+  assert.match(styles, /\.button\.solid\s*\{[^}]*color:\s*var\(--primary-contrast\);[^}]*background:\s*var\(--primary\);/s);
+  assert.match(styles, /\.project-tab\.active\s*\{[^}]*background:\s*var\(--primary\);[^}]*color:\s*var\(--primary-contrast\);/s);
+  assert.match(styles, /\.button\.solid\.danger\s*\{[^}]*color:\s*#ffffff;/s);
+});

@@ -2981,6 +2981,7 @@ const els = {
   uptimeButton: document.getElementById('uptimeButton'),
   serverMonitoringButton: document.getElementById('serverMonitoringButton'),
   serversButton: document.getElementById('serversButton'),
+  topSshButton: document.getElementById('topSshButton'),
   goOnlineButton: document.getElementById('goOnlineButton'),
   teamButton: document.getElementById('teamButton'),
   profileBackButton: document.getElementById('profileBackButton'),
@@ -10621,6 +10622,22 @@ function openSidebarProject(projectId) {
   else openProject(projectId);
 }
 
+function openTopSshTerminal() {
+  const sshProjects = state.projects.filter((project) => !isVncServerType(project.serverType));
+  const activeProject = sshProjects.find((project) => String(project.id) === String(state.activeProject?.id));
+  const project = activeProject
+    || sshProjects.find((candidate) => getConnectedTerminalSession(candidate.id))
+    || sshProjects.find((candidate) => candidate.pinned)
+    || sshProjects[0];
+  if (!project) {
+    showView('servers');
+    showToast('Add an SSH server to open a terminal.');
+    return;
+  }
+  openProject(project.id);
+  setProjectTab('ssh');
+}
+
 function handleServerMonitoringEvent(event = {}) {
   const monitoring = state.serverMonitoring;
   if (!monitoring.sessionId || event.sessionId !== monitoring.sessionId) return;
@@ -10705,6 +10722,7 @@ function showView(view) {
   els.serverMonitoringButton.classList.toggle('active', isServerMonitoring);
   els.uptimeButton.classList.toggle('active', isUptime);
   els.serversButton.classList.toggle('active', isServers);
+  els.topSshButton.classList.toggle('active', isProject && !isRdpProject() && state.activeProjectTab === 'ssh');
   els.teamButton.classList.toggle('active', isTeam);
   els.topBackupsButton.classList.toggle('active', isBackup);
   els.topDatabasesButton.classList.toggle('active', isDatabase);
@@ -10740,6 +10758,7 @@ function showView(view) {
 function setProjectTab(tab) {
   if (isRdpProject()) {
     state.activeProjectTab = 'rdp';
+    els.topSshButton.classList.remove('active');
     els.projectSshTab.classList.remove('active');
     els.projectFtpTab.classList.remove('active');
     els.projectSshStatus.classList.remove('hidden');
@@ -10754,6 +10773,7 @@ function setProjectTab(tab) {
   state.activeProjectTab = tab === 'ftp' ? 'ftp' : 'ssh';
   const isFtp = state.activeProjectTab === 'ftp';
   const isSsh = !isFtp;
+  els.topSshButton.classList.toggle('active', isSsh);
   els.projectSshTab.classList.toggle('active', isSsh);
   els.projectFtpTab.classList.toggle('active', isFtp);
   els.projectSshTab.setAttribute('aria-selected', String(isSsh));
@@ -25438,6 +25458,7 @@ async function emergencyStop() {
 
 els.dashboardButton.addEventListener('click', () => showView('dashboard'));
 els.serversButton.addEventListener('click', () => showView('servers'));
+els.topSshButton.addEventListener('click', openTopSshTerminal);
 els.serverMonitoringButton.addEventListener('click', () => showView('server-monitoring'));
 
 function isEditableShortcutTarget(target) {
