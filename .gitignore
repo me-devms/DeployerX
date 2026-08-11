@@ -3,3 +3,12 @@ dist/
 
 firebase.config.json
 *-firebase-adminsdk-*.json
+
+# Local release and database development files
+/package-lock.json
+/DeployerX DB Manager/
+/documentation/
+/native/deployerx-db-host/
+/LANDING_PAGE_BRIEF.md
+/build-exe.bat
+/.gitmodules
