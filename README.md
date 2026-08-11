@@ -1,219 +1,96 @@
-# DeployerX
+<p align="center">
+  <img src="assets/deployerx-logo.png" alt="DeployerX" width="96" />
+</p>
+
+<h1 align="center">DeployerX</h1>
 
 <p align="center">
-  <img src="assets/deployerx-logo.png" alt="DeployerX logo" width="112" />
+  <strong>Operations, deployment, and observability for the servers you control.</strong>
 </p>
 
 <p align="center">
-  A Windows desktop operations workspace for servers, deployments, uptime, backups, databases, and AI-assisted administration.
+  A local-first Windows workspace for SSH, SFTP, deployments, uptime monitoring,
+  backups, and remote server administration.
 </p>
 
 <p align="center">
-  <a href="https://github.com/me-devms/DeployerX/releases"><img alt="Release" src="https://img.shields.io/github/v/release/me-devms/DeployerX?display_name=tag" /></a>
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0078D4" />
-  <img alt="Electron" src="https://img.shields.io/badge/Electron-43-47848F" />
-  <a href="https://github.com/me-devms/DeployerX/issues"><img alt="Issues" src="https://img.shields.io/github/issues/me-devms/DeployerX" /></a>
+  <a href="https://github.com/me-devms/DeployerX/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/me-devms/DeployerX?display_name=tag&style=flat-square&color=2ecfa6" /></a>
+  <a href="https://github.com/me-devms/DeployerX/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/me-devms/DeployerX/total?style=flat-square&color=4ea1ff" /></a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square&logo=windows" />
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-43-47848F?style=flat-square&logo=electron" />
+  <a href="https://github.com/me-devms/DeployerX/issues"><img alt="Issues" src="https://img.shields.io/github/issues/me-devms/DeployerX?style=flat-square" /></a>
 </p>
 
-> **Release status:** DeployerX `0.1.5` is an early public release. Use test servers and test data first, verify every backup by restoring it, and review commands before running them against production systems.
+<p align="center">
+  <a href="https://github.com/me-devms/DeployerX/releases/latest"><strong>Download DeployerX</strong></a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://github.com/me-devms/DeployerX/issues">Report an issue</a>
+</p>
 
-## Overview
+<p align="center">
+  <img src="assets/screenshots/deployerx-command-center.png" alt="DeployerX Command Center showing server, uptime, backup, and fleet health" width="100%" />
+</p>
 
-DeployerX brings day-to-day infrastructure work into one local-first desktop application. It combines server profiles, SSH and SFTP, repeatable deployment commands, Windows VNC access, endpoint monitoring, backup and recovery workflows, database tooling, optional Firebase workspaces, and a local MCP endpoint for trusted AI clients.
+<p align="center"><sub>The DeployerX Command Center with sample infrastructure data.</sub></p>
 
-The app is designed for developers, system administrators, agencies, and small teams that want an inspectable, self-hosted alternative to stitching together several unrelated server tools.
+## One workspace for infrastructure work
 
-## What's New in 0.1.5
+DeployerX brings the tools used throughout a server's lifecycle into one focused desktop application. Register a host once, then connect over SSH, browse files, run repeatable commands, watch availability, and manage protection workflows without moving between unrelated tools.
 
-- Added a bundled **DeployerX DB Access Manager** handoff for connected PostgreSQL, MySQL/MariaDB, and SQLite profiles, using an ephemeral Windows named pipe instead of exposing credentials to the renderer or command line.
-- Replaced the earlier remote-desktop path with embedded **Windows VNC** support, including connection diagnostics, persistent navigation state, full-screen sizing, and framebuffer repaint fixes.
-- Expanded **DeployerX MCP** with real-time server metrics and full Uptime Monitor management, status, incident, maintenance, settings, and reporting tools.
-- Made enabled MCP integrations restore automatically at startup, with health checks, bounded restart behavior, and clearer connection-test errors.
-- Improved SSH/server connection state, server selection, multi-user credentials, dashboard behavior, backup-job validation, and settings/navigation consistency.
-- Strengthened Uptime worker scheduling and launch behavior, and added focused regression coverage across VNC, MCP, monitoring, backup, database, and renderer workflows.
+| Workspace | What it gives you |
+| --- | --- |
+| **Command Center** | Fleet health, active SSH sessions, uptime alerts, backup status, and quick navigation |
+| **Hosts** | Searchable server inventory, groups, favorites, connection details, and saved commands |
+| **SSH & SFTP** | Multi-tab terminals, per-user sessions, file browsing, transfers, folders, rename, and delete |
+| **Real-Time Monitor** | Live CPU, memory, disk, network, process, and service visibility |
+| **Uptime** | HTTP, TCP, and TLS checks with incidents, maintenance windows, reports, and notifications |
+| **Backup Manager** | Jobs, sources, repositories, recovery points, retention policies, and verification |
 
-See the full [v0.1.5 release notes](documentation/releases/v0.1.5.md).
+## Built for daily operations
 
-## Modules
+- Open an SSH terminal directly from the top navigation.
+- Keep simultaneous terminal sessions clearly labeled by sequence and username.
+- Save deployment commands per server and stream their output as they run.
+- Browse remote files over SFTP without exposing plain FTP.
+- Organize Linux and Windows hosts into groups and favorites.
+- Connect to compatible Windows hosts through the embedded VNC workspace.
+- Track endpoint incidents and backup health from the same command center.
+- Work locally without an account, or configure an optional Firebase workspace for team sync.
+- Expose bounded SSH, SFTP, monitoring, and uptime tools to trusted AI clients through a loopback-only MCP endpoint.
+- Choose from light and dark themes designed for long operational sessions.
 
-| Module | Purpose | Main capabilities |
+## What's new in v0.1.6
+
+- Added the top-level **SSH** action for immediate terminal access.
+- Made terminal tab numbering continuous after tabs are closed.
+- Added usernames to terminal labels for multi-user server sessions.
+- Corrected form, dashboard, search, toolbar, and button styling across every bundled theme.
+- Improved server-list scrolling, search alignment, and SFTP path controls.
+- Preserved exact file and directory name casing in remote browser rows.
+
+Read the complete changes on the [v0.1.6 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.1.6).
+
+> [!NOTE]
+> The Windows artifacts for v0.1.6 intentionally exclude the DeployerX DB Access Manager payload.
+
+## Download
+
+DeployerX is currently distributed for 64-bit Windows.
+
+| Package | Use it when | Download |
 | --- | --- | --- |
-| **Overview** | Workspace operations summary | Server inventory, activity, health, quick actions, import/export |
-| **Servers** | Connection and deployment workspace | Profiles, groups, SSH authentication, command scripts, emergency stop |
-| **SSH & SFTP** | Interactive remote administration | xterm.js terminal, file browser, upload/download, rename, folders, delete |
-| **VNC** | Windows server control | Embedded VNC client, credential prompt, full-view session |
-| **Uptime Monitor** | Availability and incident operations | HTTP/API, TCP, TLS, worker scheduling, incidents, maintenance, reports |
-| **Backup Manager** | Backup, retention, and recovery | Sources, jobs, repositories, recovery points, activity, policies, tests |
-| **Database Manager** | Database development and administration | DeployerX-owned profiles and connections with a bundled, separate SQL access workspace |
-| **Templates** | Reusable deployment commands | Categorized templates, variables, import/export |
-| **Cloud Workspaces** | Optional collaboration and sync | Firebase authentication, teams, invites, encrypted shared secrets |
-| **MCP Integration** | Local AI tool access | Authenticated SSH execution and bounded SFTP operations by saved server ID |
+| **Setup** | You want Start Menu and desktop shortcuts with a normal installation | [DeployerX-0.1.6-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.6/DeployerX-0.1.6-Setup-x64.exe) |
+| **Portable** | You want to run DeployerX directly without installation | [DeployerX-0.1.6-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.6/DeployerX-0.1.6-Portable-x64.exe) |
 
-## Server and Deployment Module
+Windows may show a SmartScreen warning because the current release artifacts are unsigned. Confirm that the file came from this repository's release page before running it.
 
-Each server profile stores a deployable target and its operational tools:
+## Run from source
 
-- Password or private-key SSH authentication, including key passphrases.
-- Interactive terminal sessions with reconnect and disconnect controls.
-- Saved commands that run in sequence with streamed output.
-- Optional file upload before deployment commands run.
-- Server grouping, search, import, export, and activity history.
-- Emergency stop for active operations.
-- Reusable templates with variables such as `{{app_path}}`, `{{branch}}`, and `{{process_name}}`.
-
-Example deployment script:
-
-```bash
-cd /var/www/my-app
-git pull origin main
-npm install
-pm2 restart my-app
-```
-
-DeployerX executes the commands you provide. It does not validate application-specific deployment safety, so test the sequence on a non-production target first.
-
-## SSH, SFTP, and VNC
-
-The project view keeps remote access tools together:
-
-- **SSH terminal:** interactive shell powered by xterm.js and `ssh2`.
-- **SFTP browser:** browse directories; upload and download files or folders; create folders; rename, open, and delete remote entries.
-- **Windows VNC:** connect to a Windows host running a VNC server through the bundled noVNC client. The default port is `5900`.
-
-The file browser uses SSH File Transfer Protocol. Plain, unencrypted FTP is intentionally not exposed.
-
-## Uptime Monitor
-
-The Uptime module is a workspace-level operations console with five areas: Overview, Monitors, Incidents, Reports, and Maintenance.
-
-### Monitor Types
-
-- HTTP/API requests with status expectations, headers, body assertions, redirects, JSONPath checks, and bounded response capture.
-- TCP port availability checks.
-- TLS certificate checks with hostname validation and expiry thresholds.
-
-### Operations
-
-- Scheduled checks with persisted due times and bounded concurrency.
-- Warning, critical, failure, and recovery thresholds.
-- Incident opening, acknowledgement, escalation, and resolution history.
-- Maintenance windows that preserve check evidence without generating incidents.
-- Desktop, email, webhook, Slack, and Microsoft Teams notification routes.
-- Availability, coverage, downtime, latency percentiles, daily trends, and monitor comparisons.
-- Summary, checks, incidents, and daily CSV exports plus printable PDF reports.
-- Configurable worker start-at-login, concurrency, and retention settings.
-
-Monitoring data is stored locally in a versioned SQLite control database. Sensitive request headers are stored through encrypted secret references rather than monitor records.
-
-## Backup Manager
-
-Backup Manager organizes protection work into Overview, Jobs, Sources, Repositories, Recovery, Activity, Policies, and Tests.
-
-### Core Capabilities
-
-- Manual and scheduled file backups from the local device or a host-key-pinned SSH/SFTP server.
-- Encrypted, authenticated, parent-linked recovery points.
-- Local-folder, SFTP, and S3-compatible repositories.
-- Source include/exclude rules, snapshot browsing, version history, and guided restore conflict handling.
-- Retention policies, repository pruning, capacity and health checks, repository locking, and verification.
-- Recovery objectives, execution calendars, checkpoints, audit history, and shared notifications.
-- Database-native logical, physical, incremental, and point-in-time workflows where the selected engine and topology explicitly support them.
-
-### Active Core Scope
-
-The documented core release scope covers:
-
-- Files and directories
-- MySQL and MariaDB
-- PostgreSQL and constrained Supabase PostgreSQL profiles
-- SQLite
-- MongoDB
-- Redis
-- ClickHouse
-
-Support is bounded by database versions, topology, native tools, privileges, destination type, and recovery mode. Read the [Backup Manager documentation](documentation/backup-manager/README.md) and [compatibility matrix](documentation/backup-manager/CORE_COMPATIBILITY_MATRIX.md) before relying on a database recovery workflow.
-
-Code and research for additional engines may exist in the repository, but an engine is not part of the supported core scope unless it appears in that compatibility matrix.
-
-## Database Manager
-
-DeployerX owns database profiles, credentials, connection testing, tunnels, and connection lifecycle. After a supported PostgreSQL, MySQL/MariaDB, or SQLite profile is connected, its **Access** action opens a separate **DeployerX DB Access Manager** window directly in the database workspace. The companion is bundled inside the normal DeployerX installer; it is not downloaded or installed as a second product.
-
-The Access window receives one ephemeral connection through a randomized, bounded Windows named pipe. Secrets are not placed in renderer IPC, process arguments, environment variables, logs, or temporary handoff files. The companion does not expose connection creation, saved connection management, onboarding, settings, AI, plugin marketplace, updater, or community surfaces, and read-only profiles are enforced in its backend.
-
-The DeployerX database module includes:
-
-- Workspace-scoped connection profiles with test, connect, disconnect, and device-local resource binding.
-- Built-in PostgreSQL, MySQL/MariaDB, and SQLite driver boundaries.
-- Multi-tab SQL editing with Monaco, formatting, paging, cancellation, query history, and saved queries.
-- Streamed full-result export with bounded page sizes.
-- Schema exploration, definition inspection, ER relationships, explain plans, and capability-gated object actions.
-- User, role, and privilege inspection or administration when supported by the driver.
-- Notebooks, background tasks, sanitized operational logs, and durable connection evidence.
-- Signed plugin catalog, integrity checks, health status, quarantine, and isolated plugin processes.
-- Shared connection handoff to Backup Manager.
-
-The access workspace is a modified, rebranded adaptation of the Apache-2.0 licensed [Tabularis](https://github.com/TabularisDB/tabularis) database workspace. DeployerX preserves the upstream credit and license in [third-party notices](THIRD_PARTY_NOTICES.md) while presenting only DeployerX product branding in the installed application. See the [integration ledger](documentation/database-manager/DEPLOYERX-DB-ACCESS-MANAGER.md) and [database compatibility notes](documentation/database-manager/PROGRESS.md) for current acceptance status.
-
-## MCP Integration
-
-Settings > Integrations can start a local Streamable HTTP MCP server for compatible AI clients. It listens on `127.0.0.1`, requires a bearer token, and resolves credentials internally from an opaque saved server ID.
-
-Available tools:
-
-- `deployerx_list_servers`
-- `deployerx_ssh_execute`
-- `deployerx_sftp_list`
-- `deployerx_sftp_read`
-- `deployerx_sftp_write`
-- `deployerx_sftp_mkdir`
-- `deployerx_sftp_move`
-- `deployerx_sftp_delete`
-
-The desktop app must remain open while the endpoint is in use. Treat the bearer token like an SSH credential. Do not expose the local MCP port directly to the public internet.
-
-## Local and Cloud Workspaces
-
-DeployerX works without a hosted backend.
-
-### Local Mode
-
-- Projects, templates, settings, and operational data stay on the current Windows user profile.
-- No Firebase account or network sync is required.
-- Project, template, and account backup import/export remain available.
-
-### Optional Firebase Mode
-
-- Email/password authentication and optional Google sign-in.
-- Cloud workspaces, team members, and invitations.
-- Firestore synchronization for supported workspace data.
-- A team passphrase encrypts SSH passwords, private keys, and private-key passphrases before cloud storage.
-
-The encryption key is derived with PBKDF2 and secrets are encrypted using AES-256-GCM. Firebase does not receive plaintext SSH secrets through the DeployerX cloud save path. Keep the workspace passphrase in a separate password manager; it cannot be recovered by DeployerX.
-
-## Requirements
-
-### Run from Source
+Requirements:
 
 - Windows 10 or Windows 11
 - Node.js LTS and npm
 - Git
-- An SSH server for remote workflows
-
-### Feature-Specific Requirements
-
-- Firebase project for cloud workspaces.
-- Compatible database clients, server versions, and privileges for database-native backup or administration.
-- Trusted SSH host keys for remote backup connections.
-- Code-signing configuration for official Windows packaging.
-
-## Install and Run
-
-### Release Downloads
-
-Open [GitHub Releases](https://github.com/me-devms/DeployerX/releases) and review the notes for the selected version. When installer or portable assets are attached, verify the publisher and release version before running them.
-
-### Run from Source
 
 ```powershell
 git clone https://github.com/me-devms/DeployerX.git
@@ -222,104 +99,53 @@ npm install
 npm start
 ```
 
-On first run, choose local mode or configure a Firebase-backed cloud workspace.
+Choose **Local Workspace** on first launch to use DeployerX without a hosted backend. Firebase configuration is optional and only required for cloud workspace features.
 
-## Firebase Setup
+## Local-first by default
 
-Firebase is optional. For cloud workspaces:
+Server profiles, templates, settings, and operational data can remain on the current Windows user profile. DeployerX does not require a hosted service for local mode.
 
-1. Create a Firebase project and web app.
-2. Enable Email/Password authentication; Google authentication is optional.
-3. Create a Cloud Firestore database.
-4. Deploy the repository's `firestore.rules`.
-5. Copy `firebase.config.example.json` to `firebase.config.json` and add your project values.
+Optional cloud workspaces support team membership and synchronized workspace data. Sensitive SSH values are encrypted before cloud storage using a key derived from the team passphrase. Keep that passphrase in a separate password manager because DeployerX cannot recover it.
 
-Minimal configuration:
+## Security model
 
-```json
-{
-  "apiKey": "YOUR_FIREBASE_WEB_API_KEY",
-  "authDomain": "YOUR_PROJECT.firebaseapp.com",
-  "projectId": "YOUR_PROJECT_ID"
-}
-```
+- SSH and MCP credentials are resolved inside the desktop main process, not exposed as browser state.
+- The MCP integration listens on `127.0.0.1` by default and requires bearer authentication.
+- Remote backup connections support trusted SSH host-key checks.
+- Cloud workspace secrets use authenticated encryption before synchronization.
+- Emergency Stop provides one place to interrupt active operations.
 
-`firebase.config.json` is ignored by Git. Do not commit real credentials, exported account data, or private keys.
+Use least-privilege accounts, prefer SSH keys, verify host keys, review deployment commands, and test restores before relying on any backup workflow in production.
 
-Google desktop OAuth uses this loopback redirect by default:
+## Technology
 
-```text
-http://127.0.0.1:42813/oauth/google
-```
-
-## Project Layout
+DeployerX is built with Electron and Node.js. Its operational stack includes xterm.js, `ssh2`, SQLite, noVNC, Monaco, and provider SDKs for supported storage and workspace integrations.
 
 ```text
 DeployerX/
-|-- assets/                         App icons and brand assets
-|-- documentation/
-|   |-- backup-manager/             Compatibility contracts and runbooks
-|   |-- database-manager/           Architecture and progress evidence
-|   `-- uptime-monitor/             Architecture and progress evidence
-|-- native/deployerx-db-host/       Rust database-driver host
+|-- assets/                  Brand assets and product screenshots
 |-- src/
-|   |-- backup-manager/             Backup engines, repositories, policy, recovery
-|   |-- database-manager/           Profiles, queries, drivers, schema, plugins
-|   |-- uptime-monitor/             Checks, incidents, worker, reports, storage
-|   |-- renderer/                   Desktop UI and VNC client
-|   |-- main.js                     Electron main process and IPC composition
-|   |-- mcp-server.js               Local authenticated MCP endpoint
-|   |-- preload.js                  Sandboxed renderer bridge
-|   `-- vnc-session.js              VNC session boundary
-|-- third_party_licenses/           Bundled dependency licenses
-|-- firestore.rules                 Cloud workspace authorization rules
-|-- package.json                    Runtime, scripts, and packaging configuration
-`-- THIRD_PARTY_NOTICES.md          Attribution and third-party notices
+|   |-- backup-manager/      Backup, retention, repository, and recovery workflows
+|   |-- renderer/            Desktop interface, terminal, SFTP, and VNC views
+|   |-- uptime-monitor/      Checks, incidents, workers, reports, and storage
+|   |-- main.js              Electron lifecycle and IPC composition
+|   |-- mcp-server.js        Authenticated local MCP endpoint
+|   `-- preload.js           Sandboxed renderer bridge
+|-- third_party_licenses/    Bundled dependency licenses
+|-- package.json             Runtime and packaging configuration
+`-- THIRD_PARTY_NOTICES.md   Third-party attribution
 ```
-
-## Development and Verification
-
-Useful checks:
-
-```powershell
-node --check src/main.js
-node --check src/preload.js
-node --check src/renderer/renderer.js
-node --test src/uptime-monitor/*.test.js
-node --test src/database-manager/*.test.js
-```
-
-Backup Manager has engine-specific and Electron acceptance tests under `src/backup-manager`. Some tests require database services, native tools, Firebase emulators, signed Windows artifacts, or other external prerequisites; read the corresponding module documentation before running them.
-
-Windows packaging is configured through Electron Builder and emits an NSIS installer and portable executable. Official packages require the project's signing setup and should be published with Electron Builder update metadata.
-
-## Security
-
-- Prefer least-privilege SSH and database accounts.
-- Prefer SSH keys over passwords.
-- Verify SSH host keys before remote backup operations.
-- Keep Firebase configuration, workspace exports, bearer tokens, private keys, and database credentials out of Git.
-- Review every deployment command and destructive database action.
-- Restore backups regularly; a completed backup job alone is not recovery proof.
-- Keep DeployerX and its native database tools updated.
-- Report vulnerabilities privately to the maintainer before opening a public issue with exploit details.
 
 ## Contributing
 
-1. Fork the repository.
-2. Create a focused branch.
-3. Add or update tests and module documentation with the implementation.
-4. Run the relevant syntax and test checks.
-5. Open a pull request that explains behavior, risk, compatibility, and verification evidence.
+Focused bug reports and feature requests are welcome in [GitHub Issues](https://github.com/me-devms/DeployerX/issues). For code changes, create a branch, add relevant tests, run the focused checks for the affected module, and open a pull request describing the behavior and verification performed.
 
-Issues and feature requests are welcome in the [GitHub issue tracker](https://github.com/me-devms/DeployerX/issues).
+## License and attribution
 
-## Licensing and Attribution
+Third-party software notices are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with license texts under `third_party_licenses/`.
 
-Third-party software notices are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with full texts under `third_party_licenses/`.
+This repository does not currently contain a top-level project license. Source availability should not be interpreted as permission to redistribute or create derivative works until the maintainer adds one.
 
-This repository does not currently contain a top-level project license. Until the maintainer adds one, source availability should not be interpreted as permission to redistribute or create derivative works. A recognized open-source license is required before the project can be formally described as open source.
-
-## Maintainer
-
-Created and maintained by [Manish K](https://github.com/me-devms).
+<p align="center">
+  Created and maintained by <a href="https://github.com/me-devms">Manish K</a>.
+</p>
