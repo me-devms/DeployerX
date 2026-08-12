@@ -96,6 +96,49 @@ test('persists workspace-scoped standalone and server-linked monitors with revis
   await reopened.close();
 });
 
+test('imports workspace snapshots without changing shared ids, revisions, or timestamps', async (context) => {
+  const { database } = await fixture(context);
+  const monitor = await database.upsertMonitorSnapshot('workspace-a', {
+    ...httpMonitor(),
+    id: 'monitor-shared',
+    revision: 7,
+    createdAt: '2026-08-01T08:00:00.000Z',
+    updatedAt: '2026-08-04T08:00:00.000Z',
+    createdBy: 'owner-user',
+    updatedBy: 'member-user',
+    nextCheckAt: '2026-08-04T08:01:00.000Z',
+    runtime: { status: 'down', consecutiveFailures: 2, lastFailureAt: '2026-08-04T08:00:00.000Z' }
+  });
+  const check = await database.upsertCheckSnapshot('workspace-a', {
+    id: 'check-shared', monitorId: monitor.id, probeId: 'device-owner',
+    scheduledAt: '2026-08-04T08:00:00.000Z', startedAt: '2026-08-04T08:00:00.000Z', completedAt: '2026-08-04T08:00:01.000Z',
+    outcome: 'down', latencyMs: 1000, failureCategory: 'timeout', summary: 'Request timed out.'
+  });
+  const incident = await database.upsertIncidentSnapshot('workspace-a', {
+    id: 'incident-shared', monitorId: monitor.id, state: 'open', severity: 'critical',
+    openedAt: '2026-08-04T08:00:01.000Z', summary: 'Request timed out.', consecutiveFailures: 2,
+    revision: 3, createdAt: '2026-08-04T08:00:01.000Z', updatedAt: '2026-08-04T08:00:02.000Z',
+    createdBy: 'owner-user', updatedBy: 'member-user'
+  });
+  const maintenance = await database.upsertMaintenanceSnapshot('workspace-a', {
+    id: 'maintenance-shared', name: 'Release window', state: 'enabled',
+    startsAt: '2026-08-04T09:00:00.000Z', endsAt: '2026-08-04T10:00:00.000Z', timezone: 'UTC', scope: { type: 'workspace' },
+    revision: 2, createdAt: '2026-08-03T08:00:00.000Z', updatedAt: '2026-08-04T07:00:00.000Z',
+    createdBy: 'owner-user', updatedBy: 'member-user'
+  });
+
+  assert.equal(monitor.id, 'monitor-shared');
+  assert.equal(monitor.revision, 7);
+  assert.equal(monitor.updatedAt, '2026-08-04T08:00:00.000Z');
+  assert.equal(check.id, 'check-shared');
+  assert.equal(incident.revision, 3);
+  assert.equal(maintenance.revision, 2);
+  assert.equal((await database.listMonitors('workspace-a')).length, 1);
+  assert.equal((await database.listChecks('workspace-a', monitor.id))[0].outcome, 'down');
+  assert.equal((await database.listIncidents('workspace-a'))[0].id, incident.id);
+  assert.equal((await database.listMaintenanceWindows('workspace-a'))[0].id, maintenance.id);
+});
+
 test('records and filters durable checks without crossing workspaces', async (context) => {
   const values = await fixture(context);
   const monitor = await values.database.createMonitor('workspace-a', 'tester', httpMonitor());

@@ -163,6 +163,15 @@ const { TabulariumClient } = require('./database-manager/tabularium-client');
 const { mergeCloudProfiles, normalizeCloudProfileDocument } = require('./database-manager/cloud-metadata');
 const { DatabaseCloudSyncOutbox } = require('./database-manager/cloud-sync-outbox');
 const { planCloudSyncOperation } = require('./database-manager/cloud-sync-policy');
+const {
+  SHARED_CONTROL_ENTITY_TYPES,
+  compareWorkspaceControlRecords,
+  mergeWorkspaceControlRecord,
+  projectWorkspaceControlRecord,
+  workspaceControlChangeIsShared,
+  workspaceControlRecordsEquivalent,
+  workspaceControlDocumentId
+} = require('./workspace-control-sync');
 const { UptimeControlDatabase } = require('./uptime-monitor/control-database');
 const { runMonitorCheck } = require('./uptime-monitor/check-engine');
 const { normalizeMonitorInput } = require('./uptime-monitor/domain');
@@ -198,6 +207,8 @@ let databaseManagerPackagedSmokePublished = false;
 let rdpSessionManager;
 let vncSessionManager;
 let vncRestoreWindowState = null;
+let serverMonitoringRestoreWindowState = null;
+let mainWindowFullscreenOwner = null;
 let tray;
 let isAppQuitting = false;
 let pendingSecondInstanceArguments = null;
@@ -224,6 +235,7 @@ const UPTIME_CONFIG_REFRESH_MS = 60 * 1000;
 const UPTIME_COMMAND_POLL_MS = 4000;
 const UPTIME_WORKER_LOCK_RENEW_MS = 5000;
 const DATABASE_CLOUD_SYNC_INTERVAL_MS = 60 * 1000;
+const WORKSPACE_CONTROL_SYNC_INTERVAL_MS = 15 * 1000;
 const UPTIME_RUNTIME_FILE = 'runtime.json';
 const SESSION_DATA_PATH = path.join(os.tmpdir(), `DeployerX-session-${process.pid}`);
 app.setPath('sessionData', SESSION_DATA_PATH);
@@ -264,6 +276,7 @@ let uptimeWorkerInterval = null;
 let uptimeConfigRefreshTimer = null;
 let uptimeCommandPollTimer = null;
 let databaseCloudSyncTimer = null;
+let workspaceControlSyncTimer = null;
 let databaseManagerEventSequence = 0;
 const uptimeRunNowQueue = new Set();
 let uptimeWorkerOwnsLock = false;
@@ -276,6 +289,7 @@ let backupAuditStore = null;
 let backupLogStore = null;
 let backupControlDatabase = null;
 let backupControlDatabaseError = null;
+let workspaceControlChangeHandlerEnabled = false;
 let databaseProfileService = null;
 let databaseConnectionImportService = null;
 let databaseBackupHandoffService = null;
@@ -1395,7 +1409,15 @@ function getBackupLogStore() {
 }
 
 async function initializeBackupControlDatabase() {
-  const controlDatabase = new BackupControlDatabase({ rootPath: getBackupManagerRootPath() });
+  const controlDatabase = new BackupControlDatabase({
+    rootPath: getBackupManagerRootPath(),
+    onChange: (changes) => {
+      if (!workspaceControlChangeHandlerEnabled) return;
+      syncWorkspaceControlChangesToCloud(changes).catch(async (error) => {
+        await logWorkspaceControlSyncFailure(error).catch(() => {});
+      });
+    }
+  });
   try {
     await controlDatabase.initialize();
     backupControlDatabase = controlDatabase;
@@ -1809,6 +1831,9 @@ async function initializeBackupControlDatabase() {
         ).catch(() => {});
       }
       if (settings.mode === 'cloud') {
+        await syncWorkspaceControlFromCloud(activeWorkspaceId, { force: true }).catch(async (error) => {
+          await logWorkspaceControlSyncFailure(error, activeWorkspaceId);
+        });
         await reconcileDatabaseProfileMetadata(activeWorkspaceId).then(async (summary) => {
           if (!summary.failed?.length) return;
           await logDatabaseCloudSyncFailure(activeWorkspaceId, summary.failed[0].code);
@@ -1970,10 +1995,22 @@ async function initializeBackupControlDatabase() {
       }).catch(async (error) => logDatabaseCloudSyncFailure(workspaceId, error.code));
     }, DATABASE_CLOUD_SYNC_INTERVAL_MS);
     databaseCloudSyncTimer.unref?.();
+    if (workspaceControlSyncTimer) clearInterval(workspaceControlSyncTimer);
+    workspaceControlSyncTimer = setInterval(async () => {
+      const current = await readSettings().catch(() => null);
+      const workspaceId = current?.mode === 'cloud' ? String(current.activeTeamId || '') : '';
+      if (!workspaceId) return;
+      await syncWorkspaceControlFromCloud(workspaceId).catch(async (error) => logWorkspaceControlSyncFailure(error, workspaceId));
+    }, WORKSPACE_CONTROL_SYNC_INTERVAL_MS);
+    workspaceControlSyncTimer.unref?.();
+    workspaceControlChangeHandlerEnabled = true;
     backupControlDatabaseError = null;
   } catch (error) {
     if (databaseCloudSyncTimer) clearInterval(databaseCloudSyncTimer);
     databaseCloudSyncTimer = null;
+    if (workspaceControlSyncTimer) clearInterval(workspaceControlSyncTimer);
+    workspaceControlSyncTimer = null;
+    workspaceControlChangeHandlerEnabled = false;
     await databaseAccessCompanionService?.dispose().catch(() => {});
     disposeDatabaseAccessFallbackWindows();
     databaseAccessCompanionService = null;
@@ -2788,6 +2825,7 @@ async function backupSecretContext() {
   const settings = await readSettings();
   const workspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
   if (!workspaceId) throw new Error('Select a workspace before managing Backup Manager secrets.');
+  if (settings.mode === 'cloud') await syncWorkspaceControlFromCloud(workspaceId).catch(async (error) => logWorkspaceControlSyncFailure(error, workspaceId));
   return {
     workspaceId,
     actorId: String(settings.auth?.uid || 'local-user'),
@@ -3370,7 +3408,18 @@ async function initializeUptimeControlPlane({ startWorker = false } = {}) {
       incidentPolicy: uptimeIncidentPolicyService,
       secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
       probeId: `local-windows:${backupDeviceId || process.pid}`,
-      maximumConcurrency: Math.max(1, Math.min(32, Number(monitoringSettings.maximumConcurrency) || 8))
+      maximumConcurrency: Math.max(1, Math.min(32, Number(monitoringSettings.maximumConcurrency) || 8)),
+      onTransition: async (transition) => {
+        try {
+          await syncUptimeTransitionToCloud(context, transition);
+          uptimeWorkerState.syncWarning = '';
+        } catch (error) {
+          uptimeWorkerState.syncWarning = `Workspace uptime synchronization is pending: ${error.message}`;
+        }
+      }
+    });
+    await syncUptimeWorkspaceFromCloud(context).catch((error) => {
+      uptimeWorkerState.syncWarning = `Workspace uptime synchronization is pending: ${error.message}`;
     });
     if (startWorker) {
       if (monitoringSettings.autostartEnabled !== false) await ensureWorkerAutostartEnabled().catch(() => {});
@@ -3463,6 +3512,7 @@ function parseUptimeNavigationArgument(argv = process.argv) {
 
 async function buildWorkspaceUptimeReport(options = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const toDate = options.to ? new Date(options.to) : new Date();
   const fromDate = options.from ? new Date(options.from) : new Date(toDate.getTime() - 86400000);
@@ -4434,69 +4484,301 @@ function createTray() {
   tray.on('double-click', showMainWindow);
 }
 
-function googleLoginCompleteHtml() {
+function googleLoginResultHtml({
+  tone = 'success',
+  eyebrow = 'Google sign in',
+  title,
+  message,
+  detail,
+  autoClose = false
+}) {
+  const logoDataUrl = `data:image/png;base64,${fsSync.readFileSync(path.join(__dirname, '..', 'assets', 'deployerx-logo.png')).toString('base64')}`;
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Returning to DeployerX</title>
+    <meta name="color-scheme" content="light dark">
+    <title>${title} | DeployerX</title>
     <style>
+      :root {
+        color-scheme: light;
+        --page: #f4f6f8;
+        --surface: #ffffff;
+        --surface-muted: #f7f9fa;
+        --ink: #18201f;
+        --muted: #687472;
+        --line: #dce3e1;
+        --brand: #167d68;
+        --brand-strong: #0d6554;
+        --brand-soft: #e6f4f0;
+        --accent: #2874c6;
+        --shadow: 0 24px 70px rgba(22, 43, 39, 0.12);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --page: #101514;
+          --surface: #18201f;
+          --surface-muted: #1d2725;
+          --ink: #edf4f2;
+          --muted: #9cacaa;
+          --line: #30403d;
+          --brand: #42c6a5;
+          --brand-strong: #70dabc;
+          --brand-soft: #173d34;
+          --accent: #72aef0;
+          --shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+        }
+      }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        color: #202124;
-        background: #f7f8fa;
+        color: var(--ink);
+        background-color: var(--page);
+        background-image:
+          linear-gradient(var(--line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--line) 1px, transparent 1px);
+        background-size: 42px 42px;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
-      main { width: min(420px, 100%); text-align: center; }
-      .mark {
-        display: grid;
-        place-items: center;
-        width: 52px;
-        height: 52px;
-        margin: 0 auto 22px;
-        border-radius: 8px;
-        color: #fff;
-        background: #202124;
-        font-size: 24px;
-        font-weight: 750;
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: rgba(244, 246, 248, 0.82);
       }
-      h1 { margin: 0 0 10px; font-size: 24px; font-weight: 700; letter-spacing: 0; }
-      p { margin: 0; color: #68707d; font-size: 15px; line-height: 1.6; }
-      .status {
+      @media (prefers-color-scheme: dark) {
+        body::before { background: rgba(16, 21, 20, 0.86); }
+      }
+      .shell {
+        position: relative;
+        z-index: 1;
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        padding: 28px clamp(22px, 5vw, 72px);
+      }
+      .brand {
         display: inline-flex;
         align-items: center;
-        gap: 9px;
-        margin-top: 24px;
-        color: #4f5866;
-        font-size: 13px;
-        font-weight: 600;
+        gap: 11px;
+        width: max-content;
+        color: var(--ink);
+        font-size: 16px;
+        font-weight: 750;
       }
-      .spinner {
-        width: 15px;
-        height: 15px;
-        border: 2px solid #d8dce2;
-        border-top-color: #202124;
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 7px;
+        object-fit: contain;
+      }
+      main {
+        display: grid;
+        place-items: center;
+        padding: 48px 0;
+      }
+      .result {
+        width: min(560px, 100%);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+      .result-bar { height: 4px; background: var(--brand); }
+      .result[data-tone="cancelled"] .result-bar { background: #d99a2b; }
+      .result[data-tone="error"] .result-bar { background: #d85f5f; }
+      .content { padding: clamp(30px, 7vw, 48px); }
+      .status-icon {
+        position: relative;
+        width: 52px;
+        height: 52px;
+        margin-bottom: 28px;
+        border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line));
         border-radius: 50%;
-        animation: spin .7s linear infinite;
+        background: var(--brand-soft);
       }
-      @keyframes spin { to { transform: rotate(360deg); } }
+      .status-icon::before,
+      .status-icon::after {
+        content: '';
+        position: absolute;
+        background: var(--brand);
+        border-radius: 2px;
+      }
+      .status-icon::before {
+        width: 10px;
+        height: 3px;
+        left: 14px;
+        top: 27px;
+        transform: rotate(45deg);
+      }
+      .status-icon::after {
+        width: 22px;
+        height: 3px;
+        left: 21px;
+        top: 23px;
+        transform: rotate(-45deg);
+      }
+      [data-tone="cancelled"] .status-icon {
+        border-color: #e7c783;
+        background: #fff6df;
+      }
+      [data-tone="cancelled"] .status-icon::before,
+      [data-tone="cancelled"] .status-icon::after {
+        width: 20px;
+        height: 3px;
+        left: 15px;
+        top: 24px;
+        background: #a86800;
+      }
+      [data-tone="cancelled"] .status-icon::before { transform: rotate(45deg); }
+      [data-tone="cancelled"] .status-icon::after { transform: rotate(-45deg); }
+      [data-tone="error"] .status-icon {
+        border-color: #e6aaaa;
+        background: #fff0f0;
+      }
+      [data-tone="error"] .status-icon::before {
+        width: 3px;
+        height: 17px;
+        left: 24px;
+        top: 12px;
+        background: #b53b3b;
+        transform: none;
+      }
+      [data-tone="error"] .status-icon::after {
+        width: 4px;
+        height: 4px;
+        left: 23.5px;
+        top: 34px;
+        background: #b53b3b;
+        transform: none;
+      }
+      @media (prefers-color-scheme: dark) {
+        [data-tone="cancelled"] .status-icon { border-color: #72591e; background: #382e16; }
+        [data-tone="cancelled"] .status-icon::before,
+        [data-tone="cancelled"] .status-icon::after { background: #efbd55; }
+        [data-tone="error"] .status-icon { border-color: #713a3a; background: #3a2020; }
+        [data-tone="error"] .status-icon::before,
+        [data-tone="error"] .status-icon::after { background: #ef8585; }
+      }
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--brand);
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(27px, 5vw, 36px);
+        line-height: 1.18;
+        letter-spacing: 0;
+      }
+      .message {
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.65;
+      }
+      .detail {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin: 28px 0 0;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--muted);
+        background: var(--surface-muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .detail-dot {
+        flex: 0 0 auto;
+        width: 7px;
+        height: 7px;
+        margin-top: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: 30px;
+      }
+      button {
+        min-height: 42px;
+        padding: 0 18px;
+        border: 1px solid var(--brand-strong);
+        border-radius: 6px;
+        color: #ffffff;
+        background: var(--brand-strong);
+        font: inherit;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 28%, transparent); outline-offset: 3px; }
+      .hint { color: var(--muted); font-size: 12px; line-height: 1.4; }
+      footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      footer strong { color: var(--ink); font-weight: 650; }
+      @media (max-width: 560px) {
+        .shell { padding: 20px; }
+        main { padding: 34px 0; }
+        .content { padding: 30px 24px; }
+        .actions { align-items: stretch; flex-direction: column; }
+        footer { flex-direction: column; gap: 6px; }
+      }
+      @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
     </style>
   </head>
   <body>
-    <main>
-      <div class="mark">D</div>
-      <h1>Finishing sign in</h1>
-      <p>DeployerX will open automatically when your account is ready.</p>
-      <div class="status"><span class="spinner"></span>Connecting to DeployerX</div>
-    </main>
+    <div class="shell">
+      <header class="brand"><img class="brand-mark" src="${logoDataUrl}" alt="DeployerX logo">DeployerX</header>
+      <main>
+        <section class="result" data-tone="${tone}" aria-labelledby="result-title">
+          <div class="result-bar"></div>
+          <div class="content">
+            <div class="status-icon" aria-hidden="true"></div>
+            <p class="eyebrow">${eyebrow}</p>
+            <h1 id="result-title">${title}</h1>
+            <p class="message">${message}</p>
+            <div class="detail"><span class="detail-dot"></span><span>${detail}</span></div>
+            <div class="actions">
+              <button id="close-window" type="button">Close this tab</button>
+              <span class="hint" id="close-hint">Your DeployerX window remains open.</span>
+            </div>
+          </div>
+        </section>
+      </main>
+      <footer><span><strong>Local authentication callback</strong></span><span>No credentials are displayed on this page.</span></footer>
+    </div>
     <script>
-      window.setTimeout(() => window.close(), 150);
+      const closeButton = document.getElementById('close-window');
+      const closeHint = document.getElementById('close-hint');
+      const closeWindow = () => {
+        window.close();
+        window.setTimeout(() => {
+          closeHint.textContent = 'You can now close this browser tab manually.';
+          closeButton.textContent = 'Ready to close';
+          closeButton.disabled = true;
+        }, 250);
+      };
+      closeButton.addEventListener('click', closeWindow);
+      ${autoClose ? "window.setTimeout(closeWindow, 900);" : ''}
     </script>
   </body>
 </html>`;
@@ -4508,6 +4790,8 @@ function listen(server, host = '127.0.0.1') {
     server.listen(0, host, () => resolve(server.address()));
   });
 }
+
+let cancelPendingGoogleLogin = null;
 
 async function requestGoogleTokens(config) {
   if (!config.googleClientId) {
@@ -4530,16 +4814,23 @@ async function requestGoogleTokens(config) {
     server.listen(Number(redirectUrl.port || 80), redirectUrl.hostname, () => resolve());
   });
 
-  const code = await new Promise((resolve, reject) => {
-    let timeout = null;
-    const finish = (error, value) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      server.close();
-      if (error) reject(error);
-      else resolve(value);
-    };
+  let code;
+  try {
+    code = await new Promise((resolve, reject) => {
+      let timeout = null;
+      const finish = (error, value) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        server.close();
+        if (error) reject(error);
+        else resolve(value);
+      };
+      cancelPendingGoogleLogin = () => {
+        if (settled) return false;
+        finish(new Error('Google login cancelled.'));
+        return true;
+      };
 
     server.on('request', (request, response) => {
       const url = new URL(request.url || '/', redirectUri);
@@ -4550,24 +4841,49 @@ async function requestGoogleTokens(config) {
       }
 
       if (url.searchParams.get('state') !== state) {
-        response.writeHead(400, { 'Content-Type': 'text/html' });
-        response.end('<h1>Google login failed</h1><p>Invalid OAuth state.</p>');
+        response.writeHead(400, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store'
+        });
+        response.end(googleLoginResultHtml({
+          tone: 'error',
+          eyebrow: 'Security check',
+          title: 'Sign in could not be verified',
+          message: 'DeployerX stopped this sign-in attempt because the security response did not match.',
+          detail: 'Return to DeployerX and start Google sign in again. Nothing was changed in your workspace.'
+        }));
         finish(new Error('Google login state did not match.'));
         return;
       }
 
       const error = url.searchParams.get('error');
       if (error) {
-        response.writeHead(400, { 'Content-Type': 'text/html' });
-        response.end('<h1>Google login cancelled</h1><p>You can close this window.</p>');
+        response.writeHead(400, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store'
+        });
+        response.end(googleLoginResultHtml({
+          tone: 'cancelled',
+          title: 'Google sign in was cancelled',
+          message: 'No account was connected, and your DeployerX workspace has not been changed.',
+          detail: 'Close this tab to return to DeployerX. You can try again whenever you are ready.'
+        }));
         finish(new Error(`Google login failed: ${error}`));
         return;
       }
 
       const authCode = url.searchParams.get('code');
       if (!authCode) {
-        response.writeHead(400, { 'Content-Type': 'text/html' });
-        response.end('<h1>Google login failed</h1><p>No authorization code was returned.</p>');
+        response.writeHead(400, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store'
+        });
+        response.end(googleLoginResultHtml({
+          tone: 'error',
+          title: 'Sign in was not completed',
+          message: 'Google did not return the authorization needed to connect your account.',
+          detail: 'Return to DeployerX and try again. If the issue continues, check the Google OAuth configuration.'
+        }));
         finish(new Error('Google login did not return an authorization code.'));
         return;
       }
@@ -4575,7 +4891,12 @@ async function requestGoogleTokens(config) {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store'
       });
-      response.end(googleLoginCompleteHtml());
+      response.end(googleLoginResultHtml({
+        title: 'You are signed in',
+        message: 'Google authentication is complete. DeployerX is finishing the connection in your app.',
+        detail: 'This tab will close automatically. You can also close it now and continue in DeployerX.',
+        autoClose: true
+      }));
       finish(null, authCode);
     });
 
@@ -4589,9 +4910,12 @@ async function requestGoogleTokens(config) {
     authUrl.searchParams.set('code_challenge_method', 'S256');
     authUrl.searchParams.set('prompt', 'select_account');
 
-    timeout = setTimeout(() => finish(new Error('Google login timed out. Please try again.')), 180000);
-    shell.openExternal(authUrl.toString()).catch(finish);
-  });
+      timeout = setTimeout(() => finish(new Error('Google login timed out. Please try again.')), 180000);
+      shell.openExternal(authUrl.toString()).catch(finish);
+    });
+  } finally {
+    cancelPendingGoogleLogin = null;
+  }
 
   const tokenBody = new URLSearchParams({
     code,
@@ -4866,10 +5190,18 @@ async function deleteDoc(segments, { precondition = null } = {}) {
   }
 }
 
-async function listCollection(segments) {
+async function listCollection(segments, query = {}) {
   try {
-    const body = await firestoreFetch(segments);
-    return (body.documents || []).map(fromFirestoreDocument);
+    const documents = [];
+    let pageToken = '';
+    do {
+      const body = await firestoreFetch(segments, {
+        query: { pageSize: 1000, ...query, ...(pageToken ? { pageToken } : {}) }
+      });
+      documents.push(...(body.documents || []).map(fromFirestoreDocument));
+      pageToken = String(body.nextPageToken || '');
+    } while (pageToken);
+    return documents;
   } catch (error) {
     if (error.status === 404) return [];
     throw error;
@@ -4984,6 +5316,118 @@ function encryptJsonWithKey(value, key) {
 function decryptJsonWithKey(payload, key) {
   const raw = decryptWithKey(payload, key);
   return raw ? JSON.parse(raw) : {};
+}
+
+const WORKSPACE_CONTROL_CLOUD_COLLECTION = 'workspaceControlRecords';
+const workspaceControlSyncPromises = new Map();
+const workspaceControlLastSyncAt = new Map();
+
+function workspaceControlCloudDocument(type, record) {
+  const projected = projectWorkspaceControlRecord(type, record);
+  if (!projected || !cloudUnlock.key) return null;
+  return {
+    entityType: type,
+    entityId: String(projected.id),
+    revision: Math.max(1, Number(projected.revision) || 1),
+    updatedAt: String(projected.updatedAt || projected.createdAt || nowIso()),
+    deletedAt: projected.deletedAt || null,
+    encryptedPayload: encryptJsonWithKey(projected, cloudUnlock.key),
+    secretStorage: 'workspace-auth-v2'
+  };
+}
+
+function workspaceControlCloudRecord(document) {
+  if (!document?.encryptedPayload || !cloudUnlock.key || !SHARED_CONTROL_ENTITY_TYPES.includes(document.entityType)) return null;
+  try {
+    const record = decryptJsonWithKey(document.encryptedPayload, cloudUnlock.key);
+    if (!record?.id || String(record.id) !== String(document.entityId || '')) return null;
+    return { type: document.entityType, record };
+  } catch {
+    return null;
+  }
+}
+
+function workspaceControlContextIsCurrent(workspaceId, settings) {
+  return settings.mode === 'cloud' && String(settings.activeTeamId || '') === String(workspaceId || '');
+}
+
+async function writeWorkspaceControlRecord(workspaceId, type, record) {
+  const projected = projectWorkspaceControlRecord(type, record);
+  if (!projected) return null;
+  const settings = await readSettings();
+  if (!workspaceControlContextIsCurrent(workspaceId, settings)) return null;
+  await ensureActiveTeamUnlocked();
+  const documentId = workspaceControlDocumentId(type, projected.id);
+  const target = ['teams', workspaceId, WORKSPACE_CONTROL_CLOUD_COLLECTION, documentId];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const currentDocument = await getDoc(target);
+    const currentCloud = workspaceControlCloudRecord(currentDocument);
+    if (currentCloud && (workspaceControlRecordsEquivalent(type, currentCloud.record, projected) || compareWorkspaceControlRecords(currentCloud.record, projected) > 0)) return currentDocument;
+    try {
+      return await patchDoc(target, workspaceControlCloudDocument(type, projected), {
+        precondition: currentDocument?.__updateTime ? { updateTime: currentDocument.__updateTime } : { exists: false }
+      });
+    } catch (error) {
+      if (![409, 412].includes(Number(error?.status)) || attempt === 2) throw error;
+    }
+  }
+  return null;
+}
+
+async function syncWorkspaceControlChangesToCloud(changes = []) {
+  const settings = await readSettings();
+  const workspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : '';
+  if (!workspaceId) return;
+  const sharedChanges = changes.filter(({ type, previous, record }) => (
+    String(record?.workspaceId || '') === workspaceId && workspaceControlChangeIsShared(type, previous, record)
+  ));
+  if (!sharedChanges.length) return;
+  await ensureActiveTeamUnlocked();
+  for (const { type, record } of sharedChanges) await writeWorkspaceControlRecord(workspaceId, type, record);
+  workspaceControlLastSyncAt.set(workspaceId, Date.now());
+}
+
+async function syncWorkspaceControlFromCloud(workspaceId, { force = false } = {}) {
+  const tenant = String(workspaceId || '');
+  if (!tenant || !backupControlDatabase) return;
+  const settings = await readSettings();
+  if (!workspaceControlContextIsCurrent(tenant, settings)) return;
+  if (!force && Date.now() - Number(workspaceControlLastSyncAt.get(tenant) || 0) < 3000) return;
+  if (workspaceControlSyncPromises.has(tenant)) return workspaceControlSyncPromises.get(tenant);
+  const syncPromise = (async () => {
+    await ensureActiveTeamUnlocked();
+    const database = getBackupControlDatabase();
+    const remoteItems = (await listCollection(['teams', tenant, WORKSPACE_CONTROL_CLOUD_COLLECTION]))
+      .map(workspaceControlCloudRecord)
+      .filter(Boolean);
+    const remoteByKey = new Map(remoteItems.map(({ type, record }) => [`${type}:${record.id}`, record]));
+    for (const type of SHARED_CONTROL_ENTITY_TYPES) {
+      const localRecords = await database.repository(type).list(tenant, { includeDeleted: true, limit: 1000 });
+      const localById = new Map(localRecords.map((record) => [String(record.id), record]));
+      for (const { type: remoteType, record: remote } of remoteItems.filter((item) => item.type === type)) {
+        const local = localById.get(String(remote.id));
+        if (!local || (!workspaceControlRecordsEquivalent(type, remote, local) && compareWorkspaceControlRecords(remote, projectWorkspaceControlRecord(type, local)) > 0)) {
+          await database.upsertSnapshot(remoteType, tenant, mergeWorkspaceControlRecord(type, local, remote));
+        }
+      }
+      for (const local of localRecords) {
+        const remote = remoteByKey.get(`${type}:${local.id}`);
+        if (!remote || (!workspaceControlRecordsEquivalent(type, local, remote) && compareWorkspaceControlRecords(projectWorkspaceControlRecord(type, local), remote) > 0)) {
+          await writeWorkspaceControlRecord(tenant, type, local);
+        }
+      }
+    }
+    workspaceControlLastSyncAt.set(tenant, Date.now());
+  })().finally(() => workspaceControlSyncPromises.delete(tenant));
+  workspaceControlSyncPromises.set(tenant, syncPromise);
+  return syncPromise;
+}
+
+async function logWorkspaceControlSyncFailure(error, workspaceId = '') {
+  return getBackupLogStore().logger({ workspaceId: workspaceId || 'local', component: 'workspace-control-sync' }).warn(
+    'Workspace configuration synchronization remains pending.',
+    { code: error?.code || 'WORKSPACE_CONTROL_SYNC_PENDING' }
+  ).catch(() => {});
 }
 
 async function ensureActiveTeamUnlocked() {
@@ -5208,18 +5652,249 @@ function createMcpToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
+const UPTIME_CLOUD_COLLECTIONS = Object.freeze({
+  monitors: 'uptimeMonitors',
+  checks: 'uptimeCheckWindows',
+  incidents: 'uptimeIncidents',
+  maintenance: 'uptimeMaintenance'
+});
+const uptimeCloudSyncPromises = new Map();
+const uptimeCloudLastSyncAt = new Map();
+
+function uptimeCloudRecordForSave(record, documentId = record?.id) {
+  const id = String(documentId || '').trim();
+  if (!id || !cloudUnlock.key) throw new Error('The Uptime Monitor workspace is not unlocked.');
+  return {
+    id,
+    revision: Math.max(1, Number(record?.revision) || 1),
+    updatedAt: String(record?.updatedAt || record?.completedAt || nowIso()),
+    deletedAt: record?.deletedAt || null,
+    encryptedPayload: encryptJsonWithKey(record, cloudUnlock.key),
+    secretStorage: 'workspace-auth-v2'
+  };
+}
+
+function uptimeWorkspaceContextIsCurrent(context, settings) {
+  const expectedWorkspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
+  return String(context?.workspaceId || '') === expectedWorkspaceId;
+}
+
+function uptimeCloudRecordForRead(document) {
+  if (!document?.encryptedPayload || !cloudUnlock.key) return null;
+  try {
+    const record = decryptJsonWithKey(document.encryptedPayload, cloudUnlock.key);
+    const documentId = firestoreDocumentId(document);
+    if (!record?.id || (document.id && String(document.id) !== String(documentId))) return null;
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+function uptimeRecordTimestamp(record) {
+  return Date.parse(record?.updatedAt || record?.completedAt || record?.createdAt || '') || 0;
+}
+
+function compareUptimeRecords(left, right) {
+  const timeDifference = uptimeRecordTimestamp(left) - uptimeRecordTimestamp(right);
+  if (timeDifference) return timeDifference;
+  return (Number(left?.revision) || 0) - (Number(right?.revision) || 0);
+}
+
+function uptimeCheckWindowId(monitorId, probeId, hour) {
+  const suffix = crypto.createHash('sha256').update(`${String(probeId || 'local-windows')}:${hour}`).digest('hex').slice(0, 24);
+  return `${String(monitorId || '').slice(0, 160)}_${suffix}`;
+}
+
+function compactUptimeCheck(check) {
+  return {
+    id: check.id,
+    monitorId: check.monitorId,
+    probeId: check.probeId,
+    scheduledAt: check.scheduledAt,
+    startedAt: check.startedAt,
+    completedAt: check.completedAt,
+    outcome: check.outcome,
+    latencyMs: check.latencyMs,
+    statusCode: check.statusCode,
+    failureCategory: check.failureCategory || '',
+    summary: check.summary || '',
+    details: {}
+  };
+}
+
+function uptimeCheckWindows(monitorId, probeId, checks = []) {
+  const selected = checks
+    .filter((check) => String(check.monitorId) === String(monitorId) && String(check.probeId) === String(probeId))
+    .sort((left, right) => Date.parse(left.completedAt) - Date.parse(right.completedAt));
+  const grouped = new Map();
+  for (const check of selected) {
+    const hour = String(check.completedAt || '').slice(0, 13);
+    if (!hour) continue;
+    if (!grouped.has(hour)) grouped.set(hour, []);
+    grouped.get(hour).push(compactUptimeCheck(check));
+  }
+  return [...grouped.entries()].map(([hour, windowChecks]) => ({
+    id: uptimeCheckWindowId(monitorId, probeId, hour),
+    monitorId: String(monitorId),
+    probeId: String(probeId),
+    hour,
+    revision: windowChecks.length,
+    updatedAt: windowChecks.at(-1).completedAt,
+    checks: windowChecks
+  }));
+}
+
+async function writeUptimeCloudRecord(context, collection, record, documentId = record?.id) {
+  if (!record) return null;
+  const settings = await readSettings();
+  if (settings.mode !== 'cloud') return null;
+  if (!uptimeWorkspaceContextIsCurrent(context, settings)) {
+    throw Object.assign(new Error('The Uptime Monitor workspace changed. Refreshing the worker is required.'), { code: 'UPTIME_WORKSPACE_CHANGED' });
+  }
+  await ensureActiveTeamUnlocked();
+  const id = String(documentId || '').trim();
+  const pathSegments = ['teams', context.workspaceId, collection, id];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const currentDocument = await getDoc(pathSegments);
+    const currentRecord = uptimeCloudRecordForRead(currentDocument);
+    if (currentRecord && compareUptimeRecords(currentRecord, record) > 0) return currentDocument;
+    try {
+      return await patchDoc(
+        pathSegments,
+        uptimeCloudRecordForSave(record, id),
+        { precondition: currentDocument?.__updateTime ? { updateTime: currentDocument.__updateTime } : { exists: false } }
+      );
+    } catch (error) {
+      if (![409, 412].includes(Number(error?.status)) || attempt === 2) throw error;
+    }
+  }
+  return null;
+}
+
+async function syncUptimeTransitionToCloud(context, transition = {}) {
+  const settings = await readSettings();
+  if (settings.mode !== 'cloud') return;
+  const writes = [];
+  if (transition.monitor) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.monitors, transition.monitor));
+  if (transition.check) {
+    const database = getUptimeControlDatabaseV2();
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const checks = await database.listChecks(context.workspaceId, transition.check.monitorId, { from, limit: 100000 });
+    const windows = uptimeCheckWindows(transition.check.monitorId, transition.check.probeId, checks);
+    const currentWindow = windows.find((window) => window.hour === String(transition.check.completedAt || '').slice(0, 13));
+    if (currentWindow) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.checks, currentWindow));
+  }
+  if (transition.incident) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.incidents, transition.incident));
+  await Promise.all(writes);
+}
+
+async function syncUptimeWorkspaceFromCloud(context, { force = false } = {}) {
+  const settings = await readSettings();
+  if (settings.mode !== 'cloud') return;
+  if (!uptimeWorkspaceContextIsCurrent(context, settings)) return;
+  if (!force && Date.now() - Number(uptimeCloudLastSyncAt.get(context.workspaceId) || 0) < 3000) return;
+  if (uptimeCloudSyncPromises.has(context.workspaceId)) return uptimeCloudSyncPromises.get(context.workspaceId);
+  const syncPromise = (async () => {
+    await ensureActiveTeamUnlocked();
+    const database = getUptimeControlDatabaseV2();
+    const collectionEntries = Object.entries(UPTIME_CLOUD_COLLECTIONS);
+    const remoteDocuments = Object.fromEntries(await Promise.all(collectionEntries.map(async ([kind, collection]) => [
+      kind,
+      (await listCollection(['teams', context.workspaceId, collection])).map(uptimeCloudRecordForRead).filter(Boolean)
+    ])));
+    const expiredCheckWindowCutoff = Date.now() - 26 * 60 * 60 * 1000;
+    for (const window of remoteDocuments.checks.filter((item) => uptimeRecordTimestamp(item) < expiredCheckWindowCutoff)) {
+      await deleteDoc(['teams', context.workspaceId, UPTIME_CLOUD_COLLECTIONS.checks, String(window.id)]);
+    }
+    remoteDocuments.checks = remoteDocuments.checks.filter((item) => uptimeRecordTimestamp(item) >= expiredCheckWindowCutoff);
+
+    const localMonitors = await database.listMonitors(context.workspaceId, { includeDeleted: true, limit: 10000 });
+    const localMonitorMap = new Map(localMonitors.map((monitor) => [String(monitor.id), monitor]));
+    const remoteMonitorMap = new Map(remoteDocuments.monitors.map((monitor) => [String(monitor.id), monitor]));
+    for (const remote of remoteDocuments.monitors) {
+      const local = localMonitorMap.get(String(remote.id));
+      if (!local || compareUptimeRecords(remote, local) > 0) {
+        await database.upsertMonitorSnapshot(context.workspaceId, remote);
+        localMonitorMap.set(String(remote.id), remote);
+      }
+    }
+    for (const local of localMonitors) {
+      const remote = remoteMonitorMap.get(String(local.id));
+      if (!remote || compareUptimeRecords(local, remote) > 0) {
+        await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.monitors, local);
+      }
+    }
+
+    for (const window of remoteDocuments.checks) {
+      if (!localMonitorMap.has(String(window.monitorId))) continue;
+      for (const check of Array.isArray(window.checks) ? window.checks : []) {
+        await database.upsertCheckSnapshot(context.workspaceId, check);
+      }
+    }
+    const remoteCheckWindowMap = new Map(remoteDocuments.checks.map((window) => [String(window.id), window]));
+    const checkRangeStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    for (const monitor of await database.listMonitors(context.workspaceId, { includeDeleted: true, limit: 10000 })) {
+      const checks = await database.listChecks(context.workspaceId, monitor.id, { from: checkRangeStart, limit: 100000 });
+      const probeIds = [...new Set(checks.map((check) => String(check.probeId)).filter(Boolean))];
+      for (const probeId of probeIds) {
+        for (const window of uptimeCheckWindows(monitor.id, probeId, checks)) {
+          const remote = remoteCheckWindowMap.get(String(window.id));
+          if (!remote || compareUptimeRecords(window, remote) > 0) {
+            await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.checks, window);
+          }
+        }
+      }
+    }
+
+    const localIncidents = await database.listIncidents(context.workspaceId, { limit: 10000 });
+    const localIncidentMap = new Map(localIncidents.map((incident) => [String(incident.id), incident]));
+    const remoteIncidentMap = new Map(remoteDocuments.incidents.map((incident) => [String(incident.id), incident]));
+    for (const remote of remoteDocuments.incidents) {
+      const local = localIncidentMap.get(String(remote.id));
+      if (!local || compareUptimeRecords(remote, local) > 0) await database.upsertIncidentSnapshot(context.workspaceId, remote);
+    }
+    for (const local of localIncidents) {
+      const remote = remoteIncidentMap.get(String(local.id));
+      if (!remote || compareUptimeRecords(local, remote) > 0) {
+        await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.incidents, local);
+      }
+    }
+
+    const localMaintenance = await database.listMaintenanceWindows(context.workspaceId, { includeDeleted: true, limit: 10000 });
+    const localMaintenanceMap = new Map(localMaintenance.map((window) => [String(window.id), window]));
+    const remoteMaintenanceMap = new Map(remoteDocuments.maintenance.map((window) => [String(window.id), window]));
+    for (const remote of remoteDocuments.maintenance) {
+      const local = localMaintenanceMap.get(String(remote.id));
+      if (!local || compareUptimeRecords(remote, local) > 0) await database.upsertMaintenanceSnapshot(context.workspaceId, remote);
+    }
+    for (const local of localMaintenance) {
+      const remote = remoteMaintenanceMap.get(String(local.id));
+      if (!remote || compareUptimeRecords(local, remote) > 0) {
+        await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, local);
+      }
+    }
+    uptimeCloudLastSyncAt.set(context.workspaceId, Date.now());
+  })().finally(() => uptimeCloudSyncPromises.delete(context.workspaceId));
+  uptimeCloudSyncPromises.set(context.workspaceId, syncPromise);
+  return syncPromise;
+}
+
 async function listUptimeMonitorsOperation(options = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   return getUptimeControlDatabaseV2().listMonitors(context.workspaceId, options);
 }
 
 async function getUptimeMonitorOperation(payload = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   return getUptimeControlDatabaseV2().getMonitor(context.workspaceId, payload.id, { includeDeleted: payload.includeDeleted === true });
 }
 
 async function createUptimeMonitorOperation(input = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const prepared = await prepareUptimeMonitorForSave(context, input);
   let monitor;
   try {
@@ -5234,8 +5909,9 @@ async function createUptimeMonitorOperation(input = {}) {
     await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
     throw error;
   }
+  let transition = null;
   if (monitor.state === 'enabled') {
-    const transition = await executeUptimeMonitorCheck({
+    transition = await executeUptimeMonitorCheck({
       controlDatabase: getUptimeControlDatabaseV2(),
       incidentPolicy: uptimeIncidentPolicyService,
       workspaceId: context.workspaceId,
@@ -5247,6 +5923,7 @@ async function createUptimeMonitorOperation(input = {}) {
     });
     monitor = transition.monitor;
   }
+  await syncUptimeTransitionToCloud(context, transition || { monitor });
   emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
   await maybeStartDetachedUptimeWorker().catch(() => {});
   return monitor;
@@ -5254,6 +5931,7 @@ async function createUptimeMonitorOperation(input = {}) {
 
 async function updateUptimeMonitorOperation(input = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const current = await database.getMonitor(context.workspaceId, input.id);
   if (!current) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
@@ -5264,6 +5942,7 @@ async function updateUptimeMonitorOperation(input = {}) {
     const currentRefs = new Set(Object.values(monitor.config?.secretHeaderRefs || {}).map(String));
     await cleanupUptimeSecretReferences(context, previousRefs.filter((id) => !currentRefs.has(String(id))));
     if (monitor.state === 'enabled') await maybeStartDetachedUptimeWorker().catch(() => {});
+    await syncUptimeTransitionToCloud(context, { monitor });
     emitUptimeEvent('uptime:monitor-updated-v2', { monitorId: monitor.id });
     return monitor;
   } catch (error) {
@@ -5274,11 +5953,14 @@ async function updateUptimeMonitorOperation(input = {}) {
 
 async function deleteUptimeMonitorOperation(payload = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const current = await database.getMonitor(context.workspaceId, payload.id);
   if (!current) return { id: String(payload.id || ''), deleted: false, absent: true };
   const result = await database.deleteMonitor(context.workspaceId, context.actorId, current.id, payload.revision);
   if (result.deleted) {
+    const deletedMonitor = await database.getMonitor(context.workspaceId, current.id, { includeDeleted: true });
+    await syncUptimeTransitionToCloud(context, { monitor: deletedMonitor });
     await cleanupUptimeSecretReferences(context, Object.values(current.config?.secretHeaderRefs || {}));
     emitUptimeEvent('uptime:monitor-deleted-v2', { monitorId: current.id });
   }
@@ -5294,6 +5976,7 @@ async function testUptimeMonitorOperation(input = {}) {
 
 async function runUptimeMonitorNowOperation(payload = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const monitor = await database.getMonitor(context.workspaceId, payload.id);
   if (!monitor) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
@@ -5312,6 +5995,7 @@ async function runUptimeMonitorNowOperation(payload = {}) {
     probeId: `local-windows:${backupDeviceId || process.pid}`,
     scheduledAt
   });
+  await syncUptimeTransitionToCloud(context, transition);
   await maybeStartDetachedUptimeWorker().catch(() => {});
   emitUptimeEvent('uptime:monitor-run-completed-v2', { monitorId: monitor.id });
   return { queued: false, completed: true, monitorId: monitor.id, revision: transition.monitor.revision };
@@ -5319,37 +6003,51 @@ async function runUptimeMonitorNowOperation(payload = {}) {
 
 async function acknowledgeUptimeIncidentOperation(payload = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   if (!uptimeIncidentPolicyService) throw new Error('Uptime incident policy is not initialized.');
   const incident = await uptimeIncidentPolicyService.acknowledge(context.workspaceId, context.actorId, payload.id, payload.revision, payload.note);
   if (!incident) throw Object.assign(new Error('Incident was not found.'), { code: 'UPTIME_INCIDENT_NOT_FOUND' });
+  await syncUptimeTransitionToCloud(context, { incident });
   emitUptimeEvent('uptime:incident-acknowledged-v2', { monitorId: incident.monitorId, incidentId: incident.id });
   return incident;
 }
 
 async function createUptimeMaintenanceOperation(input = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const maintenance = await getUptimeControlDatabaseV2().createMaintenanceWindow(context.workspaceId, context.actorId, input);
+  await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, maintenance);
   emitUptimeEvent('uptime:maintenance-created', { maintenanceId: maintenance.id });
   return maintenance;
 }
 
 async function updateUptimeMaintenanceOperation(input = {}) {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const maintenance = await getUptimeControlDatabaseV2().updateMaintenanceWindow(context.workspaceId, context.actorId, input.id, input, input.revision);
   if (!maintenance) throw Object.assign(new Error('Maintenance window was not found.'), { code: 'UPTIME_MAINTENANCE_NOT_FOUND' });
+  await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, maintenance);
   emitUptimeEvent('uptime:maintenance-updated', { maintenanceId: maintenance.id });
   return maintenance;
 }
 
 async function deleteUptimeMaintenanceOperation(payload = {}) {
   const context = await uptimeOperationalContext();
-  const result = await getUptimeControlDatabaseV2().deleteMaintenanceWindow(context.workspaceId, context.actorId, payload.id, payload.revision);
+  await syncUptimeWorkspaceFromCloud(context);
+  const database = getUptimeControlDatabaseV2();
+  const result = await database.deleteMaintenanceWindow(context.workspaceId, context.actorId, payload.id, payload.revision);
+  if (result.deleted) {
+    const maintenance = (await database.listMaintenanceWindows(context.workspaceId, { includeDeleted: true, limit: 10000 }))
+      .find((window) => String(window.id) === String(result.id));
+    await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, maintenance);
+  }
   if (result.deleted) emitUptimeEvent('uptime:maintenance-deleted', { maintenanceId: result.id });
   return result;
 }
 
 async function getUptimeStatusOperation() {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const checkedAt = nowIso();
   const [worker, monitors, incidents, activeMaintenance] = await Promise.all([
@@ -6338,6 +7036,27 @@ async function maybeStartDetachedUptimeWorker() {
   }
 }
 
+async function restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId) {
+  if (isWorkerMode()) return;
+  const workspaceId = String(previousWorkspaceId || '').trim();
+  if (workspaceId && uptimeControlDatabase && backupDeviceId) {
+    const probeId = `local-windows:${backupDeviceId}`;
+    const heartbeat = (await uptimeControlDatabase.listWorkerHeartbeats(workspaceId).catch(() => []))
+      .find((item) => String(item.probeId) === probeId);
+    const processId = Number(heartbeat?.processId || 0);
+    if (processId && processId !== process.pid && await isProcessRunning(processId)) {
+      try { process.kill(processId); } catch {}
+      for (let attempt = 0; attempt < 20 && await isProcessRunning(processId); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  }
+  uptimeWorkerLaunchPromise = null;
+  uptimeWorkerLaunchError = '';
+  uptimeCloudLastSyncAt.clear();
+  await maybeStartDetachedUptimeWorker().catch(() => {});
+}
+
 async function initializeUptimeWorker() {
   const hasLock = await acquireUptimeWorkerLock();
   if (!hasLock) {
@@ -6907,10 +7626,21 @@ function createWindow(options = {}) {
     if (disposition.hideWindow) mainWindow.hide();
     if (disposition.hideDock) app.dock?.hide();
   });
-  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('vnc:fullscreen-changed', true));
+  mainWindow.on('enter-full-screen', () => {
+    if (mainWindowFullscreenOwner === 'vnc') mainWindow?.webContents.send('vnc:fullscreen-changed', true);
+    if (mainWindowFullscreenOwner === 'server-monitoring') mainWindow?.webContents.send('server-monitoring:fullscreen-changed', true);
+  });
   mainWindow.on('leave-full-screen', () => {
-    mainWindow?.webContents.send('vnc:fullscreen-changed', false);
-    restoreVncWindowState();
+    const owner = mainWindowFullscreenOwner;
+    mainWindowFullscreenOwner = null;
+    if (owner === 'vnc') {
+      mainWindow?.webContents.send('vnc:fullscreen-changed', false);
+      restoreVncWindowState();
+    }
+    if (owner === 'server-monitoring') {
+      mainWindow?.webContents.send('server-monitoring:fullscreen-changed', false);
+      restoreServerMonitoringWindowState();
+    }
   });
   mainWindow.on('closed', () => {
     serverMonitoringSessionManager.stopAll();
@@ -8726,6 +9456,7 @@ app.on('before-quit', () => {
   if (uptimeConfigRefreshTimer) clearInterval(uptimeConfigRefreshTimer);
   if (uptimeCommandPollTimer) clearInterval(uptimeCommandPollTimer);
   if (databaseCloudSyncTimer) clearInterval(databaseCloudSyncTimer);
+  if (workspaceControlSyncTimer) clearInterval(workspaceControlSyncTimer);
   if (isWorkerMode()) {
     mutateUptimeRuntime((current) => {
       current.worker = {
@@ -9306,23 +10037,24 @@ function transitionMainWindowFullscreen(enabled) {
   return new Promise((resolve) => {
     let settled = false;
     const retryTimers = [];
-    const finish = () => {
+    const finish = (transitionCompleted = false) => {
       if (settled) return;
       settled = true;
       clearTimeout(fallbackTimer);
       retryTimers.forEach(clearTimeout);
-      window.removeListener(eventName, finish);
-      resolve(!window.isDestroyed() && window.isFullScreen());
+      window.removeListener(eventName, handleTransition);
+      resolve(transitionCompleted ? enabled : !window.isDestroyed() && window.isFullScreen());
     };
+    const handleTransition = () => finish(true);
     const requestTransition = () => {
       if (window.isDestroyed() || window.isFullScreen() === enabled) {
-        finish();
+        finish(true);
         return;
       }
       window.setFullScreen(enabled);
     };
-    const fallbackTimer = setTimeout(finish, 2200);
-    window.once(eventName, finish);
+    const fallbackTimer = setTimeout(() => finish(false), 2200);
+    window.once(eventName, handleTransition);
     [0, 220, 650].forEach((delay) => retryTimers.push(setTimeout(requestTransition, delay)));
   });
 }
@@ -9331,6 +10063,17 @@ function restoreVncWindowState() {
   if (!vncRestoreWindowState) return;
   const restoreState = vncRestoreWindowState;
   vncRestoreWindowState = null;
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFullScreen()) return;
+    if (restoreState.maximized) mainWindow.maximize();
+    else mainWindow.setBounds(restoreState.bounds);
+  }, 120);
+}
+
+function restoreServerMonitoringWindowState() {
+  if (!serverMonitoringRestoreWindowState) return;
+  const restoreState = serverMonitoringRestoreWindowState;
+  serverMonitoringRestoreWindowState = null;
   setTimeout(() => {
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFullScreen()) return;
     if (restoreState.maximized) mainWindow.maximize();
@@ -9348,6 +10091,9 @@ ipcMain.handle('vnc:fullscreen', async (_event, payload) => {
     return fullscreen;
   }
 
+  if (mainWindow.isFullScreen() && mainWindowFullscreenOwner !== 'vnc') return false;
+  mainWindowFullscreenOwner = 'vnc';
+
   if (!vncRestoreWindowState) {
     vncRestoreWindowState = {
       bounds: mainWindow.getBounds(),
@@ -9355,7 +10101,35 @@ ipcMain.handle('vnc:fullscreen', async (_event, payload) => {
     };
   }
   const fullscreen = await transitionMainWindowFullscreen(true);
-  if (!fullscreen) restoreVncWindowState();
+  if (!fullscreen) {
+    mainWindowFullscreenOwner = null;
+    restoreVncWindowState();
+  }
+  return fullscreen;
+});
+
+ipcMain.handle('server-monitoring:fullscreen', async (_event, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  const enabled = Boolean(payload && typeof payload === 'object' ? payload.enabled : payload);
+  if (!enabled) {
+    if (mainWindowFullscreenOwner !== 'server-monitoring') return false;
+    const fullscreen = await transitionMainWindowFullscreen(false);
+    restoreServerMonitoringWindowState();
+    return fullscreen;
+  }
+  if (mainWindow.isFullScreen() && mainWindowFullscreenOwner !== 'server-monitoring') return false;
+  mainWindowFullscreenOwner = 'server-monitoring';
+  if (!serverMonitoringRestoreWindowState) {
+    serverMonitoringRestoreWindowState = {
+      bounds: mainWindow.getBounds(),
+      maximized: mainWindow.isMaximized()
+    };
+  }
+  const fullscreen = await transitionMainWindowFullscreen(true);
+  if (!fullscreen) {
+    mainWindowFullscreenOwner = null;
+    restoreServerMonitoringWindowState();
+  }
   return fullscreen;
 });
 
@@ -11949,6 +12723,8 @@ ipcMain.handle('auth:google', async () => {
   }
 });
 
+ipcMain.handle('auth:google-cancel', () => cancelPendingGoogleLogin?.() || false);
+
 ipcMain.handle('auth:logout', async () => {
   return withDatabaseAccessContextTransition(async () => {
     const settings = await readSettings();
@@ -12045,8 +12821,11 @@ ipcMain.handle('teams:create', async (_event, payload = {}) => {
 
   return withDatabaseAccessContextTransition(async () => {
     const settings = await readSettings();
+    const previousWorkspaceId = settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
     cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
     await writeSettings({ ...settings, activeTeamId: teamId, activeTeamName: name, activeTeamUid: auth.uid });
+    await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
+    await syncWorkspaceControlFromCloud(teamId, { force: true }).catch(async (error) => logWorkspaceControlSyncFailure(error, teamId));
     return teamSnapshot();
   });
 });
@@ -12058,6 +12837,7 @@ ipcMain.handle('teams:switch', async (_event, teamId) => {
   if (!team || !member) throw new Error('You do not have access to this team.');
   return withDatabaseAccessContextTransition(async () => {
     const settings = await readSettings();
+    const previousWorkspaceId = String(settings.activeTeamId || '');
     cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
     await writeSettings({
       ...settings,
@@ -12065,6 +12845,8 @@ ipcMain.handle('teams:switch', async (_event, teamId) => {
       activeTeamName: team.name || 'Workspace',
       activeTeamUid: auth.uid
     });
+    if (previousWorkspaceId !== String(teamId)) await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
+    await syncWorkspaceControlFromCloud(String(teamId), { force: true }).catch(async (error) => logWorkspaceControlSyncFailure(error, String(teamId)));
     return teamSnapshot();
   });
 });
@@ -12132,8 +12914,10 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
   const team = await getDoc(['teams', teamId]).catch(() => null);
   await updateUserTeamRef(auth.uid, { teamId, name: team?.name || invite.teamName || 'Team', role: member.role });
   return withDatabaseAccessContextTransition(async () => {
+    const previousSettings = await readSettings();
+    const previousWorkspaceId = String(previousSettings.activeTeamId || '');
     await writeSettings({
-      ...(await readSettings()),
+      ...previousSettings,
       activeTeamId: teamId,
       activeTeamName: team?.name || invite.teamName || 'Team',
       activeTeamUid: auth.uid
@@ -12142,6 +12926,7 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
     const acceptedInvite = { ...invite, status: 'accepted', acceptedBy: auth.uid, updatedAt: acceptedAt };
     await patchDoc(['teams', teamId, 'invites', inviteId], acceptedInvite).catch(() => {});
     await deleteInviteInboxDocument(acceptedInvite).catch(() => {});
+    if (previousWorkspaceId !== String(teamId)) await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
     return teamSnapshot();
   });
 });
@@ -12174,6 +12959,11 @@ ipcMain.handle('teams:delete', async (_event, payload = {}) => {
   const deleteTeam = async () => {
     await deleteCollectionDocuments(['teams', teamId, 'projects']);
     await deleteCollectionDocuments(['teams', teamId, 'templates']);
+    await deleteCollectionDocuments(['teams', teamId, UPTIME_CLOUD_COLLECTIONS.monitors]);
+    await deleteCollectionDocuments(['teams', teamId, UPTIME_CLOUD_COLLECTIONS.checks]);
+    await deleteCollectionDocuments(['teams', teamId, UPTIME_CLOUD_COLLECTIONS.incidents]);
+    await deleteCollectionDocuments(['teams', teamId, UPTIME_CLOUD_COLLECTIONS.maintenance]);
+    await deleteCollectionDocuments(['teams', teamId, WORKSPACE_CONTROL_CLOUD_COLLECTION]);
     await deleteCollectionDocuments(['teams', teamId, 'invites']);
     await deleteTeamMemberDocuments(teamId, auth.uid);
     await deleteDoc(['teams', teamId]);
@@ -12682,145 +13472,37 @@ const uptimeIpcMain = {
 uptimeIpcMain.handle('uptime:monitors:list', async (_event, options = {}) => listUptimeMonitorsOperation(options));
 uptimeIpcMain.handle('uptime:monitors:get', async (_event, payload = {}) => getUptimeMonitorOperation(payload));
 
-uptimeIpcMain.handle('uptime:monitors:create', async (_event, input = {}) => {
-  const context = await uptimeOperationalContext();
-  const prepared = await prepareUptimeMonitorForSave(context, input);
-  let monitor;
-  try {
-    if (!Object.prototype.hasOwnProperty.call(prepared.payload, 'nextCheckAt')) {
-      const disabled = ['paused', 'disabled'].includes(String(prepared.payload.state || '').toLowerCase());
-      prepared.payload.nextCheckAt = disabled
-        ? null
-        : new Date(Date.now() + Number(prepared.payload.timeoutMs || 10000) + 5000).toISOString();
-    }
-    monitor = await getUptimeControlDatabaseV2().createMonitor(context.workspaceId, context.actorId, prepared.payload);
-  } catch (error) {
-    await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
-    throw error;
-  }
-  if (monitor.state === 'enabled') {
-    const transition = await executeUptimeMonitorCheck({
-      controlDatabase: getUptimeControlDatabaseV2(),
-      incidentPolicy: uptimeIncidentPolicyService,
-      workspaceId: context.workspaceId,
-      actorId: context.actorId,
-      monitor,
-      secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
-      probeId: `local-windows:${backupDeviceId || process.pid}`,
-      scheduledAt: nowIso()
-    });
-    monitor = transition.monitor;
-  }
-  emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
-  await maybeStartDetachedUptimeWorker().catch(() => {});
-  return monitor;
-});
-
-uptimeIpcMain.handle('uptime:monitors:update', async (_event, input = {}) => {
-  const context = await uptimeOperationalContext();
-  const database = getUptimeControlDatabaseV2();
-  const current = await database.getMonitor(context.workspaceId, input.id);
-  if (!current) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
-  const prepared = await prepareUptimeMonitorForSave(context, input, current);
-  try {
-    const monitor = await database.updateMonitor(context.workspaceId, context.actorId, current.id, prepared.payload, input.revision);
-    const previousRefs = Object.values(current.config?.secretHeaderRefs || {});
-    const currentRefs = new Set(Object.values(monitor.config?.secretHeaderRefs || {}).map(String));
-    await cleanupUptimeSecretReferences(context, previousRefs.filter((id) => !currentRefs.has(String(id))));
-    if (monitor.state === 'enabled') await maybeStartDetachedUptimeWorker().catch(() => {});
-    emitUptimeEvent('uptime:monitor-updated-v2', { monitorId: monitor.id });
-    return monitor;
-  } catch (error) {
-    await cleanupUptimeSecretReferences(context, prepared.createdSecretRefIds);
-    throw error;
-  }
-});
-
-uptimeIpcMain.handle('uptime:monitors:delete', async (_event, payload = {}) => {
-  const context = await uptimeOperationalContext();
-  const database = getUptimeControlDatabaseV2();
-  const current = await database.getMonitor(context.workspaceId, payload.id);
-  if (!current) return { id: String(payload.id || ''), deleted: false, absent: true };
-  const result = await database.deleteMonitor(context.workspaceId, context.actorId, current.id, payload.revision);
-  if (result.deleted) {
-    await cleanupUptimeSecretReferences(context, Object.values(current.config?.secretHeaderRefs || {}));
-    emitUptimeEvent('uptime:monitor-deleted-v2', { monitorId: current.id });
-  }
-  return result;
-});
+uptimeIpcMain.handle('uptime:monitors:create', async (_event, input = {}) => createUptimeMonitorOperation(input));
+uptimeIpcMain.handle('uptime:monitors:update', async (_event, input = {}) => updateUptimeMonitorOperation(input));
+uptimeIpcMain.handle('uptime:monitors:delete', async (_event, payload = {}) => deleteUptimeMonitorOperation(payload));
 
 uptimeIpcMain.handle('uptime:monitors:test', async (_event, input = {}) => testUptimeMonitorOperation(input));
 
-uptimeIpcMain.handle('uptime:monitors:run-now', async (_event, payload = {}) => {
-  const context = await uptimeOperationalContext();
-  const database = getUptimeControlDatabaseV2();
-  const monitor = await database.getMonitor(context.workspaceId, payload.id);
-  if (!monitor) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
-  if (monitor.state !== 'enabled') throw Object.assign(new Error('Enable the monitor before running it.'), { code: 'UPTIME_MONITOR_NOT_ENABLED' });
-  const scheduledAt = nowIso();
-  const leased = await database.updateMonitor(context.workspaceId, context.actorId, monitor.id, {
-    nextCheckAt: new Date(Date.now() + Number(monitor.timeoutMs || 10000) + 5000).toISOString()
-  }, monitor.revision);
-  const transition = await executeUptimeMonitorCheck({
-    controlDatabase: database,
-    incidentPolicy: uptimeIncidentPolicyService,
-    workspaceId: context.workspaceId,
-    actorId: context.actorId,
-    monitor: leased,
-    secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
-    probeId: `local-windows:${backupDeviceId || process.pid}`,
-    scheduledAt
-  });
-  await maybeStartDetachedUptimeWorker().catch(() => {});
-  emitUptimeEvent('uptime:monitor-run-completed-v2', { monitorId: monitor.id });
-  return { queued: false, completed: true, monitorId: monitor.id, revision: transition.monitor.revision };
-});
+uptimeIpcMain.handle('uptime:monitors:run-now', async (_event, payload = {}) => runUptimeMonitorNowOperation(payload));
 
 uptimeIpcMain.handle('uptime:checks:list', async (_event, payload = {}) => {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   return getUptimeControlDatabaseV2().listChecks(context.workspaceId, payload.monitorId, payload);
 });
 
 uptimeIpcMain.handle('uptime:incidents:list', async (_event, options = {}) => {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   return getUptimeControlDatabaseV2().listIncidents(context.workspaceId, options);
 });
 
-uptimeIpcMain.handle('uptime:incidents:acknowledge', async (_event, payload = {}) => {
-  const context = await uptimeOperationalContext();
-  if (!uptimeIncidentPolicyService) throw new Error('Uptime incident policy is not initialized.');
-  const incident = await uptimeIncidentPolicyService.acknowledge(context.workspaceId, context.actorId, payload.id, payload.revision, payload.note);
-  if (!incident) throw Object.assign(new Error('Incident was not found.'), { code: 'UPTIME_INCIDENT_NOT_FOUND' });
-  emitUptimeEvent('uptime:incident-acknowledged-v2', { monitorId: incident.monitorId, incidentId: incident.id });
-  return incident;
-});
+uptimeIpcMain.handle('uptime:incidents:acknowledge', async (_event, payload = {}) => acknowledgeUptimeIncidentOperation(payload));
 
 uptimeIpcMain.handle('uptime:maintenance:list', async (_event, options = {}) => {
   const context = await uptimeOperationalContext();
+  await syncUptimeWorkspaceFromCloud(context);
   return getUptimeControlDatabaseV2().listMaintenanceWindows(context.workspaceId, options);
 });
 
-uptimeIpcMain.handle('uptime:maintenance:create', async (_event, input = {}) => {
-  const context = await uptimeOperationalContext();
-  const maintenance = await getUptimeControlDatabaseV2().createMaintenanceWindow(context.workspaceId, context.actorId, input);
-  emitUptimeEvent('uptime:maintenance-created', { maintenanceId: maintenance.id });
-  return maintenance;
-});
-
-uptimeIpcMain.handle('uptime:maintenance:update', async (_event, input = {}) => {
-  const context = await uptimeOperationalContext();
-  const maintenance = await getUptimeControlDatabaseV2().updateMaintenanceWindow(context.workspaceId, context.actorId, input.id, input, input.revision);
-  if (!maintenance) throw Object.assign(new Error('Maintenance window was not found.'), { code: 'UPTIME_MAINTENANCE_NOT_FOUND' });
-  emitUptimeEvent('uptime:maintenance-updated', { maintenanceId: maintenance.id });
-  return maintenance;
-});
-
-uptimeIpcMain.handle('uptime:maintenance:delete', async (_event, payload = {}) => {
-  const context = await uptimeOperationalContext();
-  const result = await getUptimeControlDatabaseV2().deleteMaintenanceWindow(context.workspaceId, context.actorId, payload.id, payload.revision);
-  if (result.deleted) emitUptimeEvent('uptime:maintenance-deleted', { maintenanceId: result.id });
-  return result;
-});
+uptimeIpcMain.handle('uptime:maintenance:create', async (_event, input = {}) => createUptimeMaintenanceOperation(input));
+uptimeIpcMain.handle('uptime:maintenance:update', async (_event, input = {}) => updateUptimeMaintenanceOperation(input));
+uptimeIpcMain.handle('uptime:maintenance:delete', async (_event, payload = {}) => deleteUptimeMaintenanceOperation(payload));
 
 uptimeIpcMain.handle('uptime:worker:status', async () => getUptimeServiceStatusV2());
 uptimeIpcMain.handle('uptime:settings:get', async () => getUptimeMonitoringSettings());

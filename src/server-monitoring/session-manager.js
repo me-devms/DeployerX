@@ -2,10 +2,12 @@ const { Client } = require('ssh2');
 const { buildCollectorCommand, executeCollectorCommand, parseCollectorOutput } = require('./linux-collector');
 
 class ServerMonitoringSessionManager {
-  constructor({ emit = () => {}, clientFactory = () => new Client(), pollIntervalMs = 2000, processIntervalMs = 5000, storageIntervalMs = 10000 } = {}) {
+  constructor({ emit = () => {}, clientFactory = () => new Client(), pollIntervalMs = 2000, startupRetryMs = 250, startupGraceMs = 8000, processIntervalMs = 5000, storageIntervalMs = 10000 } = {}) {
     this.emit = emit;
     this.clientFactory = clientFactory;
     this.pollIntervalMs = pollIntervalMs;
+    this.startupRetryMs = startupRetryMs;
+    this.startupGraceMs = startupGraceMs;
     this.processIntervalMs = processIntervalMs;
     this.storageIntervalMs = storageIntervalMs;
     this.sessions = new Map();
@@ -21,6 +23,8 @@ class ServerMonitoringSessionManager {
       connection,
       ownsConnection: !connection,
       timer: null,
+      startupRetryTimer: null,
+      startedAt: Date.now(),
       reconnectTimer: null,
       reconnectAttempt: 0,
       polling: false,
@@ -29,12 +33,13 @@ class ServerMonitoringSessionManager {
       staticLoaded: false,
       lastStorageAt: 0,
       lastProcessesAt: 0,
+      consecutivePollFailures: 0,
       previousCounters: {},
       lastSample: null
     };
     this.sessions.set(sessionId, state);
     if (connection) {
-      this.#emit(state, 'status', { status: 'live' });
+      this.#emit(state, 'status', { status: 'connecting' });
       this.#startPolling(state);
     } else this.#connect(state);
     return { sessionId, projectId };
@@ -45,6 +50,7 @@ class ServerMonitoringSessionManager {
     if (!state) return false;
     state.paused = Boolean(paused);
     clearInterval(state.timer);
+    clearTimeout(state.startupRetryTimer);
     state.timer = null;
     if (state.paused) this.#emit(state, 'status', { status: 'paused' });
     else if (state.connection) {
@@ -115,6 +121,7 @@ class ServerMonitoringSessionManager {
 
   #startPolling(state) {
     clearInterval(state.timer);
+    clearTimeout(state.startupRetryTimer);
     this.#poll(state);
     state.timer = setInterval(() => this.#poll(state), this.pollIntervalMs);
   }
@@ -122,6 +129,7 @@ class ServerMonitoringSessionManager {
   async #poll(state) {
     if (state.stopped || state.paused || state.polling || !state.connection) return;
     state.polling = true;
+    let retryStartup = false;
     const now = Date.now();
     const includeStatic = !state.staticLoaded;
     const includeStorage = !state.lastStorageAt || now - state.lastStorageAt >= this.storageIntervalMs;
@@ -132,14 +140,27 @@ class ServerMonitoringSessionManager {
       const parsed = parseCollectorOutput(output, { previousCounters: state.previousCounters, previousSample: state.lastSample, sampledAt: Date.now() });
       state.previousCounters = parsed.counters;
       state.lastSample = parsed.sample;
+      state.consecutivePollFailures = 0;
+      clearTimeout(state.startupRetryTimer);
       if (includeStatic) state.staticLoaded = true;
       if (includeStorage) state.lastStorageAt = now;
       if (includeProcesses) state.lastProcessesAt = now;
       this.#emit(state, 'sample', { sample: parsed.sample });
     } catch (error) {
-      if (!state.stopped) this.#emit(state, 'error', { message: error.message || 'Could not collect server metrics.' });
+      if (!state.stopped) {
+        state.consecutivePollFailures += 1;
+        const inStartupGrace = !state.lastSample && Date.now() - state.startedAt < this.startupGraceMs;
+        retryStartup = inStartupGrace;
+        if (!inStartupGrace && state.consecutivePollFailures >= 3) {
+          this.#emit(state, 'error', { message: error.message || 'Could not collect server metrics.' });
+        }
+      }
     } finally {
       state.polling = false;
+      if (retryStartup && !state.stopped && !state.paused && this.sessions.has(state.sessionId)) {
+        clearTimeout(state.startupRetryTimer);
+        state.startupRetryTimer = setTimeout(() => this.#poll(state), this.startupRetryMs);
+      }
     }
   }
 }

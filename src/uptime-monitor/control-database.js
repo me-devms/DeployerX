@@ -442,6 +442,43 @@ class UptimeControlDatabase {
     });
   }
 
+  upsertMonitorSnapshot(workspace, input = {}) {
+    return this.#transaction((database) => {
+      const tenant = workspaceId(workspace);
+      const normalized = normalizeMonitorInput(input);
+      const id = requiredText(input.id, 'Monitor ID', 200);
+      const revision = Math.max(1, Number(input.revision) || 1);
+      const createdAt = isoTime(input.createdAt || this.clock(), 'Monitor creation time');
+      const updatedAt = isoTime(input.updatedAt || createdAt, 'Monitor update time');
+      const deletedAt = input.deletedAt ? isoTime(input.deletedAt, 'Monitor deletion time') : null;
+      const createdBy = actorId(input.createdBy);
+      const updatedBy = actorId(input.updatedBy || input.createdBy);
+      const nextCheckAt = input.nextCheckAt ? isoTime(input.nextCheckAt, 'Next check time') : null;
+      const record = {
+        ...structuredClone(input),
+        ...normalized,
+        id,
+        workspaceId: tenant,
+        revision,
+        nextCheckAt,
+        createdAt,
+        updatedAt,
+        createdBy,
+        updatedBy,
+        deletedAt
+      };
+      const current = publicMonitor(rows(database, 'SELECT * FROM monitors WHERE workspace_id = ? AND id = ?', [tenant, id])[0]);
+      if (current && Date.parse(current.updatedAt) > Date.parse(updatedAt)) return current;
+      database.run(`INSERT INTO monitors(id,workspace_id,project_id,name,monitor_type,state,probe_id,next_check_at,revision,created_at,updated_at,created_by,updated_by,deleted_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET workspace_id=excluded.workspace_id,project_id=excluded.project_id,name=excluded.name,monitor_type=excluded.monitor_type,state=excluded.state,probe_id=excluded.probe_id,next_check_at=excluded.next_check_at,revision=excluded.revision,created_at=excluded.created_at,updated_at=excluded.updated_at,created_by=excluded.created_by,updated_by=excluded.updated_by,deleted_at=excluded.deleted_at,data_json=excluded.data_json`, [
+        id, tenant, record.projectId, record.name, record.type, record.state, record.probeId, nextCheckAt,
+        revision, createdAt, updatedAt, createdBy, updatedBy, deletedAt, JSON.stringify(record)
+      ]);
+      this.#replaceMonitorRoutes(database, record);
+      return publicMonitor(rows(database, 'SELECT * FROM monitors WHERE workspace_id = ? AND id = ?', [tenant, id])[0]);
+    });
+  }
+
   updateMonitor(workspace, actor, id, changes = {}, expectedRevision) {
     return this.#transaction((database) => {
       const tenant = workspaceId(workspace);
@@ -507,6 +544,20 @@ class UptimeControlDatabase {
     });
   }
 
+  upsertCheckSnapshot(workspace, input = {}) {
+    return this.#transaction((database) => {
+      const tenant = workspaceId(workspace);
+      const check = normalizeCheckInput(input);
+      const monitor = publicMonitor(rows(database, 'SELECT * FROM monitors WHERE workspace_id = ? AND id = ?', [tenant, check.monitorId])[0]);
+      if (!monitor) throw new UptimeControlDatabaseError('Monitor was not found.', 'UPTIME_MONITOR_NOT_FOUND');
+      database.run(`INSERT INTO checks(id,workspace_id,monitor_id,probe_id,scheduled_at,started_at,completed_at,outcome,latency_ms,status_code,failure_category,data_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET workspace_id=excluded.workspace_id,monitor_id=excluded.monitor_id,probe_id=excluded.probe_id,scheduled_at=excluded.scheduled_at,started_at=excluded.started_at,completed_at=excluded.completed_at,outcome=excluded.outcome,latency_ms=excluded.latency_ms,status_code=excluded.status_code,failure_category=excluded.failure_category,data_json=excluded.data_json`, [
+        check.id, tenant, check.monitorId, check.probeId, check.scheduledAt, check.startedAt, check.completedAt, check.outcome, check.latencyMs, check.statusCode, check.failureCategory || null, JSON.stringify({ ...check, workspaceId: tenant })
+      ]);
+      return publicCheck(rows(database, 'SELECT * FROM checks WHERE workspace_id = ? AND id = ?', [tenant, check.id])[0]);
+    });
+  }
+
   createIncident(workspace, actor, input = {}) {
     return this.#transaction((database) => {
       const tenant = workspaceId(workspace);
@@ -536,6 +587,28 @@ class UptimeControlDatabase {
       if (options.to) { clauses.push('opened_at <= ?'); parameters.push(isoTime(options.to, 'Incident range end')); }
       const limit = Math.max(1, Math.min(10000, Number(options.limit) || 500));
       return rows(database, `SELECT * FROM incidents WHERE ${clauses.join(' AND ')} ORDER BY opened_at DESC, id DESC LIMIT ?`, [...parameters, limit]).map(publicIncident);
+    });
+  }
+
+  upsertIncidentSnapshot(workspace, input = {}) {
+    return this.#transaction((database) => {
+      const tenant = workspaceId(workspace);
+      const normalized = normalizeIncidentInput(input);
+      const id = requiredText(input.id, 'Incident ID', 200);
+      const revision = Math.max(1, Number(input.revision) || 1);
+      const createdAt = isoTime(input.createdAt || input.openedAt || this.clock(), 'Incident creation time');
+      const updatedAt = isoTime(input.updatedAt || createdAt, 'Incident update time');
+      const createdBy = actorId(input.createdBy);
+      const updatedBy = actorId(input.updatedBy || input.createdBy);
+      const record = { ...structuredClone(input), ...normalized, id, workspaceId: tenant, revision, createdAt, updatedAt, createdBy, updatedBy };
+      const current = publicIncident(rows(database, 'SELECT * FROM incidents WHERE workspace_id = ? AND id = ?', [tenant, id])[0]);
+      if (current && Date.parse(current.updatedAt) > Date.parse(updatedAt)) return current;
+      database.run(`INSERT INTO incidents(id,workspace_id,monitor_id,state,severity,opened_at,acknowledged_at,resolved_at,revision,created_at,updated_at,created_by,updated_by,data_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET workspace_id=excluded.workspace_id,monitor_id=excluded.monitor_id,state=excluded.state,severity=excluded.severity,opened_at=excluded.opened_at,acknowledged_at=excluded.acknowledged_at,resolved_at=excluded.resolved_at,revision=excluded.revision,created_at=excluded.created_at,updated_at=excluded.updated_at,created_by=excluded.created_by,updated_by=excluded.updated_by,data_json=excluded.data_json`, [
+        id, tenant, record.monitorId, record.state, record.severity, record.openedAt, record.acknowledgedAt, record.resolvedAt,
+        revision, createdAt, updatedAt, createdBy, updatedBy, JSON.stringify(record)
+      ]);
+      return publicIncident(rows(database, 'SELECT * FROM incidents WHERE workspace_id = ? AND id = ?', [tenant, id])[0]);
     });
   }
 
@@ -574,6 +647,29 @@ class UptimeControlDatabase {
       if (options.activeAt) { const at = isoTime(options.activeAt, 'Active maintenance time'); clauses.push("state = 'enabled' AND starts_at <= ? AND ends_at > ?"); parameters.push(at, at); }
       const limit = Math.max(1, Math.min(10000, Number(options.limit) || 1000));
       return rows(database, `SELECT * FROM maintenance_windows WHERE ${clauses.join(' AND ')} ORDER BY starts_at DESC, id DESC LIMIT ?`, [...parameters, limit]).map(publicMaintenance);
+    });
+  }
+
+  upsertMaintenanceSnapshot(workspace, input = {}) {
+    return this.#transaction((database) => {
+      const tenant = workspaceId(workspace);
+      const normalized = normalizeMaintenanceInput(input);
+      const id = requiredText(input.id, 'Maintenance window ID', 200);
+      const revision = Math.max(1, Number(input.revision) || 1);
+      const createdAt = isoTime(input.createdAt || this.clock(), 'Maintenance creation time');
+      const updatedAt = isoTime(input.updatedAt || createdAt, 'Maintenance update time');
+      const deletedAt = input.deletedAt ? isoTime(input.deletedAt, 'Maintenance deletion time') : null;
+      const createdBy = actorId(input.createdBy);
+      const updatedBy = actorId(input.updatedBy || input.createdBy);
+      const record = { ...structuredClone(input), ...normalized, id, workspaceId: tenant, revision, createdAt, updatedAt, createdBy, updatedBy, deletedAt };
+      const current = publicMaintenance(rows(database, 'SELECT * FROM maintenance_windows WHERE workspace_id = ? AND id = ?', [tenant, id])[0]);
+      if (current && Date.parse(current.updatedAt) > Date.parse(updatedAt)) return current;
+      database.run(`INSERT INTO maintenance_windows(id,workspace_id,name,state,starts_at,ends_at,timezone,revision,created_at,updated_at,created_by,updated_by,deleted_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET workspace_id=excluded.workspace_id,name=excluded.name,state=excluded.state,starts_at=excluded.starts_at,ends_at=excluded.ends_at,timezone=excluded.timezone,revision=excluded.revision,created_at=excluded.created_at,updated_at=excluded.updated_at,created_by=excluded.created_by,updated_by=excluded.updated_by,deleted_at=excluded.deleted_at,data_json=excluded.data_json`, [
+        id, tenant, record.name, record.state, record.startsAt, record.endsAt, record.timezone, revision,
+        createdAt, updatedAt, createdBy, updatedBy, deletedAt, JSON.stringify(record)
+      ]);
+      return publicMaintenance(rows(database, 'SELECT * FROM maintenance_windows WHERE workspace_id = ? AND id = ?', [tenant, id])[0]);
     });
   }
 

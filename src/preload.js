@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('deployerx', {
   register: (payload) => ipcRenderer.invoke('auth:register', payload),
   login: (payload) => ipcRenderer.invoke('auth:login', payload),
   loginWithGoogle: () => ipcRenderer.invoke('auth:google'),
+  cancelGoogleLogin: () => ipcRenderer.invoke('auth:google-cancel'),
   forgotPassword: (payload) => ipcRenderer.invoke('auth:forgotPassword', payload),
   changePassword: (payload) => ipcRenderer.invoke('auth:changePassword', payload),
   resendVerification: () => ipcRenderer.invoke('auth:resendVerification'),
@@ -89,6 +90,7 @@ contextBridge.exposeInMainWorld('deployerx', {
   startVnc: (payload) => ipcRenderer.invoke('vnc:start', payload),
   stopVnc: (sessionId) => ipcRenderer.invoke('vnc:stop', sessionId),
   setVncFullscreen: (payload) => ipcRenderer.invoke('vnc:fullscreen', payload),
+  setServerMonitoringFullscreen: (payload) => ipcRenderer.invoke('server-monitoring:fullscreen', payload),
   exportAccount: () => ipcRenderer.invoke('account:export'),
   importAccount: () => ipcRenderer.invoke('account:import'),
   listBackupSecrets: () => ipcRenderer.invoke('backup:secrets:list'),
@@ -584,6 +586,11 @@ contextBridge.exposeInMainWorld('deployerx', {
     const handler = (_event, enabled) => callback(Boolean(enabled));
     ipcRenderer.on('vnc:fullscreen-changed', handler);
     return () => ipcRenderer.removeListener('vnc:fullscreen-changed', handler);
+  },
+  onServerMonitoringFullscreenChanged: (callback) => {
+    const handler = (_event, enabled) => callback(Boolean(enabled));
+    ipcRenderer.on('server-monitoring:fullscreen-changed', handler);
+    return () => ipcRenderer.removeListener('server-monitoring:fullscreen-changed', handler);
   },
   onUptimeEvent: (callback) => {
     const handler = (_event, message) => callback(message);

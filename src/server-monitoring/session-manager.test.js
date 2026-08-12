@@ -30,6 +30,29 @@ class FakeClient extends EventEmitter {
   end() { queueMicrotask(() => this.emit('close')); }
 }
 
+class FlakyClient extends FakeClient {
+  constructor(failures) {
+    super();
+    this.failures = failures;
+  }
+  exec(command, callback) {
+    if (this.failures > 0) {
+      this.failures -= 1;
+      callback(new Error('SSH channel is still opening.'));
+      return;
+    }
+    super.exec(command, callback);
+  }
+}
+
+const waitFor = async (predicate, timeoutMs = 250) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for monitoring event.');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+};
+
 test('starts, samples, pauses, and stops a monitoring session', async () => {
   const events = [];
   const manager = new ServerMonitoringSessionManager({ emit: (event) => events.push(event), clientFactory: () => new FakeClient(), pollIntervalMs: 60000 });
@@ -55,4 +78,32 @@ test('borrows an existing terminal SSH client without connecting or closing it',
   assert.ok(events.some((event) => event.type === 'sample' && event.sample.system.hostname === 'test-host'));
   assert.equal(manager.stop('shared-monitor'), true);
   assert.equal(ended, false);
+});
+
+test('does not show an error when a borrowed SSH client succeeds after a transient poll failure', async () => {
+  const events = [];
+  const manager = new ServerMonitoringSessionManager({ emit: (event) => events.push(event), pollIntervalMs: 5 });
+  manager.start({ sessionId: 'transient-monitor', projectId: 'project-1', connection: new FlakyClient(1) });
+  await waitFor(() => events.some((event) => event.type === 'sample'));
+  assert.equal(events.some((event) => event.type === 'error'), false);
+  manager.stop('transient-monitor');
+});
+
+test('keeps a borrowed SSH client connecting until its first metric sample', async () => {
+  const events = [];
+  const manager = new ServerMonitoringSessionManager({ emit: (event) => events.push(event), pollIntervalMs: 60000, startupRetryMs: 1 });
+  manager.start({ sessionId: 'settling-monitor', projectId: 'project-1', connection: new FlakyClient(2) });
+  assert.equal(events.at(-1)?.status, 'connecting');
+  await waitFor(() => events.some((event) => event.type === 'sample'));
+  assert.equal(events.some((event) => event.type === 'error'), false);
+  manager.stop('settling-monitor');
+});
+
+test('shows an error after three consecutive metric collection failures', async () => {
+  const events = [];
+  const manager = new ServerMonitoringSessionManager({ emit: (event) => events.push(event), pollIntervalMs: 5, startupGraceMs: 0 });
+  manager.start({ sessionId: 'failed-monitor', projectId: 'project-1', connection: new FlakyClient(3) });
+  await waitFor(() => events.some((event) => event.type === 'error'));
+  assert.match(events.find((event) => event.type === 'error').message, /still opening/);
+  manager.stop('failed-monitor');
 });

@@ -9,9 +9,10 @@ const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
 
 test('wires About navigation, version metadata, and allowlisted external destinations', async () => {
-  const [html, renderer, preload, main] = await Promise.all([
+  const [html, renderer, styles, preload, main] = await Promise.all([
     fs.readFile(path.join(__dirname, 'index.html'), 'utf8'),
     fs.readFile(path.join(__dirname, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'styles.css'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'preload.js'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8')
   ]);
@@ -19,6 +20,15 @@ test('wires About navigation, version metadata, and allowlisted external destina
   assert.match(html, /data-settings-tab="about"/);
   assert.match(html, /data-settings-panel="about"/);
   assert.match(html, /id="aboutAppVersion"/);
+  assert.doesNotMatch(html, /data-settings-tab="database"/);
+  const backupPanel = html.match(/id="settingsBackupPanel"[\s\S]*?(?=<section id="settingsDatabasePanel")/)?.[0] || '';
+  const aboutPanel = html.match(/id="settingsAboutPanel"[\s\S]*?(?=<\/div>\s*<\/section>\s*<\/div>\s*<\/div>\s*<button id="logoutButton")/)?.[0] || '';
+  assert.ok(backupPanel.indexOf('backup-history-card') < backupPanel.indexOf('backup-account-card'));
+  assert.match(styles, /\.backup-settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(360px, 440px\)/s);
+  assert.doesNotMatch(backupPanel, /id="appUpdateOpenReleasesButton"/);
+  assert.match(aboutPanel, /class="settings-card app-update-card about-update-card"/);
+  assert.match(aboutPanel, /id="appUpdateOpenReleasesButton"/);
+  assert.match(aboutPanel, /id="appUpdateCheckButton"/);
   assert.match(renderer, /'theme', 'about'/);
   assert.match(renderer, /openExternalUrl\(button\.dataset\.aboutExternal\)/);
   assert.match(preload, /app:open-external-url/);

@@ -115,6 +115,27 @@ service cloud.firestore {
         allow read, create, update: if isTeamMember(teamId);
         allow delete: if isTeamMember(teamId) || isTeamOwner(teamId);
       }
+
+      match /uptimeMonitors/{monitorId} {
+        allow read, create, update, delete: if isTeamMember(teamId);
+      }
+
+      match /uptimeCheckWindows/{windowId} {
+        allow read, create, update, delete: if isTeamMember(teamId);
+      }
+
+      match /uptimeIncidents/{incidentId} {
+        allow read, create, update, delete: if isTeamMember(teamId);
+      }
+
+      match /uptimeMaintenance/{maintenanceId} {
+        allow read, create, update, delete: if isTeamMember(teamId);
+      }
+
+      match /workspaceControlRecords/{recordId} {
+        allow read, create, update, delete: if isTeamMember(teamId);
+      }
+
     }
 
     match /{path=**}/invites/{inviteId} {

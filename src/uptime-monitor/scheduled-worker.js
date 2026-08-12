@@ -64,7 +64,8 @@ class ScheduledUptimeWorkerService {
     processId = process.pid,
     maximumConcurrency = DEFAULT_MAXIMUM_CONCURRENCY,
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-    heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS
+    heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS,
+    onTransition = null
   } = {}) {
     if (!controlDatabase || !incidentPolicy) throw new TypeError('Uptime control database and incident policy are required.');
     this.controlDatabase = controlDatabase;
@@ -80,6 +81,7 @@ class ScheduledUptimeWorkerService {
     this.maximumConcurrency = Number(maximumConcurrency);
     this.pollIntervalMs = Number(pollIntervalMs);
     this.heartbeatIntervalMs = Number(heartbeatIntervalMs);
+    this.onTransition = typeof onTransition === 'function' ? onTransition : null;
     if (!Number.isInteger(this.maximumConcurrency) || this.maximumConcurrency < 1 || this.maximumConcurrency > 100) throw new TypeError('Uptime worker concurrency is invalid.');
     if (!Number.isInteger(this.pollIntervalMs) || this.pollIntervalMs < 100 || this.pollIntervalMs > 60000) throw new TypeError('Uptime worker poll interval is invalid.');
     this.workspaceId = '';
@@ -176,7 +178,7 @@ class ScheduledUptimeWorkerService {
   }
 
   async #runMonitor(monitor) {
-    return executeUptimeMonitorCheck({
+    const transition = await executeUptimeMonitorCheck({
       controlDatabase: this.controlDatabase,
       incidentPolicy: this.incidentPolicy,
       workspaceId: this.workspaceId,
@@ -187,6 +189,8 @@ class ScheduledUptimeWorkerService {
       clock: this.clock,
       probeId: this.probeId
     });
+    if (this.onTransition) await this.onTransition(transition);
+    return transition;
   }
 
   async #heartbeat(state) {

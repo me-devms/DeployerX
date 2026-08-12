@@ -6,6 +6,8 @@ const DATABASE_MANAGER_ENABLED = false;
 const SERVER_GROUPS_STORAGE_KEY = 'deployerx.server-groups.v1';
 const UPTIME_GROUP_CATALOG_STORAGE_KEY = 'deployerx.uptime-monitor-groups.v1';
 const SERVER_SIDEBAR_ORDER_STORAGE_KEY = 'deployerx.server-sidebar-order.v1';
+const SERVER_MONITORING_ORDER_STORAGE_KEY = 'deployerx.server-monitoring-order.v1';
+const NOTIFICATIONS_READ_STORAGE_KEY = 'deployerx.notifications.read.v1';
 const DATABASE_QUERY_TABS_STORAGE_KEY = 'deployerx.database-query-tabs.v1';
 const BACKUP_DATABASE_ADAPTER_ID_BY_CONNECTION_KIND = Object.freeze({
   mysql: 'deployerx.database.mysql.logical',
@@ -328,7 +330,9 @@ const state = {
   },
   auth: {
     session: null,
-    authMode: 'login'
+    authMode: 'login',
+    googleLoginPending: false,
+    googleLoginLostFocus: false
   },
   currentView: 'dashboard',
   backupManagerTab: 'overview',
@@ -522,13 +526,13 @@ const state = {
   activeProjectTab: 'ssh',
   serverMonitoring: {
     selectedProjectId: '',
-    sessionId: '',
-    terminalSessionId: '',
-    status: 'idle',
-    paused: false,
-    sample: null,
-    history: [],
-    error: ''
+    entries: {},
+    order: [],
+    viewMode: 'all',
+    fullscreenGroupIndex: 0,
+    connectingAll: false,
+    bulkAction: '',
+    draggedProjectId: ''
   },
   uptime: {
     activeTab: 'overview',
@@ -1623,6 +1627,7 @@ async function disconnectAllProjectConnections() {
   for (const projectId of projectIds) {
     await disconnectProjectConnections(projectId);
   }
+  await stopServerMonitoring();
 }
 
 const els = {
@@ -1671,34 +1676,12 @@ const els = {
   uptimeView: document.getElementById('uptimeView'),
   serverMonitoringView: document.getElementById('serverMonitoringView'),
   serverMonitoringEmpty: document.getElementById('serverMonitoringEmpty'),
-  serverMonitoringUnsupported: document.getElementById('serverMonitoringUnsupported'),
-  serverMonitoringDashboard: document.getElementById('serverMonitoringDashboard'),
-  serverMonitoringConnectOverlay: document.getElementById('serverMonitoringConnectOverlay'),
-  serverMonitoringConnectButton: document.getElementById('serverMonitoringConnectButton'),
+  serverMonitoringBoard: document.getElementById('serverMonitoringBoard'),
   serverMonitoringStatus: document.getElementById('serverMonitoringStatus'),
-  serverMonitoringPauseButton: document.getElementById('serverMonitoringPauseButton'),
-  serverMonitoringRefreshButton: document.getElementById('serverMonitoringRefreshButton'),
-  serverMonitoringServerIcon: document.getElementById('serverMonitoringServerIcon'),
-  serverMonitoringServerName: document.getElementById('serverMonitoringServerName'),
-  serverMonitoringServerEndpoint: document.getElementById('serverMonitoringServerEndpoint'),
-  serverMonitoringLastSample: document.getElementById('serverMonitoringLastSample'),
-  serverMonitoringError: document.getElementById('serverMonitoringError'),
-  serverMonitoringCpuValue: document.getElementById('serverMonitoringCpuValue'),
-  serverMonitoringCpuMeta: document.getElementById('serverMonitoringCpuMeta'),
-  serverMonitoringCpuBar: document.getElementById('serverMonitoringCpuBar'),
-  serverMonitoringMemoryValue: document.getElementById('serverMonitoringMemoryValue'),
-  serverMonitoringMemoryMeta: document.getElementById('serverMonitoringMemoryMeta'),
-  serverMonitoringMemoryBar: document.getElementById('serverMonitoringMemoryBar'),
-  serverMonitoringStorageValue: document.getElementById('serverMonitoringStorageValue'),
-  serverMonitoringStorageMeta: document.getElementById('serverMonitoringStorageMeta'),
-  serverMonitoringStorageBar: document.getElementById('serverMonitoringStorageBar'),
-  serverMonitoringUptimeValue: document.getElementById('serverMonitoringUptimeValue'),
-  serverMonitoringUptimeMeta: document.getElementById('serverMonitoringUptimeMeta'),
-  serverMonitoringTrendChart: document.getElementById('serverMonitoringTrendChart'),
-  serverMonitoringNetworkChart: document.getElementById('serverMonitoringNetworkChart'),
-  serverMonitoringStorageTable: document.getElementById('serverMonitoringStorageTable'),
-  serverMonitoringProcessTable: document.getElementById('serverMonitoringProcessTable'),
-  serverMonitoringSystemDetails: document.getElementById('serverMonitoringSystemDetails'),
+  serverMonitoringAllButton: document.getElementById('serverMonitoringAllButton'),
+  serverMonitoringByGroupButton: document.getElementById('serverMonitoringByGroupButton'),
+  serverMonitoringFullscreenButton: document.getElementById('serverMonitoringFullscreenButton'),
+  serverMonitoringConnectAllButton: document.getElementById('serverMonitoringConnectAllButton'),
   serversView: document.getElementById('serversView'),
   serversOverviewTotal: document.getElementById('serversOverviewTotal'),
   serversOverviewGroups: document.getElementById('serversOverviewGroups'),
@@ -2970,6 +2953,8 @@ const els = {
   topNotificationsDropdown: document.getElementById('topNotificationsDropdown'),
   topNotificationsMenu: document.getElementById('topNotificationsMenu'),
   topNotificationsBadge: document.getElementById('topNotificationsBadge'),
+  topUpdateButton: document.getElementById('topUpdateButton'),
+  topUpdateButtonLabel: document.getElementById('topUpdateButtonLabel'),
   sidebarToggleButton: document.getElementById('sidebarToggleButton'),
   topProfileDropdown: document.getElementById('topProfileDropdown'),
   topProfileButton: document.getElementById('topProfileButton'),
@@ -3815,6 +3800,7 @@ function applyAppUpdateState(update = {}, { toastOnDownloaded = false } = {}) {
   state.app.updates = normalizeAppUpdateState(update);
   if (state.app.updates.currentVersion) state.app.version = state.app.updates.currentVersion;
   renderAppUpdateCard();
+  renderTopUpdateAction();
   renderTopNotificationsMenu();
   if (toastOnDownloaded && previousStatus !== 'downloaded' && state.app.updates.status === 'downloaded') {
     const version = state.app.updates.downloadedVersion || state.app.updates.availableVersion || 'the latest release';
@@ -3921,6 +3907,38 @@ function renderAppUpdateCard() {
   if (els.appUpdateOpenReleasesButton) {
     els.appUpdateOpenReleasesButton.disabled = !update.releasePageUrl;
   }
+}
+
+function renderTopUpdateAction() {
+  if (!els.topUpdateButton || !els.topUpdateButtonLabel) return;
+  const update = normalizeAppUpdateState(state.app.updates);
+  const visible = ['available', 'downloading', 'downloaded', 'manual-update'].includes(update.status);
+  const version = update.downloadedVersion || update.availableVersion || '';
+
+  els.topUpdateButton.classList.toggle('hidden', !visible);
+  els.topUpdateButton.dataset.status = update.status || 'idle';
+  els.topUpdateButton.disabled = update.status === 'available' || update.status === 'downloading';
+
+  if (update.status === 'downloaded') {
+    els.topUpdateButtonLabel.textContent = 'Update now';
+    els.topUpdateButton.title = version ? `Restart and install DeployerX ${version}` : 'Restart and install the downloaded update';
+    els.topUpdateButton.setAttribute('aria-label', els.topUpdateButton.title);
+    return;
+  }
+
+  if (update.status === 'downloading') {
+    const percent = Math.max(0, Math.min(100, Math.round(update.downloadPercent)));
+    els.topUpdateButtonLabel.textContent = `Downloading ${percent}%`;
+    els.topUpdateButton.title = version ? `Downloading DeployerX ${version}` : 'Downloading application update';
+    els.topUpdateButton.setAttribute('aria-label', `${els.topUpdateButton.title}, ${percent}% complete`);
+    return;
+  }
+
+  els.topUpdateButtonLabel.textContent = 'Update available';
+  els.topUpdateButton.title = update.status === 'manual-update'
+    ? 'Automatic update metadata is unavailable. Open update settings for details.'
+    : (version ? `DeployerX ${version} is available and will download automatically` : 'An update is available and will download automatically');
+  els.topUpdateButton.setAttribute('aria-label', els.topUpdateButton.title);
 }
 
 let toastTimer = null;
@@ -6229,7 +6247,7 @@ async function refreshUptimeProjectState({ preserveSelection = true } = {}) {
   if (!state.uptime.monitors.length) state.uptime.overviewReport = null;
   renderUptimeWorkspace();
   if (state.uptime.selectedMonitorId) await loadSelectedUptimeMonitorHistory();
-  if (state.uptime.monitors.length && !state.uptime.overviewReport) await loadUptimeOverviewReport().catch(() => {});
+  if (state.uptime.monitors.length) await loadUptimeOverviewReport().catch(() => {});
 }
 
 function startUptimeAutoRefresh() {
@@ -10439,134 +10457,266 @@ function monitoringDuration(seconds) {
   return days ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
 }
 
-function monitoringChart(canvas, series, maximum = 100) {
-  if (!canvas) return;
-  const width = Math.max(320, Math.floor(canvas.clientWidth || canvas.parentElement?.clientWidth || 640));
-  const height = 220;
-  const ratio = window.devicePixelRatio || 1;
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
-  const context = canvas.getContext('2d');
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  context.clearRect(0, 0, width, height);
-  const styles = getComputedStyle(document.documentElement);
-  const line = styles.getPropertyValue('--line').trim() || 'rgba(24,24,27,.1)';
-  const muted = styles.getPropertyValue('--faint').trim() || '#a1a1aa';
-  const padding = { top: 14, right: 14, bottom: 26, left: 34 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-  context.font = '11px Segoe UI, sans-serif';
-  context.fillStyle = muted;
-  context.strokeStyle = line;
-  context.lineWidth = 1;
-  for (let index = 0; index <= 4; index += 1) {
-    const y = padding.top + (chartHeight * index / 4);
-    context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
-    context.fillText(`${Math.round(maximum - (maximum * index / 4))}${maximum === 100 ? '%' : ''}`, 2, y + 4);
+function serverMonitoringOrderStorageKey() {
+  return `${SERVER_MONITORING_ORDER_STORAGE_KEY}:${workspaceStorageScope()}`;
+}
+
+function persistServerMonitoringOrder() {
+  try { window.localStorage.setItem(serverMonitoringOrderStorageKey(), JSON.stringify(state.serverMonitoring.order)); } catch {}
+}
+
+function serverMonitoringProjects() {
+  return state.projects.filter((project) => !isVncServerType(project.serverType));
+}
+
+function reconcileServerMonitoringEntries() {
+  const projects = serverMonitoringProjects();
+  const projectIds = projects.map((project) => String(project.id));
+  if (!state.serverMonitoring.order.length) {
+    try { state.serverMonitoring.order = JSON.parse(window.localStorage.getItem(serverMonitoringOrderStorageKey()) || '[]'); } catch { state.serverMonitoring.order = []; }
   }
-  const count = Math.max(...series.map((item) => item.values.length), 0);
-  if (count < 2) {
-    context.fillText('Collecting samples...', padding.left + 12, padding.top + chartHeight / 2);
+  state.serverMonitoring.order = [...state.serverMonitoring.order.filter((id) => projectIds.includes(String(id))), ...projectIds.filter((id) => !state.serverMonitoring.order.includes(id))];
+  for (const project of projects) {
+    const projectId = String(project.id);
+    state.serverMonitoring.entries[projectId] ||= { projectId, sessionId: '', terminalSessionId: '', status: 'ssh-required', sample: null, history: [], error: '' };
+  }
+  for (const projectId of Object.keys(state.serverMonitoring.entries)) {
+    if (!projectIds.includes(projectId)) delete state.serverMonitoring.entries[projectId];
+  }
+}
+
+function monitoringStatusLabel(status) {
+  return ({ live: 'Live', connecting: 'Starting monitor', 'connecting-ssh': 'Connecting SSH', 'ssh-required': 'SSH required', reconnecting: 'Reconnecting', paused: 'Paused', error: 'Connection error', unsupported: 'SSH unavailable' })[status] || 'Ready';
+}
+
+function serverMonitoringConnectionRank(project, entry) {
+  if (entry?.status === 'live' || entry?.sessionId || getConnectedTerminalSession(project?.id)) return 0;
+  if (['connecting', 'connecting-ssh', 'reconnecting'].includes(entry?.status)
+    || getTerminalTabs(project?.id)?.some((session) => session.sessionId)) return 1;
+  return 2;
+}
+
+function monitoringMetric(label, value, meta, className, iconName, percent) {
+  return `<div class="server-monitoring-card-metric ${className}"><div><span>${escapeHtml(label)}</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-${iconName}"></use></svg></div><strong>${escapeHtml(value)}</strong><small>${escapeHtml(meta)}</small>${percent == null ? '' : `<i><b style="width:${Math.min(100, Math.max(0, percent))}%"></b></i>`}</div>`;
+}
+
+function renderServerMonitoringCard(project, entry) {
+  const terminalSession = getConnectedTerminalSession(project.id);
+  const sshConnecting = !terminalSession && Boolean(getTerminalTabs(project.id)?.some((session) => session.sessionId));
+  if (!entry.sessionId && terminalSession) entry.status = 'connecting';
+  else if (!entry.sessionId) entry.status = sshConnecting ? 'connecting-ssh' : 'ssh-required';
+  const sample = entry.sample;
+  const cpu = Number(sample?.cpu?.usagePercent);
+  const memory = Number(sample?.memory?.usagePercent);
+  const volumes = Array.isArray(sample?.storage) ? sample.storage : [];
+  const rootVolume = volumes.find((item) => item.mount === '/') || volumes[0];
+  const locked = entry.status !== 'live';
+  const connectLabel = sshConnecting || ['connecting', 'reconnecting'].includes(entry.status)
+    ? 'Connecting...'
+    : terminalSession
+      ? 'Retry Monitor'
+      : 'Connect SSH';
+  const card = document.createElement('article');
+  card.className = `server-monitoring-card is-${entry.status}${locked ? ' is-locked' : ''}`;
+  card.dataset.monitoringProject = String(project.id);
+  card.draggable = true;
+  card.innerHTML = `
+    <header class="server-monitoring-card-header">
+      <span class="server-monitoring-card-drag" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
+      <span class="server-monitoring-server-icon">${serverTypeIcon(project.serverType)}</span>
+      <span class="server-monitoring-card-identity"><strong>${escapeHtml(project.name || 'Untitled Server')}</strong><small>${escapeHtml(serverHost(project) || 'No host')}:${escapeHtml(project.ssh?.port || 22)}</small></span>
+      <span class="server-monitoring-card-status"><i></i>${monitoringStatusLabel(entry.status)}</span>
+    </header>
+    <div class="server-monitoring-card-body">
+      <div class="server-monitoring-card-content">
+        ${entry.error ? `<div class="server-monitoring-card-error"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-alert"></use></svg>${escapeHtml(entry.error)}</div>` : ''}
+        <div class="server-monitoring-card-metrics">
+          ${monitoringMetric('CPU', Number.isFinite(cpu) ? `${cpu.toFixed(1)}%` : '--', sample ? `${sample.cpu?.cores || '--'} cores` : 'Waiting for SSH', 'metric-cpu', 'activity', cpu)}
+          ${monitoringMetric('Memory', Number.isFinite(memory) ? `${memory.toFixed(1)}%` : '--', sample ? `${monitoringBytes(sample.memory?.usedBytes)} / ${monitoringBytes(sample.memory?.totalBytes)}` : 'Waiting for SSH', 'metric-memory', 'database', memory)}
+          ${monitoringMetric('Storage', rootVolume ? `${Number(rootVolume.usagePercent).toFixed(1)}%` : '--', rootVolume ? `${monitoringBytes(rootVolume.usedBytes)} / ${monitoringBytes(rootVolume.totalBytes)}` : 'Waiting for SSH', 'metric-storage', 'save', rootVolume?.usagePercent)}
+          ${monitoringMetric('Uptime', sample ? monitoringDuration(sample.system?.uptimeSeconds) : '--', sample?.system?.hostname || 'Waiting for SSH', 'metric-uptime', 'server')}
+        </div>
+      </div>
+      ${locked ? `<div class="server-monitoring-card-lock" role="status"><button class="button solid server-monitoring-card-connect" type="button" data-monitor-connect="${escapeHtml(project.id)}" ${sshConnecting || ['connecting', 'reconnecting'].includes(entry.status) ? 'disabled' : ''}><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-${terminalSession ? 'refresh' : 'server'}"></use></svg><span>${connectLabel}</span></button></div>` : ''}
+    </div>`;
+  card.querySelector('[data-monitor-connect]')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    connectServerMonitoringSsh(project.id, { restart: Boolean(terminalSession) }).catch((error) => showAlert(error.message || 'Could not connect SSH.'));
+  });
+  card.addEventListener('dragstart', (event) => {
+    state.serverMonitoring.draggedProjectId = String(project.id);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(project.id));
+    requestAnimationFrame(() => card.classList.add('is-dragging'));
+  });
+  card.addEventListener('dragover', (event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; card.classList.add('is-drag-target'); });
+  card.addEventListener('dragleave', () => card.classList.remove('is-drag-target'));
+  card.addEventListener('drop', (event) => {
+    event.preventDefault();
+    const sourceId = state.serverMonitoring.draggedProjectId || event.dataTransfer.getData('text/plain');
+    const targetId = String(project.id);
+    if (!sourceId || sourceId === targetId) return;
+    const order = state.serverMonitoring.order.filter((id) => id !== sourceId);
+    order.splice(order.indexOf(targetId), 0, sourceId);
+    state.serverMonitoring.order = order;
+    persistServerMonitoringOrder();
+    renderServerMonitoring();
+  });
+  card.addEventListener('dragend', () => { state.serverMonitoring.draggedProjectId = ''; card.classList.remove('is-dragging'); });
+  return card;
+}
+
+let serverMonitoringGroupRotationTimer = null;
+
+function serverMonitoringGroupedProjects(displayOrder) {
+  const groups = new Map();
+  for (const item of displayOrder) {
+    const name = serverGroupName(item.project);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(item);
+  }
+  const savedOrder = new Map(state.sidebarOrder.groups.map((name, index) => [name.toLocaleLowerCase(), index]));
+  return [...groups.entries()].sort(([first], [second]) => {
+    const firstIndex = savedOrder.get(first.toLocaleLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const secondIndex = savedOrder.get(second.toLocaleLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    return firstIndex - secondIndex || first.localeCompare(second);
+  });
+}
+
+function syncServerMonitoringGroupVisibility() {
+  const sections = [...els.serverMonitoringBoard.querySelectorAll('.server-monitoring-group')];
+  const rotating = state.serverMonitoring.viewMode === 'group' && els.appShell?.classList.contains('server-monitoring-fullscreen');
+  if (!sections.length) return;
+  state.serverMonitoring.fullscreenGroupIndex %= sections.length;
+  sections.forEach((section, index) => { section.hidden = rotating && index !== state.serverMonitoring.fullscreenGroupIndex; });
+}
+
+function stopServerMonitoringGroupRotation() {
+  if (serverMonitoringGroupRotationTimer) clearInterval(serverMonitoringGroupRotationTimer);
+  serverMonitoringGroupRotationTimer = null;
+}
+
+function syncServerMonitoringGroupRotation() {
+  syncServerMonitoringGroupVisibility();
+  const sections = els.serverMonitoringBoard.querySelectorAll('.server-monitoring-group');
+  const rotating = state.serverMonitoring.viewMode === 'group'
+    && els.appShell?.classList.contains('server-monitoring-fullscreen')
+    && sections.length > 1;
+  if (!rotating) {
+    stopServerMonitoringGroupRotation();
     return;
   }
-  for (const item of series) {
-    context.strokeStyle = item.color;
-    context.lineWidth = 2;
-    context.beginPath();
-    item.values.forEach((value, index) => {
-      const x = padding.left + (chartWidth * index / Math.max(1, count - 1));
-      const y = padding.top + chartHeight - (chartHeight * Math.min(maximum, Math.max(0, Number(value) || 0)) / maximum);
-      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
-    });
-    context.stroke();
-  }
+  if (serverMonitoringGroupRotationTimer) return;
+  serverMonitoringGroupRotationTimer = setInterval(() => {
+    const currentSections = els.serverMonitoringBoard.querySelectorAll('.server-monitoring-group');
+    if (!currentSections.length) return;
+    state.serverMonitoring.fullscreenGroupIndex = (state.serverMonitoring.fullscreenGroupIndex + 1) % currentSections.length;
+    syncServerMonitoringGroupVisibility();
+  }, 5000);
+}
+
+function setServerMonitoringViewMode(mode) {
+  state.serverMonitoring.viewMode = mode === 'group' ? 'group' : 'all';
+  state.serverMonitoring.fullscreenGroupIndex = 0;
+  els.serverMonitoringAllButton.classList.toggle('active', state.serverMonitoring.viewMode === 'all');
+  els.serverMonitoringByGroupButton.classList.toggle('active', state.serverMonitoring.viewMode === 'group');
+  els.serverMonitoringAllButton.setAttribute('aria-pressed', String(state.serverMonitoring.viewMode === 'all'));
+  els.serverMonitoringByGroupButton.setAttribute('aria-pressed', String(state.serverMonitoring.viewMode === 'group'));
+  renderServerMonitoring();
 }
 
 function renderServerMonitoring() {
+  reconcileServerMonitoringEntries();
   const monitoring = state.serverMonitoring;
-  const project = state.projects.find((item) => String(item.id) === String(monitoring.selectedProjectId));
-  const hasProject = Boolean(project);
-  const unsupported = hasProject && isVncServerType(project.serverType);
-  const terminalSessions = hasProject ? getTerminalTabs(project.id) : null;
-  const sshConnected = Boolean(terminalSessions?.some((session) => session.sessionId && session.connected));
-  const sshConnecting = !sshConnected && Boolean(terminalSessions?.some((session) => session.sessionId));
-  const sshLocked = hasProject && !unsupported && !sshConnected;
-  els.serverMonitoringEmpty.classList.toggle('hidden', hasProject);
-  els.serverMonitoringUnsupported.classList.toggle('hidden', !unsupported);
-  els.serverMonitoringDashboard.classList.toggle('hidden', !hasProject || unsupported);
-  els.serverMonitoringDashboard.classList.toggle('is-ssh-locked', sshLocked);
-  els.serverMonitoringConnectButton.disabled = sshConnecting;
-  els.serverMonitoringConnectButton.querySelector('span').textContent = sshConnecting ? 'Connecting SSH...' : 'Connect SSH';
-  els.serverMonitoringPauseButton.classList.toggle('hidden', !sshConnected);
-  els.serverMonitoringRefreshButton.classList.toggle('hidden', !sshConnected);
-  els.serverMonitoringPauseButton.disabled = !hasProject || unsupported || !sshConnected || !monitoring.sessionId;
-  els.serverMonitoringRefreshButton.disabled = !hasProject || unsupported || !sshConnected;
-  if (project) {
-    els.serverMonitoringServerIcon.innerHTML = serverTypeIcon(project.serverType);
-    els.serverMonitoringServerName.textContent = project.name || 'Untitled Server';
-    els.serverMonitoringServerEndpoint.textContent = `${serverHost(project) || 'No host'}:${project.ssh?.port || 22} / ${project.ssh?.username || 'No username'}`;
+  els.serverMonitoringAllButton.classList.toggle('active', monitoring.viewMode === 'all');
+  els.serverMonitoringByGroupButton.classList.toggle('active', monitoring.viewMode === 'group');
+  els.serverMonitoringAllButton.setAttribute('aria-pressed', String(monitoring.viewMode === 'all'));
+  els.serverMonitoringByGroupButton.setAttribute('aria-pressed', String(monitoring.viewMode === 'group'));
+  const projects = serverMonitoringProjects();
+  els.serverMonitoringEmpty.classList.toggle('hidden', Boolean(projects.length));
+  els.serverMonitoringBoard.classList.toggle('hidden', !projects.length);
+  els.serverMonitoringBoard.innerHTML = '';
+  els.serverMonitoringBoard.classList.toggle('is-grouped', monitoring.viewMode === 'group');
+  const displayOrder = monitoring.order
+    .map((projectId, savedIndex) => ({
+      projectId,
+      savedIndex,
+      project: state.projects.find((item) => String(item.id) === String(projectId))
+    }))
+    .filter((item) => item.project)
+    .sort((first, second) => (
+      serverMonitoringConnectionRank(first.project, monitoring.entries[first.projectId])
+      - serverMonitoringConnectionRank(second.project, monitoring.entries[second.projectId])
+      || first.savedIndex - second.savedIndex
+    ));
+  if (monitoring.viewMode === 'group') {
+    for (const [groupName, groupProjects] of serverMonitoringGroupedProjects(displayOrder)) {
+      const section = document.createElement('section');
+      section.className = 'server-monitoring-group';
+      section.dataset.monitoringGroup = groupName;
+      section.innerHTML = `<header class="server-monitoring-group-heading"><h2>${escapeHtml(groupName)}</h2><span>${groupProjects.length} server${groupProjects.length === 1 ? '' : 's'}</span></header><div class="server-monitoring-group-grid"></div>`;
+      const grid = section.querySelector('.server-monitoring-group-grid');
+      for (const { projectId, project } of groupProjects) {
+        grid.appendChild(renderServerMonitoringCard(project, monitoring.entries[projectId]));
+      }
+      els.serverMonitoringBoard.appendChild(section);
+    }
+  } else {
+    for (const { projectId, project } of displayOrder) {
+      els.serverMonitoringBoard.appendChild(renderServerMonitoringCard(project, monitoring.entries[projectId]));
+    }
   }
-  const statusText = monitoring.status === 'live' ? 'Live' : monitoring.status === 'connecting' ? 'Connecting' : monitoring.status === 'connecting-ssh' ? 'Connecting SSH' : monitoring.status === 'ssh-required' ? 'SSH required' : monitoring.status === 'reconnecting' ? 'Reconnecting' : monitoring.status === 'paused' ? 'Paused' : monitoring.status === 'error' ? 'Collection error' : unsupported ? 'Unsupported' : hasProject ? 'Starting' : 'Choose a server';
-  els.serverMonitoringStatus.className = `server-monitoring-status is-${monitoring.status}`;
-  els.serverMonitoringStatus.querySelector('span').textContent = statusText;
-  els.serverMonitoringStatus.title = monitoring.error || statusText;
-  els.serverMonitoringError.classList.toggle('hidden', !monitoring.error || unsupported || sshLocked);
-  els.serverMonitoringError.querySelector('span').textContent = monitoring.error || '';
-  els.serverMonitoringPauseButton.querySelector('span').textContent = monitoring.paused ? 'Resume' : 'Pause';
-  els.serverMonitoringPauseButton.querySelector('use').setAttribute('href', monitoring.paused ? '#icon-play' : '#icon-pause');
-  const sample = monitoring.sample;
-  if (!sample || !hasProject || unsupported) return;
-  const cpu = Number(sample.cpu?.usagePercent);
-  const memory = Number(sample.memory?.usagePercent);
-  const volumes = Array.isArray(sample.storage) ? sample.storage : [];
-  const rootVolume = volumes.find((item) => item.mount === '/') || volumes[0];
-  els.serverMonitoringCpuValue.textContent = Number.isFinite(cpu) ? `${cpu.toFixed(1)}%` : '--';
-  els.serverMonitoringCpuMeta.textContent = `${sample.cpu?.cores || '--'} cores / load ${[sample.cpu?.load1, sample.cpu?.load5, sample.cpu?.load15].map((value) => Number(value || 0).toFixed(2)).join('  ')}`;
-  els.serverMonitoringCpuBar.style.width = `${Math.min(100, Math.max(0, cpu || 0))}%`;
-  els.serverMonitoringMemoryValue.textContent = Number.isFinite(memory) ? `${memory.toFixed(1)}%` : '--';
-  els.serverMonitoringMemoryMeta.textContent = `${monitoringBytes(sample.memory?.usedBytes)} used of ${monitoringBytes(sample.memory?.totalBytes)} / swap ${sample.memory?.swapUsagePercent?.toFixed?.(1) || '0.0'}%`;
-  els.serverMonitoringMemoryBar.style.width = `${Math.min(100, Math.max(0, memory || 0))}%`;
-  els.serverMonitoringStorageValue.textContent = rootVolume ? `${rootVolume.usagePercent.toFixed(1)}%` : '--';
-  els.serverMonitoringStorageMeta.textContent = rootVolume ? `${monitoringBytes(rootVolume.usedBytes)} used of ${monitoringBytes(rootVolume.totalBytes)} / ${volumes.length} volume${volumes.length === 1 ? '' : 's'}` : 'Waiting for storage data';
-  els.serverMonitoringStorageBar.style.width = `${rootVolume?.usagePercent || 0}%`;
-  els.serverMonitoringUptimeValue.textContent = monitoringDuration(sample.system?.uptimeSeconds);
-  els.serverMonitoringUptimeMeta.textContent = `${sample.system?.hostname || 'Unknown host'} / ${sample.system?.os || 'Linux'}`;
-  els.serverMonitoringLastSample.textContent = sample.sampledAt ? new Date(sample.sampledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--';
-  els.serverMonitoringStorageTable.innerHTML = volumes.length ? volumes.map((volume) => `<tr><td><strong>${escapeHtml(volume.mount)}</strong></td><td>${escapeHtml(volume.filesystem)}<small>${escapeHtml(volume.type || '')}</small></td><td>${monitoringBytes(volume.usedBytes)}</td><td>${monitoringBytes(volume.availableBytes)}</td><td><span class="monitoring-usage"><i><b style="width:${volume.usagePercent}%"></b></i>${volume.usagePercent.toFixed(1)}%</span></td></tr>`).join('') : '<tr><td colspan="5" class="server-monitoring-table-empty">No filesystem data returned</td></tr>';
-  const processes = Array.isArray(sample.processes) ? sample.processes : [];
-  els.serverMonitoringProcessTable.innerHTML = processes.length ? processes.map((process) => `<tr><td><strong>${escapeHtml(process.name)}</strong></td><td>${process.pid}</td><td>${process.cpuPercent.toFixed(1)}%</td><td>${process.memoryPercent.toFixed(1)}%</td></tr>`).join('') : '<tr><td colspan="4" class="server-monitoring-table-empty">No process data returned</td></tr>';
-  const systemDetails = [['Hostname', sample.system?.hostname], ['Operating system', sample.system?.os], ['Kernel', sample.system?.kernel], ['Interfaces', `${sample.network?.interfaces?.length || 0} active`], ['Receive rate', monitoringRate(sample.network?.receiveBytesPerSecond)], ['Transmit rate', monitoringRate(sample.network?.transmitBytesPerSecond)]];
-  els.serverMonitoringSystemDetails.innerHTML = systemDetails.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || '--')}</strong></div>`).join('');
-  const history = monitoring.history;
-  monitoringChart(els.serverMonitoringTrendChart, [{ values: history.map((item) => item.cpu), color: '#2563eb' }, { values: history.map((item) => item.memory), color: '#0f766e' }]);
-  const networkMaximum = Math.max(1, ...history.flatMap((item) => [item.receive, item.transmit]));
-  monitoringChart(els.serverMonitoringNetworkChart, [{ values: history.map((item) => item.receive), color: '#d97706' }, { values: history.map((item) => item.transmit), color: '#9333ea' }], networkMaximum);
+  syncServerMonitoringGroupRotation();
+  const entries = Object.values(monitoring.entries);
+  const liveCount = entries.filter((entry) => entry.status === 'live').length;
+  const connectingCount = entries.filter((entry) => ['connecting', 'connecting-ssh', 'reconnecting'].includes(entry.status)).length;
+  const eligibleCount = projects.length;
+  const allConnected = eligibleCount > 0 && liveCount === eligibleCount;
+  const bulkAction = monitoring.bulkAction || (allConnected ? 'disconnect' : 'connect');
+  els.serverMonitoringStatus.className = `server-monitoring-status ${liveCount ? 'is-live' : connectingCount ? 'is-connecting' : 'is-ssh-required'}`;
+  els.serverMonitoringStatus.querySelector('span').textContent = liveCount ? `${liveCount} of ${eligibleCount} live` : connectingCount ? `${connectingCount} connecting` : 'No live servers';
+  els.serverMonitoringConnectAllButton.disabled = monitoring.connectingAll || !eligibleCount;
+  els.serverMonitoringConnectAllButton.dataset.action = allConnected ? 'disconnect' : 'connect';
+  els.serverMonitoringConnectAllButton.classList.toggle('danger', allConnected);
+  els.serverMonitoringConnectAllButton.querySelector('use').setAttribute('href', `#icon-${allConnected ? 'power' : 'server'}`);
+  const bulkLabel = monitoring.connectingAll
+    ? bulkAction === 'disconnect' ? 'Disconnecting...' : 'Connecting...'
+    : allConnected ? 'Disconnect All' : 'Connect All';
+  els.serverMonitoringConnectAllButton.querySelector('span').textContent = bulkLabel;
+  els.serverMonitoringConnectAllButton.setAttribute('aria-label', bulkLabel);
 }
 
-async function stopServerMonitoring() {
-  const sessionId = state.serverMonitoring.sessionId;
-  state.serverMonitoring.sessionId = '';
-  state.serverMonitoring.terminalSessionId = '';
-  if (sessionId) await window.deployerx.stopServerMonitoring(sessionId).catch(() => {});
+async function stopServerMonitoring(projectId = '') {
+  const entries = projectId ? [state.serverMonitoring.entries[String(projectId)]] : Object.values(state.serverMonitoring.entries);
+  await Promise.all(entries.filter(Boolean).map(async (entry) => {
+    const sessionId = entry.sessionId;
+    entry.sessionId = '';
+    entry.terminalSessionId = '';
+    if (sessionId) await window.deployerx.stopServerMonitoring(sessionId).catch(() => {});
+  }));
 }
 
 async function startServerMonitoringForProject(project, terminalSession = getConnectedTerminalSession(project?.id)) {
-  if (!project || !terminalSession?.sessionId || !terminalSession.connected) return false;
-  if (String(state.serverMonitoring.selectedProjectId) !== String(project.id)) return false;
+  if (!project || !terminalSession?.sessionId || !terminalSession.connected || isVncServerType(project.serverType)) return false;
+  reconcileServerMonitoringEntries();
+  const entry = state.serverMonitoring.entries[String(project.id)];
+  if (entry.sessionId && entry.terminalSessionId === terminalSession.sessionId) return true;
+  if (entry.sessionId) await stopServerMonitoring(project.id);
   const sessionId = `monitor_${window.crypto.randomUUID()}`;
-  state.serverMonitoring.sessionId = sessionId;
-  state.serverMonitoring.terminalSessionId = terminalSession.sessionId;
-  state.serverMonitoring.status = 'connecting';
+  entry.sessionId = sessionId;
+  entry.terminalSessionId = terminalSession.sessionId;
+  entry.status = 'connecting';
+  entry.error = '';
   renderServerMonitoring();
   try {
     await window.deployerx.startServerMonitoring({ sessionId, terminalSessionId: terminalSession.sessionId, project });
     return true;
   } catch (error) {
-    if (state.serverMonitoring.sessionId !== sessionId) return false;
-    state.serverMonitoring.sessionId = '';
-    state.serverMonitoring.terminalSessionId = '';
-    state.serverMonitoring.status = 'error';
-    state.serverMonitoring.error = error.message || 'Could not start monitoring.';
+    if (entry.sessionId !== sessionId) return false;
+    entry.sessionId = '';
+    entry.terminalSessionId = '';
+    entry.status = 'error';
+    entry.error = error.message || 'Could not start monitoring.';
     renderServerMonitoring();
     return false;
   }
@@ -10575,18 +10725,10 @@ async function startServerMonitoringForProject(project, terminalSession = getCon
 async function selectServerForMonitoring(projectId) {
   const project = state.projects.find((item) => String(item.id) === String(projectId));
   if (!project) return;
-  await stopServerMonitoring();
   state.serverMonitoring.selectedProjectId = String(project.id);
-  state.serverMonitoring.sample = null;
-  state.serverMonitoring.history = [];
-  state.serverMonitoring.error = '';
-  state.serverMonitoring.paused = false;
-  const terminalSession = getConnectedTerminalSession(project.id);
-  const sshConnecting = Boolean(getTerminalTabs(project.id)?.some((session) => session.sessionId));
-  state.serverMonitoring.status = isVncServerType(project.serverType) ? 'unsupported' : terminalSession ? 'connecting' : sshConnecting ? 'connecting-ssh' : 'ssh-required';
   renderProjects();
   renderServerMonitoring();
-  if (!isVncServerType(project.serverType) && terminalSession) await startServerMonitoringForProject(project, terminalSession);
+  requestAnimationFrame(() => els.serverMonitoringBoard.querySelector(`[data-monitoring-project="${CSS.escape(String(project.id))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 }
 
 function resolveServerMonitoringProject() {
@@ -10615,23 +10757,85 @@ function syncServerMonitoringProjectSelection() {
   return project;
 }
 
-async function connectServerMonitoringSsh() {
-  const project = resolveServerMonitoringProject();
-  if (project && String(state.serverMonitoring.selectedProjectId) !== String(project.id)) {
-    await selectServerForMonitoring(project.id);
+async function connectServerMonitoringSsh(projectId = state.serverMonitoring.selectedProjectId, options = {}) {
+  const project = state.projects.find((item) => String(item.id) === String(projectId));
+  if (!project || isVncServerType(project.serverType)) return false;
+  reconcileServerMonitoringEntries();
+  const entry = state.serverMonitoring.entries[String(project.id)];
+  const connectedSession = getConnectedTerminalSession(project.id);
+  if (connectedSession) {
+    if (options.restart) await stopServerMonitoring(project.id);
+    return startServerMonitoringForProject(project, connectedSession);
   }
-  if (!project || isVncServerType(project.serverType) || getConnectedTerminalSession(project.id)) return;
   const terminalSession = getTerminalTabs(project.id, true)?.find((session) => session.sessionId) || getTerminalSession(project.id, true);
-  state.serverMonitoring.status = terminalSession?.sessionId ? 'connecting-ssh' : 'ssh-required';
+  entry.status = terminalSession?.sessionId ? 'connecting-ssh' : 'ssh-required';
+  entry.error = '';
   renderServerMonitoring();
-  await connectTerminal(project, terminalSession);
-  state.serverMonitoring.status = terminalSession?.connected ? 'connecting' : terminalSession?.sessionId ? 'connecting-ssh' : 'ssh-required';
+  await connectTerminal(project, terminalSession, { useDefaultUser: Boolean(options.useDefaultUser) });
+  entry.status = terminalSession?.connected ? 'connecting' : terminalSession?.sessionId ? 'connecting-ssh' : 'ssh-required';
   renderServerMonitoring();
+  if (terminalSession?.connected) return startServerMonitoringForProject(project, terminalSession);
+  return false;
 }
 
-function openSidebarProject(projectId) {
-  if (state.currentView === 'server-monitoring') selectServerForMonitoring(projectId).catch((error) => showAlert(error.message || 'Could not select server.'));
-  else openProject(projectId);
+async function connectAllServerMonitoring() {
+  if (state.serverMonitoring.connectingAll) return;
+  state.serverMonitoring.connectingAll = true;
+  state.serverMonitoring.bulkAction = 'connect';
+  renderServerMonitoring();
+  try {
+    for (const projectId of state.serverMonitoring.order) {
+      const project = serverMonitoringProjects().find((item) => String(item.id) === String(projectId));
+      if (project) await connectServerMonitoringSsh(project.id, { useDefaultUser: true });
+    }
+  } finally {
+    state.serverMonitoring.connectingAll = false;
+    state.serverMonitoring.bulkAction = '';
+    renderServerMonitoring();
+  }
+}
+
+async function disconnectAllServerMonitoring() {
+  if (state.serverMonitoring.connectingAll) return;
+  state.serverMonitoring.connectingAll = true;
+  state.serverMonitoring.bulkAction = 'disconnect';
+  renderServerMonitoring();
+  try {
+    const projects = serverMonitoringProjects();
+    await stopServerMonitoring();
+    for (const project of projects) {
+      const projectId = String(project.id);
+      for (const terminalSession of getTerminalTabs(projectId) || []) {
+        if (!terminalSession.sessionId) continue;
+        try {
+          await window.deployerx.stopTerminal(terminalSession.sessionId);
+        } catch {}
+        removeTerminalSessionRegistration(terminalSession.sessionId);
+      }
+      state.terminalTabCounters[projectId] = 0;
+      const terminalSession = createTerminalTabSession(projectId);
+      state.terminalSessions[projectId] = [terminalSession];
+      state.activeTerminalTabIds[projectId] = terminalSession.tabId;
+      const entry = state.serverMonitoring.entries[projectId];
+      if (entry) {
+        entry.status = 'ssh-required';
+        entry.sample = null;
+        entry.history = [];
+        entry.error = '';
+      }
+    }
+    if (state.activeProject?.id) applyTerminalSessionToState(String(state.activeProject.id));
+    renderProjects();
+  } finally {
+    state.serverMonitoring.connectingAll = false;
+    state.serverMonitoring.bulkAction = '';
+    renderServerMonitoring();
+  }
+}
+
+async function openSidebarProject(projectId) {
+  await openProject(projectId);
+  if (!isVncServerType(state.activeProject?.serverType)) setProjectTab('ssh');
 }
 
 function openTopSshTerminal() {
@@ -10651,11 +10855,10 @@ function openTopSshTerminal() {
 }
 
 function handleServerMonitoringEvent(event = {}) {
-  const monitoring = state.serverMonitoring;
-  if (!monitoring.sessionId || event.sessionId !== monitoring.sessionId) return;
+  const monitoring = Object.values(state.serverMonitoring.entries).find((entry) => entry.sessionId && event.sessionId === entry.sessionId);
+  if (!monitoring) return;
   if (event.type === 'status') {
     monitoring.status = event.status || monitoring.status;
-    monitoring.paused = monitoring.status === 'paused';
   } else if (event.type === 'error') {
     monitoring.status = 'error';
     monitoring.error = event.message || 'Metrics could not be collected.';
@@ -10667,6 +10870,33 @@ function handleServerMonitoringEvent(event = {}) {
     if (monitoring.history.length > 150) monitoring.history.splice(0, monitoring.history.length - 150);
   }
   renderServerMonitoring();
+}
+
+function applyServerMonitoringFullscreen(enabled) {
+  const active = Boolean(enabled);
+  els.appShell?.classList.toggle('server-monitoring-fullscreen', active);
+  els.serverMonitoringFullscreenButton.setAttribute('aria-pressed', String(active));
+  els.serverMonitoringFullscreenButton.setAttribute('aria-label', 'Enter full screen monitoring');
+  els.serverMonitoringFullscreenButton.title = 'Full screen';
+  els.serverMonitoringFullscreenButton.querySelector('use')?.setAttribute('href', '#icon-maximize');
+  if (active) els.serverMonitoringFullscreenButton.blur();
+  syncServerMonitoringGroupRotation();
+}
+
+async function setServerMonitoringFullscreen(enabled) {
+  const requested = Boolean(enabled);
+  applyServerMonitoringFullscreen(requested);
+  try {
+    const active = await window.deployerx.setServerMonitoringFullscreen({ enabled: requested });
+    if (Boolean(active) !== requested) {
+      throw new Error(requested ? 'Windows did not enter full screen.' : 'Windows did not exit full screen.');
+    }
+    applyServerMonitoringFullscreen(active);
+    return active;
+  } catch (error) {
+    if (!requested) applyServerMonitoringFullscreen(false);
+    throw error;
+  }
 }
 
 function showView(view) {
@@ -10709,6 +10939,9 @@ function showView(view) {
   const isProfile = view === 'profile';
   const isTeam = view === 'team';
   const isFullPageView = isProfile || isSshFile || isTeam;
+  if (!isServerMonitoring && els.appShell?.classList.contains('server-monitoring-fullscreen')) {
+    setServerMonitoringFullscreen(false).catch(() => applyServerMonitoringFullscreen(false));
+  }
   document.body.classList.toggle('project-view-active', isProject);
   if (isDashboard) startDashboardAutoRefresh();
   else stopDashboardAutoRefresh();
@@ -10744,15 +10977,13 @@ function showView(view) {
     startUptimeAutoRefresh();
     refreshUptimeProjectState({ preserveSelection: true }).catch((error) => showAlert(error.message || 'Could not load uptime monitors.'));
   } else {
-    if (!isServerMonitoring) stopServerMonitoring().catch(() => {});
     if (isServerMonitoring) {
       renderServerMonitoring();
-      const monitoringProject = resolveServerMonitoringProject();
-      if (monitoringProject && (
-        !state.serverMonitoring.sessionId
-        || String(state.serverMonitoring.selectedProjectId) !== String(monitoringProject.id)
-      )) {
-        selectServerForMonitoring(monitoringProject.id).catch(() => {});
+      for (const project of serverMonitoringProjects()) {
+        const terminalSession = getConnectedTerminalSession(project.id);
+        if (terminalSession && !state.serverMonitoring.entries[String(project.id)]?.sessionId) {
+          startServerMonitoringForProject(project, terminalSession).catch(() => {});
+        }
       }
     }
     stopUptimeAutoRefresh();
@@ -19598,6 +19829,11 @@ function promptForTerminalUser(project, terminalSession) {
   });
 }
 
+function defaultTerminalUser(project) {
+  const users = Array.isArray(project?.ssh?.users) ? project.ssh.users.filter((user) => user?.id) : [];
+  return users.find((user) => user.id === project?.ssh?.defaultUserId) || users[0] || null;
+}
+
 function closeVariablePrompt(result = null) {
   if (!variablePromptResolve) {
     setModalVisible(false, els.variablePromptModal);
@@ -19851,18 +20087,12 @@ function setSidebarCollapsed(collapsed, { persist = true } = {}) {
 }
 
 function syncSidebarForView(view = state.currentView) {
-  if (els.sidebarToggleButton) els.sidebarToggleButton.disabled = view === 'server-monitoring';
+  if (els.sidebarToggleButton) els.sidebarToggleButton.disabled = false;
   if (['profile', 'ssh-file', 'team'].includes(view)) {
     setSidebarCollapsed(true, { persist: false });
     return;
   }
   const prefersCollapsed = sidebarCollapsedPreference();
-  if (view === 'server-monitoring') {
-    setSidebarCollapsed(false, { persist: false });
-    els.sidebarToggleButton?.setAttribute('aria-label', 'Sidebar is required for real-time monitoring');
-    if (els.sidebarToggleButton) els.sidebarToggleButton.title = 'Sidebar is required for real-time monitoring';
-    return;
-  }
   setSidebarCollapsed(prefersCollapsed, { persist: false });
 }
 
@@ -20599,12 +20829,19 @@ function notificationItems() {
     items.push({ icon: 'cloud', title: 'Cloud sync needs attention', detail: state.teams.cloudError, action: 'settings' });
   }
   const update = normalizeAppUpdateState(state.app.updates);
-  if (update.status === 'downloaded' || update.status === 'available') {
+  if (['available', 'downloading', 'downloaded', 'manual-update'].includes(update.status)) {
+    const titles = {
+      available: 'Update available',
+      downloading: 'Update downloading',
+      downloaded: 'Update ready to install',
+      'manual-update': 'Update needs attention'
+    };
+    const progress = update.status === 'downloading' ? ` (${Math.round(update.downloadPercent)}%)` : '';
     items.push({
       icon: 'refresh',
-      title: update.status === 'downloaded' ? 'Update ready to install' : 'Update available',
-      detail: update.downloadedVersion || update.availableVersion || update.message || 'Open settings for details.',
-      action: 'updates'
+      title: titles[update.status],
+      detail: `${update.downloadedVersion || update.availableVersion || update.message || 'A new DeployerX release is available.'}${progress}`,
+      action: update.status === 'downloaded' ? 'install-update' : 'updates'
     });
   }
   if (state.teams.invites?.length) {
@@ -20627,16 +20864,51 @@ function notificationItems() {
   return items;
 }
 
+function notificationFingerprint(item) {
+  return [item.action, item.title, item.detail].join('\n');
+}
+
+function readNotificationFingerprints() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(NOTIFICATIONS_READ_STORAGE_KEY) || '[]');
+    return new Set(Array.isArray(stored) ? stored.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function unreadNotificationItems(items = notificationItems()) {
+  const read = readNotificationFingerprints();
+  const active = new Set(items.map(notificationFingerprint));
+  const currentRead = [...read].filter((fingerprint) => active.has(fingerprint));
+  if (currentRead.length !== read.size) {
+    try {
+      window.localStorage.setItem(NOTIFICATIONS_READ_STORAGE_KEY, JSON.stringify(currentRead));
+    } catch {}
+  }
+  return items.filter((item) => !read.has(notificationFingerprint(item)));
+}
+
+function markAllNotificationsAsRead() {
+  const fingerprints = notificationItems().map(notificationFingerprint);
+  try {
+    window.localStorage.setItem(NOTIFICATIONS_READ_STORAGE_KEY, JSON.stringify(fingerprints));
+  } catch {}
+  renderTopNotificationsMenu();
+  requestAnimationFrame(() => els.topNotificationsMenu.querySelector('[data-notification-action]')?.focus());
+}
+
 function renderTopNotificationsMenu() {
   const items = notificationItems();
-  els.topNotificationsBadge.classList.toggle('hidden', !items.length);
-  els.topNotificationsBadge.textContent = items.length > 9 ? '9+' : String(items.length || '');
+  const unreadItems = unreadNotificationItems(items);
+  els.topNotificationsBadge.classList.toggle('hidden', !unreadItems.length);
+  els.topNotificationsBadge.textContent = unreadItems.length > 9 ? '9+' : String(unreadItems.length || '');
   els.topNotificationsButton.setAttribute(
     'aria-label',
-    items.length ? `Open notifications, ${items.length} new` : 'Open notifications, none new'
+    unreadItems.length ? `Open notifications, ${unreadItems.length} new` : 'Open notifications, none new'
   );
   els.topNotificationsMenu.innerHTML = items.length
-    ? `<div class="top-notifications-heading">Notifications</div>${items.map((item) => `
+    ? `<div class="top-notifications-heading"><span>Notifications</span><button class="top-notifications-read-button" type="button" data-notifications-mark-read ${unreadItems.length ? '' : 'disabled'}>${icon('check')}<span>Mark all as read</span></button></div>${items.map((item) => `
         <button class="top-notification-item" type="button" role="menuitem" data-notification-action="${escapeHtml(item.action)}">
           <span class="top-notification-icon">${icon(item.icon)}</span>
           <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span>
@@ -21102,6 +21374,16 @@ function resetWorkspaceData() {
   state.sidebarOrder = { groups: [], projects: [] };
   state.templates = [];
   state.activeProject = null;
+  state.serverMonitoring = {
+    selectedProjectId: '',
+    entries: {},
+    order: [],
+    viewMode: 'all',
+    fullscreenGroupIndex: 0,
+    connectingAll: false,
+    bulkAction: '',
+    draggedProjectId: ''
+  };
   state.terminalSessions = {};
   state.terminalSessionProjectIds = {};
   state.activeTerminalTabIds = {};
@@ -21264,16 +21546,36 @@ async function submitGoogleAuth() {
   if (pendingActions.has('auth:submit')) return;
   try {
     pendingActions.add('auth:submit');
+    state.auth.googleLoginPending = true;
+    state.auth.googleLoginLostFocus = false;
     setAuthLoading(true, 'Opening Google...');
     const result = await window.deployerx.loginWithGoogle();
     await finishCloudAuth(result);
   } catch (error) {
-    showAuthMessage('Google login failed', friendlyAuthError(error, 'Check your Google login and try again.'));
+    if (!String(error?.message || error).toLowerCase().includes('google login cancelled')) {
+      showAuthMessage('Google login failed', friendlyAuthError(error, 'Check your Google login and try again.'));
+    }
   } finally {
+    state.auth.googleLoginPending = false;
+    state.auth.googleLoginLostFocus = false;
     pendingActions.delete('auth:submit');
     setAuthLoading(false);
   }
 }
+
+window.addEventListener('blur', () => {
+  if (state.auth.googleLoginPending) state.auth.googleLoginLostFocus = true;
+});
+
+window.addEventListener('focus', async () => {
+  if (!state.auth.googleLoginPending || !state.auth.googleLoginLostFocus) return;
+  state.auth.googleLoginLostFocus = false;
+  const cancelled = await window.deployerx.cancelGoogleLogin().catch(() => false);
+  if (!cancelled) return;
+  state.auth.googleLoginPending = false;
+  pendingActions.delete('auth:submit');
+  setAuthLoading(false);
+});
 
 async function forgotPassword() {
   const email = els.authEmail.value.trim();
@@ -22784,8 +23086,7 @@ function renderProjects() {
     const connectionLabel = connectionActive
       ? `${connectedServices.join(' and ')} connected`
       : `${isRdp ? 'VNC' : 'SSH and FTP'} disconnected`;
-    const isActiveProject = (state.currentView === 'project' && state.activeProject?.id === project.id)
-      || (state.currentView === 'server-monitoring' && state.serverMonitoring.selectedProjectId === String(project.id));
+    const isActiveProject = state.currentView === 'project' && state.activeProject?.id === project.id;
     const projectName = project.name || 'Untitled Server';
     const pinLabel = project.pinned ? `Remove ${projectName} from favorites` : `Add ${projectName} to favorites`;
     const item = document.createElement('div');
@@ -25305,10 +25606,12 @@ async function disconnectTerminal() {
   await window.deployerx.stopTerminal(sessionId);
 }
 
-async function connectTerminal(project = state.activeProject, terminalSession = getTerminalSession(project?.id, true)) {
+async function connectTerminal(project = state.activeProject, terminalSession = getTerminalSession(project?.id, true), options = {}) {
   if (!project || !terminalSession || terminalSession.sessionId || terminalSession.connected) return;
   try {
-    const selectedUser = await promptForTerminalUser(project, terminalSession);
+    const selectedUser = options.useDefaultUser
+      ? defaultTerminalUser(project)
+      : await promptForTerminalUser(project, terminalSession);
     if (!selectedUser) return;
     terminalSession.sshUserId = selectedUser.id;
     terminalSession.sshUsername = selectedUser.username;
@@ -25483,6 +25786,16 @@ function isEditableShortcutTarget(target) {
 }
 
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && els.appShell?.classList.contains('server-monitoring-fullscreen')) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!event.repeat) {
+      setServerMonitoringFullscreen(false)
+        .then(() => els.serverMonitoringFullscreenButton.focus())
+        .catch((error) => showAlert(error.message || 'Could not exit full screen monitoring.'));
+    }
+    return;
+  }
   if (event.key === 'Escape' && state.rdpFullscreen) {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -25628,17 +25941,15 @@ els.dashboardCreateButton.addEventListener('click', openCreateModal);
 els.dashboardQuickAddButton.addEventListener('click', openCreateModal);
 els.sidebarAddServerButton.addEventListener('click', openCreateModal);
 els.uptimeButton.addEventListener('click', () => showView('uptime'));
-els.serverMonitoringPauseButton.addEventListener('click', () => {
-  const sessionId = state.serverMonitoring.sessionId;
-  if (!sessionId) return;
-  const paused = !state.serverMonitoring.paused;
-  window.deployerx.pauseServerMonitoring(sessionId, paused).catch((error) => showAlert(error.message || 'Could not update monitoring.'));
+els.serverMonitoringConnectAllButton.addEventListener('click', () => {
+  const disconnecting = els.serverMonitoringConnectAllButton.dataset.action === 'disconnect';
+  const action = disconnecting ? disconnectAllServerMonitoring : connectAllServerMonitoring;
+  action().catch((error) => showAlert(error.message || `Could not ${disconnecting ? 'disconnect' : 'connect'} all servers.`));
 });
-els.serverMonitoringConnectButton.addEventListener('click', () => {
-  connectServerMonitoringSsh().catch((error) => showAlert(error.message || 'Could not connect SSH.'));
-});
-els.serverMonitoringRefreshButton.addEventListener('click', () => {
-  if (state.serverMonitoring.selectedProjectId) selectServerForMonitoring(state.serverMonitoring.selectedProjectId).catch((error) => showAlert(error.message || 'Could not refresh monitoring.'));
+els.serverMonitoringAllButton.addEventListener('click', () => setServerMonitoringViewMode('all'));
+els.serverMonitoringByGroupButton.addEventListener('click', () => setServerMonitoringViewMode('group'));
+els.serverMonitoringFullscreenButton.addEventListener('click', () => {
+  setServerMonitoringFullscreen(true).catch((error) => showAlert(error.message || 'Could not enter full screen monitoring.'));
 });
 els.dashboardImportAccountButton.addEventListener('click', importAccount);
 els.dashboardExportAccountButton.addEventListener('click', exportAccount);
@@ -27010,19 +27321,32 @@ els.profileBackButton.addEventListener('click', () => showView('dashboard'));
 els.profilePageSaveButton.addEventListener('click', () => showToast('Profile updates are synced through Firebase Auth.'));
 els.profilePageChangePasswordButton.addEventListener('click', changeProfilePassword);
 els.profilePageLogoutButton.addEventListener('click', logout);
+els.topUpdateButton?.addEventListener('click', () => {
+  const update = normalizeAppUpdateState(state.app.updates);
+  if (update.status === 'downloaded') installAppUpdate();
+  else {
+    setSettingsTab('about');
+    showView('team');
+  }
+});
 els.topNotificationsButton.addEventListener('click', () => {
   if (els.topNotificationsButton.getAttribute('aria-expanded') === 'true') closeTopNotificationsMenu();
   else openTopNotificationsMenu();
 });
 els.topNotificationsMenu.addEventListener('click', (event) => {
+  if (event.target.closest('[data-notifications-mark-read]')) {
+    markAllNotificationsAsRead();
+    return;
+  }
   const button = event.target.closest('[data-notification-action]');
   if (!button) return;
   const action = button.dataset.notificationAction;
   closeTopNotificationsMenu();
-  if (action === 'uptime') showView('uptime');
+  if (action === 'install-update') installAppUpdate();
+  else if (action === 'uptime') showView('uptime');
   else {
     if (action === 'members') setSettingsTab('members');
-    else if (action === 'updates') setSettingsTab('integrations');
+    else if (action === 'updates') setSettingsTab('about');
     else setSettingsTab('workspace');
     showView('team');
   }
@@ -28154,6 +28478,7 @@ window.deployerx?.onRdpEvent?.((event) => {
 });
 
 window.deployerx?.onVncFullscreenChanged?.((enabled) => applyRdpFullscreen(enabled));
+window.deployerx?.onServerMonitoringFullscreenChanged?.((enabled) => applyServerMonitoringFullscreen(enabled));
 
 window.deployerx?.onTerminalEvent?.(async (event) => {
   const terminalSession = getTerminalSessionById(event.sessionId);
@@ -28176,13 +28501,10 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
     if (state.scriptRunnerActive && state.scriptTerminalSessionId === event.sessionId) {
       prepareScriptQueue().catch((error) => appendLog(error.message, 'error'));
     }
-    if (
-      state.currentView === 'server-monitoring'
-      && String(state.serverMonitoring.selectedProjectId) === String(terminalSession.projectId)
-      && !state.serverMonitoring.sessionId
-    ) {
+    if (state.currentView === 'server-monitoring') {
       const project = state.projects.find((item) => String(item.id) === String(terminalSession.projectId));
-      if (project) await startServerMonitoringForProject(project, terminalSession);
+      const monitoring = state.serverMonitoring.entries[String(terminalSession.projectId)];
+      if (project && monitoring && !monitoring.sessionId) await startServerMonitoringForProject(project, terminalSession);
     }
   }
   if (event.type === 'upload-started') {
@@ -28237,22 +28559,20 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
     }
     removeTerminalSessionRegistration(closedSessionId);
     setTerminalSessionStatus(terminalSession, event.type === 'failed' ? 'Connection failed' : 'Disconnected', false);
-    if (
-      String(state.serverMonitoring.selectedProjectId) === String(terminalSession.projectId)
-      && state.serverMonitoring.terminalSessionId === closedSessionId
-    ) {
-      await stopServerMonitoring();
+    const monitoring = state.serverMonitoring.entries[String(terminalSession.projectId)];
+    if (monitoring?.terminalSessionId === closedSessionId) {
+      await stopServerMonitoring(terminalSession.projectId);
       const replacement = getConnectedTerminalSession(terminalSession.projectId);
       const project = state.projects.find((item) => String(item.id) === String(terminalSession.projectId));
       if (state.currentView === 'server-monitoring' && replacement && project) {
         await startServerMonitoringForProject(project, replacement);
       } else {
-        state.serverMonitoring.status = getTerminalTabs(terminalSession.projectId)?.some((session) => session.sessionId) ? 'connecting-ssh' : 'ssh-required';
+        monitoring.status = getTerminalTabs(terminalSession.projectId)?.some((session) => session.sessionId) ? 'connecting-ssh' : 'ssh-required';
         renderServerMonitoring();
       }
-    } else if (String(state.serverMonitoring.selectedProjectId) === String(terminalSession.projectId)) {
+    } else if (monitoring) {
       if (!getConnectedTerminalSession(terminalSession.projectId)) {
-        state.serverMonitoring.status = getTerminalTabs(terminalSession.projectId)?.some((session) => session.sessionId) ? 'connecting-ssh' : 'ssh-required';
+        monitoring.status = getTerminalTabs(terminalSession.projectId)?.some((session) => session.sessionId) ? 'connecting-ssh' : 'ssh-required';
       }
       renderServerMonitoring();
     }

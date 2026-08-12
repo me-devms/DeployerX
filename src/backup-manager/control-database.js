@@ -808,6 +808,41 @@ class ControlTransaction {
   constructor(database, clock) {
     this.database = database;
     this.clock = clock;
+    this.changedRecords = [];
+  }
+
+  changes() {
+    return this.changedRecords.map((change) => structuredClone(change));
+  }
+
+  upsertSnapshot(type, workspaceId, snapshot) {
+    const spec = ENTITY_SPECS[type];
+    if (!spec) throw new TypeError(`Unknown Backup Manager entity type: ${type}`);
+    const tenant = requiredText(workspaceId, 'Workspace ID', 200);
+    const record = structuredClone(snapshot);
+    if (!record || typeof record !== 'object' || Array.isArray(record)) throw new TypeError('Backup Manager snapshot is invalid.');
+    if (requiredText(record.workspaceId, 'Workspace ID', 200) !== tenant) throw new TypeError('Backup Manager snapshot workspace does not match.');
+    requiredText(record.id, 'Record ID', 200);
+    if (!Number.isInteger(Number(record.revision)) || Number(record.revision) < 1) throw new TypeError('Backup Manager snapshot revision is invalid.');
+    if (!Number.isInteger(Number(record.schemaVersion)) || Number(record.schemaVersion) < 1) throw new TypeError('Backup Manager snapshot schema version is invalid.');
+    requiredText(record.createdAt, 'Created time', 100);
+    requiredText(record.updatedAt, 'Updated time', 100);
+    requiredText(record.createdBy, 'Created by', 200);
+    requiredText(record.updatedBy, 'Updated by', 200);
+    if (record.deletedAt !== null && record.deletedAt !== undefined) requiredText(record.deletedAt, 'Deleted time', 100);
+    if (spec.named) record.name = requiredText(record.name, 'Name', 200);
+    assertSafeRecord(record);
+    const existing = this.get(type, tenant, record.id, { includeDeleted: true });
+    const { names, values } = entityColumns(type, record);
+    if (!existing) {
+      this.database.run(`INSERT INTO ${spec.table} (${names.join(',')}) VALUES (${names.map(() => '?').join(',')})`, values);
+    } else {
+      const assignments = names.filter((name) => !['id', 'workspace_id'].includes(name)).map((name) => `${name} = ?`);
+      const updateValues = names.filter((name) => !['id', 'workspace_id'].includes(name)).map((name) => values[names.indexOf(name)]);
+      this.database.run(`UPDATE ${spec.table} SET ${assignments.join(',')} WHERE workspace_id = ? AND id = ?`, [...updateValues, tenant, record.id]);
+    }
+    this.#syncRelations(type, record);
+    return structuredClone(record);
   }
 
   create(type, input = {}) {
@@ -818,6 +853,7 @@ class ControlTransaction {
     const placeholders = names.map(() => '?').join(',');
     this.database.run(`INSERT INTO ${spec.table} (${names.join(',')}) VALUES (${placeholders})`, values);
     this.#syncRelations(type, record);
+    this.#recordChange(type, record, null);
     return structuredClone(record);
   }
 
@@ -891,6 +927,7 @@ class ControlTransaction {
     const result = this.database.run(`UPDATE ${spec.table} SET ${assignments.join(',')} WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL`, [...updateValues, current.workspaceId, current.id, expectedRevision]);
     if (this.database.getRowsModified() !== 1) throw new ControlDatabaseError(`${type} revision conflict.`, 'BACKUP_CONTROL_REVISION_CONFLICT');
     this.#syncRelations(type, record);
+    this.#recordChange(type, record, current);
     return structuredClone(record);
   }
 
@@ -932,6 +969,7 @@ class ControlTransaction {
     const updateValues = names.filter((name) => !['id', 'workspace_id'].includes(name)).map((name) => values[names.indexOf(name)]);
     this.database.run(`UPDATE ${ENTITY_SPECS[type].table} SET ${assignments.join(',')} WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL`, [...updateValues, current.workspaceId, current.id, expectedRevision]);
     if (this.database.getRowsModified() !== 1) throw new ControlDatabaseError(`${type} revision conflict.`, 'BACKUP_CONTROL_REVISION_CONFLICT');
+    this.#recordChange(type, record, current);
     return structuredClone(record);
   }
 
@@ -955,6 +993,7 @@ class ControlTransaction {
     const updateValues = names.filter((name) => !['id', 'workspace_id'].includes(name)).map((name) => values[names.indexOf(name)]);
     this.database.run(`UPDATE ${ENTITY_SPECS.recoveryPoint.table} SET ${assignments.join(',')} WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL`, [...updateValues, current.workspaceId, current.id, expectedRevision]);
     if (this.database.getRowsModified() !== 1) throw new ControlDatabaseError('recoveryPoint revision conflict.', 'BACKUP_CONTROL_REVISION_CONFLICT');
+    this.#recordChange('recoveryPoint', record, current);
     return structuredClone(record);
   }
 
@@ -985,6 +1024,7 @@ class ControlTransaction {
     this.database.run(`UPDATE ${ENTITY_SPECS.recoveryPoint.table} SET ${assignments.join(',')} WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL`, [...updateValues, current.workspaceId, current.id, expectedRevision]);
     if (this.database.getRowsModified() !== 1) throw new ControlDatabaseError('recoveryPoint revision conflict.', 'BACKUP_CONTROL_REVISION_CONFLICT');
     this.#syncRelations('recoveryPoint', record);
+    this.#recordChange('recoveryPoint', record, current);
     return structuredClone(record);
   }
 
@@ -1001,7 +1041,16 @@ class ControlTransaction {
     const result = this.database.run(`UPDATE ${spec.table} SET revision = ?, updated_at = ?, updated_by = ?, deleted_at = ?, data_json = ? WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL`, [record.revision, record.updatedAt, record.updatedBy, record.deletedAt, JSON.stringify(record), current.workspaceId, current.id, expectedRevision]);
     if (this.database.getRowsModified() !== 1) throw new ControlDatabaseError(`${type} revision conflict.`, 'BACKUP_CONTROL_REVISION_CONFLICT');
     if (type === 'connection' || type === 'databaseProfile' || type === 'repository' || type === 'notificationRoute') this.#syncRelations(type, record);
+    this.#recordChange(type, record, current);
     return structuredClone(record);
+  }
+
+  #recordChange(type, record, previous) {
+    this.changedRecords.push({
+      type,
+      record: structuredClone(record),
+      previous: previous ? structuredClone(previous) : null
+    });
   }
 
   #assertSoftDeleteAllowed(type, record) {
@@ -1090,13 +1139,15 @@ class ControlTransaction {
 }
 
 class BackupControlDatabase {
-  constructor({ rootPath, clock = () => new Date().toISOString(), lockTimeoutMs = DEFAULT_LOCK_TIMEOUT_MS, lockRetryMs = DEFAULT_LOCK_RETRY_MS } = {}) {
+  constructor({ rootPath, clock = () => new Date().toISOString(), lockTimeoutMs = DEFAULT_LOCK_TIMEOUT_MS, lockRetryMs = DEFAULT_LOCK_RETRY_MS, onChange = null } = {}) {
     this.rootPath = requiredText(rootPath, 'Control database root path');
     this.databasePath = path.join(this.rootPath, DATABASE_FILE_NAME);
     this.lockPath = path.join(this.rootPath, DATABASE_LOCK_FILE_NAME);
     this.clock = clock;
     this.lockTimeoutMs = Number(lockTimeoutMs);
     this.lockRetryMs = Number(lockRetryMs);
+    if (onChange !== null && typeof onChange !== 'function') throw new TypeError('Control database change handler is invalid.');
+    this.onChange = onChange;
     if (!Number.isInteger(this.lockTimeoutMs) || this.lockTimeoutMs < 100 || this.lockTimeoutMs > 120000) throw new TypeError('Control database lock timeout is invalid.');
     if (!Number.isInteger(this.lockRetryMs) || this.lockRetryMs < 1 || this.lockRetryMs > 1000) throw new TypeError('Control database lock retry interval is invalid.');
     this.database = null;
@@ -1154,18 +1205,19 @@ class BackupControlDatabase {
   transaction(operation) {
     return this.#enqueue(async () => {
       this.#assertInitialized();
-      return this.#withFileLock(async () => {
+      const outcome = await this.#withFileLock(async () => {
         await this.#reload();
         const SqlJs = await SQL;
         const before = this.database.export();
         this.database.run('PRAGMA foreign_keys = ON');
         this.database.run('BEGIN IMMEDIATE');
         try {
-          const result = await operation(new ControlTransaction(this.database, this.clock));
+          const transaction = new ControlTransaction(this.database, this.clock);
+          const result = await operation(transaction);
           this.#assertForeignKeys();
           this.database.run('COMMIT');
           await this.#persist();
-          return result;
+          return { result, changes: transaction.changes() };
         } catch (error) {
           try { this.database.run('ROLLBACK'); } catch {}
           try { this.database.close(); } catch {}
@@ -1174,7 +1226,15 @@ class BackupControlDatabase {
           throw error;
         }
       });
+      if (outcome.changes.length && this.onChange) {
+        Promise.resolve().then(() => this.onChange(outcome.changes)).catch(() => {});
+      }
+      return outcome.result;
     });
+  }
+
+  upsertSnapshot(type, workspaceId, snapshot) {
+    return this.transaction((transaction) => transaction.upsertSnapshot(type, workspaceId, snapshot));
   }
 
   async close() {

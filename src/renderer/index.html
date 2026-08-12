@@ -245,6 +245,12 @@
         <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
       </symbol>
+      <symbol id="icon-workspace" viewBox="0 0 24 24">
+        <path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16" />
+        <path d="M17 9h2a2 2 0 0 1 2 2v10" />
+        <path d="M8 7h5M8 11h5M8 15h5" />
+        <path d="M2 21h20" />
+      </symbol>
       <symbol id="icon-bell" viewBox="0 0 24 24">
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
         <path d="M10 21h4" />
@@ -362,6 +368,12 @@
           </button>
         </nav>
         <div class="topbar-actions">
+          <button id="topUpdateButton" class="button solid top-update-action hidden" type="button" aria-label="Application update" title="Application update">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-refresh"></use>
+            </svg>
+            <span id="topUpdateButtonLabel">Update available</span>
+          </button>
           <button id="emergencyStopButton" class="button danger outline top-emergency-stop" type="button" aria-label="Emergency stop" title="Emergency stop">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-stop"></use>
@@ -698,60 +710,26 @@
           <header class="view-header server-monitoring-header">
             <div>
               <h1>Real-time Monitor</h1>
-              <p class="header-copy">CPU, memory, storage, network, and process health for the selected server.</p>
+              <p class="header-copy">Live CPU, memory, storage, network, and process health across your server fleet.</p>
             </div>
             <div class="header-actions server-monitoring-actions">
-              <span id="serverMonitoringStatus" class="server-monitoring-status"><i></i><span>Choose a server</span></span>
-              <button id="serverMonitoringPauseButton" class="button outline compact" type="button" disabled><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-pause"></use></svg><span>Pause</span></button>
-              <button id="serverMonitoringRefreshButton" class="button outline compact icon-only" type="button" title="Refresh metrics" aria-label="Refresh metrics" disabled><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-refresh"></use></svg></button>
+              <div class="server-monitoring-view-toggle" role="group" aria-label="Monitor card layout">
+                <button id="serverMonitoringAllButton" class="active" type="button" aria-pressed="true">All</button>
+                <button id="serverMonitoringByGroupButton" type="button" aria-pressed="false">By group</button>
+              </div>
+              <span id="serverMonitoringStatus" class="server-monitoring-status"><i></i><span>No live servers</span></span>
+              <button id="serverMonitoringFullscreenButton" class="button outline compact icon-only" type="button" aria-label="Enter full screen monitoring" title="Full screen" aria-pressed="false"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-maximize"></use></svg></button>
+              <button id="serverMonitoringConnectAllButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-server"></use></svg><span>Connect All</span></button>
             </div>
           </header>
 
           <div id="serverMonitoringWorkspace" class="server-monitoring-workspace">
             <section id="serverMonitoringEmpty" class="server-monitoring-empty">
               <div class="server-monitoring-empty-icon"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-server"></use></svg></div>
-              <h2>Select a server to begin</h2>
-              <p>Choose an SSH-capable server from the sidebar to open a live telemetry session.</p>
+              <h2>No servers available</h2>
+              <p>Add a server to your workspace and it will appear here automatically.</p>
             </section>
-
-            <section id="serverMonitoringUnsupported" class="server-monitoring-empty hidden">
-              <div class="server-monitoring-empty-icon is-warning"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-info"></use></svg></div>
-              <h2>SSH monitoring is required</h2>
-              <p>This VNC-only server does not expose a monitoring transport yet. Add SSH credentials or use the server workspace.</p>
-            </section>
-
-            <section id="serverMonitoringDashboard" class="hidden" aria-live="polite">
-              <div id="serverMonitoringConnectOverlay" class="server-monitoring-connect-overlay" role="status">
-                <button id="serverMonitoringConnectButton" class="button solid server-monitoring-connect-button" type="button">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-server"></use></svg>
-                  <span>Connect SSH</span>
-                </button>
-              </div>
-              <div class="server-monitoring-server-banner">
-                <div class="server-monitoring-server-identity"><span id="serverMonitoringServerIcon" class="server-monitoring-server-icon"></span><div><strong id="serverMonitoringServerName">Server</strong><span id="serverMonitoringServerEndpoint">--</span></div></div>
-                <div class="server-monitoring-last-seen"><span>Last sample</span><strong id="serverMonitoringLastSample">--</strong></div>
-              </div>
-              <div id="serverMonitoringError" class="server-monitoring-error hidden" role="alert"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-alert"></use></svg><span></span></div>
-
-              <div id="serverMonitoringMetricGrid" class="server-monitoring-metric-grid">
-                <article class="server-monitoring-metric-card metric-cpu"><div class="metric-card-heading"><span>CPU utilization</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-activity"></use></svg></div><strong id="serverMonitoringCpuValue">--</strong><span id="serverMonitoringCpuMeta">Waiting for sample</span><div class="metric-progress"><i id="serverMonitoringCpuBar"></i></div></article>
-                <article class="server-monitoring-metric-card metric-memory"><div class="metric-card-heading"><span>Memory usage</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-database"></use></svg></div><strong id="serverMonitoringMemoryValue">--</strong><span id="serverMonitoringMemoryMeta">Waiting for sample</span><div class="metric-progress"><i id="serverMonitoringMemoryBar"></i></div></article>
-                <article class="server-monitoring-metric-card metric-storage"><div class="metric-card-heading"><span>Storage used</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-save"></use></svg></div><strong id="serverMonitoringStorageValue">--</strong><span id="serverMonitoringStorageMeta">Waiting for sample</span><div class="metric-progress"><i id="serverMonitoringStorageBar"></i></div></article>
-                <article class="server-monitoring-metric-card metric-uptime"><div class="metric-card-heading"><span>System uptime</span><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-server"></use></svg></div><strong id="serverMonitoringUptimeValue">--</strong><span id="serverMonitoringUptimeMeta">--</span></article>
-              </div>
-
-              <div class="server-monitoring-chart-grid">
-                <section class="server-monitoring-panel server-monitoring-chart-panel"><div class="server-monitoring-panel-heading"><div><h2>CPU and memory trend</h2><p>Last five minutes of live samples</p></div><span class="server-monitoring-legend"><i class="legend-cpu"></i>CPU <i class="legend-memory"></i>Memory</span></div><canvas id="serverMonitoringTrendChart" class="server-monitoring-chart" width="900" height="220" aria-label="CPU and memory trend chart"></canvas></section>
-                <section class="server-monitoring-panel server-monitoring-chart-panel"><div class="server-monitoring-panel-heading"><div><h2>Network throughput</h2><p>Aggregate traffic across physical interfaces</p></div><span class="server-monitoring-legend"><i class="legend-receive"></i>Receive <i class="legend-transmit"></i>Transmit</span></div><canvas id="serverMonitoringNetworkChart" class="server-monitoring-chart" width="900" height="220" aria-label="Network throughput chart"></canvas></section>
-              </div>
-
-              <div class="server-monitoring-detail-grid">
-                <section class="server-monitoring-panel"><div class="server-monitoring-panel-heading"><div><h2>Storage volumes</h2><p>Mounted filesystems and available capacity</p></div></div><div class="server-monitoring-table-wrap"><table class="server-monitoring-table"><thead><tr><th>Mount</th><th>Filesystem</th><th>Used</th><th>Available</th><th>Usage</th></tr></thead><tbody id="serverMonitoringStorageTable"><tr><td colspan="5" class="server-monitoring-table-empty">Waiting for storage data</td></tr></tbody></table></div></section>
-                <section class="server-monitoring-panel"><div class="server-monitoring-panel-heading"><div><h2>Top processes</h2><p>Highest CPU consumers, refreshed every five seconds</p></div></div><div class="server-monitoring-table-wrap"><table class="server-monitoring-table"><thead><tr><th>Process</th><th>PID</th><th>CPU</th><th>Memory</th></tr></thead><tbody id="serverMonitoringProcessTable"><tr><td colspan="4" class="server-monitoring-table-empty">Waiting for process data</td></tr></tbody></table></div></section>
-              </div>
-
-              <section class="server-monitoring-panel server-monitoring-system-panel"><div class="server-monitoring-panel-heading"><div><h2>System details</h2><p>Identity and connection information reported by the host</p></div></div><div id="serverMonitoringSystemDetails" class="server-monitoring-system-details"></div></section>
-            </section>
+            <section id="serverMonitoringBoard" class="server-monitoring-board hidden" aria-live="polite" aria-label="Server monitoring cards"></section>
           </div>
         </section>
 
@@ -1870,7 +1848,7 @@
               <h1>Settings</h1>
               <button class="settings-nav-item active" type="button" data-settings-tab="workspace">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <use href="#icon-key"></use>
+                  <use href="#icon-workspace"></use>
                 </svg>
                 Workspace
               </button>
@@ -1893,12 +1871,6 @@
                   <use href="#icon-export"></use>
                 </svg>
                 Backup & Restore
-              </button>
-              <button class="settings-nav-item" type="button" data-settings-tab="database" hidden>
-                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <use href="#icon-database"></use>
-                </svg>
-                Database Manager
               </button>
               <button class="settings-nav-item" type="button" data-settings-tab="templates">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -2078,11 +2050,21 @@
                   <header class="backup-settings-header">
                     <div>
                       <h2>Backup &amp; Restore</h2>
-                      <p>Protect account data, restore saved configurations, and manage application updates.</p>
+                      <p>Protect account data and restore saved configurations.</p>
                     </div>
                   </header>
 
                   <div class="backup-settings-grid">
+                    <section class="settings-card backup-history-card">
+                      <div class="backup-card-heading">
+                        <div>
+                          <span class="settings-eyebrow">Activity</span>
+                          <h2>Recent history</h2>
+                        </div>
+                      </div>
+                      <div id="backupHistoryList" class="backup-history-list"></div>
+                    </section>
+
                     <section class="settings-card backup-account-card">
                       <div class="backup-card-heading">
                         <div>
@@ -2136,45 +2118,6 @@
                         </div>
                       </div>
                     </section>
-
-                    <div class="backup-side-stack">
-                      <section class="settings-card app-update-card">
-                        <div class="app-update-header">
-                          <div>
-                            <span class="settings-eyebrow">Application</span>
-                            <h2>App updates</h2>
-                            <p id="settingsAppVersion" class="settings-muted">Installed version 0.1.0</p>
-                          </div>
-                          <span id="appUpdateStatus" class="app-update-pill" data-status="idle">Idle</span>
-                        </div>
-                        <p id="appUpdateDetail" class="settings-muted">Automatic GitHub release tracking is standing by.</p>
-                        <div id="appUpdateMeta" class="app-update-meta"></div>
-                        <div class="backup-actions">
-                          <button id="appUpdateOpenReleasesButton" class="button outline" type="button">
-                            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-export"></use></svg>
-                            Releases
-                          </button>
-                          <button id="appUpdateCheckButton" class="button outline" type="button">
-                            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
-                            Check now
-                          </button>
-                          <button id="appUpdateRestartButton" class="button solid hidden" type="button">
-                            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-rocket"></use></svg>
-                            Restart to install
-                          </button>
-                        </div>
-                      </section>
-
-                      <section class="settings-card backup-history-card">
-                        <div class="backup-card-heading">
-                          <div>
-                            <span class="settings-eyebrow">Activity</span>
-                            <h2>Recent history</h2>
-                          </div>
-                        </div>
-                        <div id="backupHistoryList" class="backup-history-list"></div>
-                      </section>
-                    </div>
                   </div>
                 </div>
               </section>
@@ -2542,6 +2485,33 @@ tool_timeout_sec = 300</pre>
                       <span>Desktop application</span>
                     </div>
                   </header>
+
+                  <section class="settings-card app-update-card about-update-card">
+                    <div class="app-update-header">
+                      <div>
+                        <span class="settings-eyebrow">Application</span>
+                        <h2>App updates</h2>
+                        <p id="settingsAppVersion" class="settings-muted">Installed version 0.1.0</p>
+                      </div>
+                      <span id="appUpdateStatus" class="app-update-pill" data-status="idle">Idle</span>
+                    </div>
+                    <p id="appUpdateDetail" class="settings-muted">Automatic GitHub release tracking is standing by.</p>
+                    <div id="appUpdateMeta" class="app-update-meta"></div>
+                    <div class="backup-actions">
+                      <button id="appUpdateOpenReleasesButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-export"></use></svg>
+                        Releases
+                      </button>
+                      <button id="appUpdateCheckButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
+                        Check now
+                      </button>
+                      <button id="appUpdateRestartButton" class="button solid hidden" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-rocket"></use></svg>
+                        Restart to install
+                      </button>
+                    </div>
+                  </section>
 
                   <div class="about-details-grid">
                     <section class="settings-card about-company-card">

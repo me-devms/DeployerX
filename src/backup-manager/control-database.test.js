@@ -128,6 +128,30 @@ test('uses optimistic revisions and preserves active names after soft deletion',
   assert.equal((await control.repository('connection').create(connection('local', 'Renamed server'))).name, 'Renamed server');
 });
 
+test('imports exact workspace snapshots without emitting another local change', async (context) => {
+  const changes = [];
+  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), 'deployerx-control-snapshot-test-'));
+  context.after(() => fs.rm(rootPath, { recursive: true, force: true }));
+  const control = new BackupControlDatabase({ rootPath, onChange: (items) => changes.push(...items) });
+  await control.initialize();
+  context.after(() => control.close());
+  const created = await control.repository('connection').create(connection('workspace-a', 'Shared server'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(changes.length, 1);
+
+  const snapshot = {
+    ...created,
+    name: 'Shared server renamed remotely',
+    revision: 4,
+    updatedAt: '2026-08-12T10:00:00.000Z',
+    updatedBy: 'remote-user'
+  };
+  await control.upsertSnapshot('connection', 'workspace-a', snapshot);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(changes.length, 1);
+  assert.deepEqual(await control.repository('connection').get('workspace-a', created.id), snapshot);
+});
+
 test('rejects plaintext credential fields before persistence', async (context) => {
   const { control } = await fixture(context);
   await assert.rejects(
