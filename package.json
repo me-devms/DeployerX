@@ -2,7 +2,10 @@
   "name": "deployerx",
   "version": "0.1.7",
   "description": "Cross-platform desktop deployment helper for SSH based servers.",
-  "author": "Manish K",
+  "author": {
+    "name": "Manish K",
+    "email": "lxsuthar1@gmail.com"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/me-devms/DeployerX.git"
