@@ -147,5 +147,5 @@ Third-party software notices are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PART
 This repository does not currently contain a top-level project license. Source availability should not be interpreted as permission to redistribute or create derivative works until the maintainer adds one.
 
 <p align="center">
-  Created and maintained by <a href="https://github.com/me-devms">Manish K</a>.
+  Created and maintained by <a href="https://everythingx.in/">EverythingX</a>.
 </p>
