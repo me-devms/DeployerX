@@ -27,15 +27,15 @@
     "database-access:license-check": "node scripts/db-access-manager-license-compliance.js --require-ready",
     "database-access:test": "node --test scripts/db-access-manager-license-compliance.test.js scripts/prepare-db-access-manager.test.js",
     "prepackage:win": "node --test src/database-manager/direct-driver-runtime.test.js scripts/prepare-db-access-manager.test.js",
-    "package:win": "npm run database-access:prepare && npm run database-access:validate && npm exec --yes --package electron-builder@24.13.3 -- electron-builder --win nsis portable --x64",
+    "package:win": "npm run database-access:prepare && npm run database-access:validate && npm exec --yes --package electron-builder@24.13.3 -- electron-builder --win nsis portable --x64 --publish never",
     "prepackage:win:app": "node --test src/database-manager/direct-driver-runtime.test.js",
-    "package:win:app": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --config electron-builder.app-only.cjs --win nsis portable --x64",
+    "package:win:app": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --config electron-builder.app-only.cjs --win nsis portable --x64 --publish never",
     "prepackage:linux": "node --test src/database-manager/direct-driver-runtime.test.js",
-    "package:linux": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --linux AppImage deb rpm --x64",
+    "package:linux": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --linux AppImage deb rpm --x64 --publish never",
     "prepackage:mac:x64": "node --test src/database-manager/direct-driver-runtime.test.js",
-    "package:mac:x64": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --mac dmg zip --x64",
+    "package:mac:x64": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --mac dmg zip --x64 --publish never",
     "prepackage:mac:arm64": "node --test src/database-manager/direct-driver-runtime.test.js",
-    "package:mac:arm64": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --mac dmg zip --arm64"
+    "package:mac:arm64": "npm exec --yes --package electron-builder@24.13.3 -- electron-builder --mac dmg zip --arm64 --publish never"
   },
   "build": {
     "appId": "com.everythingx.deployerx",
