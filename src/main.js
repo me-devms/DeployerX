@@ -3410,18 +3410,9 @@ async function initializeUptimeControlPlane({ startWorker = false } = {}) {
       secretResolver: (secretRefId) => getBackupSecretStore().resolve({ workspaceId: context.workspaceId, id: secretRefId }),
       probeId: `local-windows:${backupDeviceId || process.pid}`,
       maximumConcurrency: Math.max(1, Math.min(32, Number(monitoringSettings.maximumConcurrency) || 8)),
-      onTransition: async (transition) => {
-        try {
-          await syncUptimeTransitionToCloud(context, transition);
-          uptimeWorkerState.syncWarning = '';
-        } catch (error) {
-          uptimeWorkerState.syncWarning = `Workspace uptime synchronization is pending: ${error.message}`;
-        }
-      }
+      onTransition: async (transition) => queueUptimeTransitionSync(context, transition)
     });
-    await syncUptimeWorkspaceFromCloud(context).catch((error) => {
-      uptimeWorkerState.syncWarning = `Workspace uptime synchronization is pending: ${error.message}`;
-    });
+    queueUptimeWorkspaceSync(context);
     if (startWorker) {
       if (monitoringSettings.autostartEnabled !== false) await ensureWorkerAutostartEnabled().catch(() => {});
       await uptimeScheduledWorkerService.start(context.workspaceId, 'uptime-worker');
@@ -3513,7 +3504,7 @@ function parseUptimeNavigationArgument(argv = process.argv) {
 
 async function buildWorkspaceUptimeReport(options = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
+  queueUptimeWorkspaceSync(context);
   const database = getUptimeControlDatabaseV2();
   const toDate = options.to ? new Date(options.to) : new Date();
   const fromDate = options.from ? new Date(options.from) : new Date(toDate.getTime() - 86400000);
@@ -5645,6 +5636,7 @@ const UPTIME_CLOUD_COLLECTIONS = Object.freeze({
 });
 const uptimeCloudSyncPromises = new Map();
 const uptimeCloudLastSyncAt = new Map();
+const UPTIME_CLOUD_SYNC_INTERVAL_MS = 30000;
 
 function uptimeCloudRecordForSave(record, documentId = record?.id) {
   const id = String(documentId || '').trim();
@@ -5771,6 +5763,7 @@ async function syncUptimeTransitionToCloud(context, transition = {}) {
     if (currentWindow) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.checks, currentWindow));
   }
   if (transition.incident) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.incidents, transition.incident));
+  if (transition.maintenance) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, transition.maintenance));
   await Promise.all(writes);
 }
 
@@ -5778,8 +5771,9 @@ async function syncUptimeWorkspaceFromCloud(context, { force = false } = {}) {
   const settings = await readSettings();
   if (settings.mode !== 'cloud') return;
   if (!uptimeWorkspaceContextIsCurrent(context, settings)) return;
-  if (!force && Date.now() - Number(uptimeCloudLastSyncAt.get(context.workspaceId) || 0) < 3000) return;
+  if (!force && Date.now() - Number(uptimeCloudLastSyncAt.get(context.workspaceId) || 0) < UPTIME_CLOUD_SYNC_INTERVAL_MS) return;
   if (uptimeCloudSyncPromises.has(context.workspaceId)) return uptimeCloudSyncPromises.get(context.workspaceId);
+  uptimeCloudLastSyncAt.set(context.workspaceId, Date.now());
   const syncPromise = (async () => {
     await ensureActiveTeamUnlocked();
     const database = getUptimeControlDatabaseV2();
@@ -5859,27 +5853,65 @@ async function syncUptimeWorkspaceFromCloud(context, { force = false } = {}) {
         await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, local);
       }
     }
-    uptimeCloudLastSyncAt.set(context.workspaceId, Date.now());
   })().finally(() => uptimeCloudSyncPromises.delete(context.workspaceId));
   uptimeCloudSyncPromises.set(context.workspaceId, syncPromise);
   return syncPromise;
 }
 
+function setUptimeCloudSyncWarning(error) {
+  uptimeWorkerState.syncWarning = `Workspace uptime synchronization is pending: ${String(error?.message || error || 'Cloud service unavailable.').slice(0, 500)}`;
+}
+
+function clearUptimeCloudSyncWarning() {
+  if (String(uptimeWorkerState.syncWarning || '').startsWith('Workspace uptime synchronization is pending:')) {
+    uptimeWorkerState.syncWarning = '';
+  }
+}
+
+async function syncUptimeWorkspaceBestEffort(context, options = {}) {
+  try {
+    await syncUptimeWorkspaceFromCloud(context, options);
+    clearUptimeCloudSyncWarning();
+    return true;
+  } catch (error) {
+    setUptimeCloudSyncWarning(error);
+    return false;
+  }
+}
+
+async function syncUptimeTransitionBestEffort(context, transition = {}) {
+  try {
+    await syncUptimeTransitionToCloud(context, transition);
+    clearUptimeCloudSyncWarning();
+    return true;
+  } catch (error) {
+    setUptimeCloudSyncWarning(error);
+    return false;
+  }
+}
+
+function queueUptimeWorkspaceSync(context, options = {}) {
+  setImmediate(() => syncUptimeWorkspaceBestEffort(context, options).catch(() => {}));
+}
+
+function queueUptimeTransitionSync(context, transition = {}) {
+  setImmediate(() => syncUptimeTransitionBestEffort(context, transition).catch(() => {}));
+}
+
 async function listUptimeMonitorsOperation(options = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
+  queueUptimeWorkspaceSync(context);
   return getUptimeControlDatabaseV2().listMonitors(context.workspaceId, options);
 }
 
 async function getUptimeMonitorOperation(payload = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
+  queueUptimeWorkspaceSync(context);
   return getUptimeControlDatabaseV2().getMonitor(context.workspaceId, payload.id, { includeDeleted: payload.includeDeleted === true });
 }
 
 async function createUptimeMonitorOperation(input = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   const prepared = await prepareUptimeMonitorForSave(context, input);
   let monitor;
   try {
@@ -5908,7 +5940,7 @@ async function createUptimeMonitorOperation(input = {}) {
     });
     monitor = transition.monitor;
   }
-  await syncUptimeTransitionToCloud(context, transition || { monitor });
+  queueUptimeTransitionSync(context, transition || { monitor });
   emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
   await maybeStartDetachedUptimeWorker().catch(() => {});
   return monitor;
@@ -5916,7 +5948,6 @@ async function createUptimeMonitorOperation(input = {}) {
 
 async function updateUptimeMonitorOperation(input = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const current = await database.getMonitor(context.workspaceId, input.id);
   if (!current) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
@@ -5927,7 +5958,7 @@ async function updateUptimeMonitorOperation(input = {}) {
     const currentRefs = new Set(Object.values(monitor.config?.secretHeaderRefs || {}).map(String));
     await cleanupUptimeSecretReferences(context, previousRefs.filter((id) => !currentRefs.has(String(id))));
     if (monitor.state === 'enabled') await maybeStartDetachedUptimeWorker().catch(() => {});
-    await syncUptimeTransitionToCloud(context, { monitor });
+    queueUptimeTransitionSync(context, { monitor });
     emitUptimeEvent('uptime:monitor-updated-v2', { monitorId: monitor.id });
     return monitor;
   } catch (error) {
@@ -5938,14 +5969,13 @@ async function updateUptimeMonitorOperation(input = {}) {
 
 async function deleteUptimeMonitorOperation(payload = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const current = await database.getMonitor(context.workspaceId, payload.id);
   if (!current) return { id: String(payload.id || ''), deleted: false, absent: true };
   const result = await database.deleteMonitor(context.workspaceId, context.actorId, current.id, payload.revision);
   if (result.deleted) {
     const deletedMonitor = await database.getMonitor(context.workspaceId, current.id, { includeDeleted: true });
-    await syncUptimeTransitionToCloud(context, { monitor: deletedMonitor });
+    queueUptimeTransitionSync(context, { monitor: deletedMonitor });
     await cleanupUptimeSecretReferences(context, Object.values(current.config?.secretHeaderRefs || {}));
     emitUptimeEvent('uptime:monitor-deleted-v2', { monitorId: current.id });
   }
@@ -5961,7 +5991,6 @@ async function testUptimeMonitorOperation(input = {}) {
 
 async function runUptimeMonitorNowOperation(payload = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const monitor = await database.getMonitor(context.workspaceId, payload.id);
   if (!monitor) throw Object.assign(new Error('Monitor was not found.'), { code: 'UPTIME_MONITOR_NOT_FOUND' });
@@ -5980,7 +6009,7 @@ async function runUptimeMonitorNowOperation(payload = {}) {
     probeId: `local-windows:${backupDeviceId || process.pid}`,
     scheduledAt
   });
-  await syncUptimeTransitionToCloud(context, transition);
+  queueUptimeTransitionSync(context, transition);
   await maybeStartDetachedUptimeWorker().catch(() => {});
   emitUptimeEvent('uptime:monitor-run-completed-v2', { monitorId: monitor.id });
   return { queued: false, completed: true, monitorId: monitor.id, revision: transition.monitor.revision };
@@ -5988,43 +6017,39 @@ async function runUptimeMonitorNowOperation(payload = {}) {
 
 async function acknowledgeUptimeIncidentOperation(payload = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   if (!uptimeIncidentPolicyService) throw new Error('Uptime incident policy is not initialized.');
   const incident = await uptimeIncidentPolicyService.acknowledge(context.workspaceId, context.actorId, payload.id, payload.revision, payload.note);
   if (!incident) throw Object.assign(new Error('Incident was not found.'), { code: 'UPTIME_INCIDENT_NOT_FOUND' });
-  await syncUptimeTransitionToCloud(context, { incident });
+  queueUptimeTransitionSync(context, { incident });
   emitUptimeEvent('uptime:incident-acknowledged-v2', { monitorId: incident.monitorId, incidentId: incident.id });
   return incident;
 }
 
 async function createUptimeMaintenanceOperation(input = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   const maintenance = await getUptimeControlDatabaseV2().createMaintenanceWindow(context.workspaceId, context.actorId, input);
-  await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, maintenance);
+  queueUptimeTransitionSync(context, { maintenance });
   emitUptimeEvent('uptime:maintenance-created', { maintenanceId: maintenance.id });
   return maintenance;
 }
 
 async function updateUptimeMaintenanceOperation(input = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   const maintenance = await getUptimeControlDatabaseV2().updateMaintenanceWindow(context.workspaceId, context.actorId, input.id, input, input.revision);
   if (!maintenance) throw Object.assign(new Error('Maintenance window was not found.'), { code: 'UPTIME_MAINTENANCE_NOT_FOUND' });
-  await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, maintenance);
+  queueUptimeTransitionSync(context, { maintenance });
   emitUptimeEvent('uptime:maintenance-updated', { maintenanceId: maintenance.id });
   return maintenance;
 }
 
 async function deleteUptimeMaintenanceOperation(payload = {}) {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
   const database = getUptimeControlDatabaseV2();
   const result = await database.deleteMaintenanceWindow(context.workspaceId, context.actorId, payload.id, payload.revision);
   if (result.deleted) {
     const maintenance = (await database.listMaintenanceWindows(context.workspaceId, { includeDeleted: true, limit: 10000 }))
       .find((window) => String(window.id) === String(result.id));
-    await writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, maintenance);
+    queueUptimeTransitionSync(context, { maintenance });
   }
   if (result.deleted) emitUptimeEvent('uptime:maintenance-deleted', { maintenanceId: result.id });
   return result;
@@ -6032,7 +6057,7 @@ async function deleteUptimeMaintenanceOperation(payload = {}) {
 
 async function getUptimeStatusOperation() {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
+  queueUptimeWorkspaceSync(context);
   const database = getUptimeControlDatabaseV2();
   const checkedAt = nowIso();
   const [worker, monitors, incidents, activeMaintenance] = await Promise.all([
@@ -13467,13 +13492,13 @@ uptimeIpcMain.handle('uptime:monitors:run-now', async (_event, payload = {}) => 
 
 uptimeIpcMain.handle('uptime:checks:list', async (_event, payload = {}) => {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
+  queueUptimeWorkspaceSync(context);
   return getUptimeControlDatabaseV2().listChecks(context.workspaceId, payload.monitorId, payload);
 });
 
 uptimeIpcMain.handle('uptime:incidents:list', async (_event, options = {}) => {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
+  queueUptimeWorkspaceSync(context);
   return getUptimeControlDatabaseV2().listIncidents(context.workspaceId, options);
 });
 
@@ -13481,7 +13506,7 @@ uptimeIpcMain.handle('uptime:incidents:acknowledge', async (_event, payload = {}
 
 uptimeIpcMain.handle('uptime:maintenance:list', async (_event, options = {}) => {
   const context = await uptimeOperationalContext();
-  await syncUptimeWorkspaceFromCloud(context);
+  queueUptimeWorkspaceSync(context);
   return getUptimeControlDatabaseV2().listMaintenanceWindows(context.workspaceId, options);
 });
 

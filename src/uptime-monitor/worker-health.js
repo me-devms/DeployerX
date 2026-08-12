@@ -1,4 +1,4 @@
-const DEFAULT_STALE_AFTER_MS = 15000;
+const DEFAULT_STALE_AFTER_MS = 60000;
 
 function evaluateWorkerHeartbeat(heartbeats = [], { now = Date.now(), staleAfterMs = DEFAULT_STALE_AFTER_MS } = {}) {
   const latest = [...heartbeats].sort((left, right) => String(right?.heartbeatAt || '').localeCompare(String(left?.heartbeatAt || '')))[0] || null;

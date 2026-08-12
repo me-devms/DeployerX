@@ -96,6 +96,44 @@ test('persists workspace-scoped standalone and server-linked monitors with revis
   await reopened.close();
 });
 
+test('reuses the loaded database until another process changes the file', async (context) => {
+  const values = await fixture(context);
+  await values.database.createMonitor('workspace-a', 'tester', httpMonitor());
+  const databasePath = path.join(values.rootPath, 'control.db');
+  const originalReadFile = fs.readFile;
+  let databaseReads = 0;
+  fs.readFile = async (...args) => {
+    if (String(args[0]) === databasePath) databaseReads += 1;
+    return originalReadFile(...args);
+  };
+  try {
+    await values.database.listMonitors('workspace-a');
+    await values.database.listMonitors('workspace-a');
+  } finally {
+    fs.readFile = originalReadFile;
+  }
+  assert.equal(databaseReads, 0);
+
+  const externalDatabase = new UptimeControlDatabase({ rootPath: values.rootPath, clock: values.clock });
+  await externalDatabase.initialize();
+  await externalDatabase.createMonitor('workspace-a', 'tester', httpMonitor({ name: 'Externally added monitor' }));
+  await externalDatabase.close();
+
+  databaseReads = 0;
+  fs.readFile = async (...args) => {
+    if (String(args[0]) === databasePath) databaseReads += 1;
+    return originalReadFile(...args);
+  };
+  let monitors;
+  try {
+    monitors = await values.database.listMonitors('workspace-a');
+  } finally {
+    fs.readFile = originalReadFile;
+  }
+  assert.equal(databaseReads, 1);
+  assert.equal(monitors.length, 2);
+});
+
 test('imports workspace snapshots without changing shared ids, revisions, or timestamps', async (context) => {
   const { database } = await fixture(context);
   const monitor = await database.upsertMonitorSnapshot('workspace-a', {

@@ -62,15 +62,22 @@ test('registers the workspace Uptime IPC and isolated preload surface', async ()
   assert.equal(mainSource.includes('async function applyUptimeServerLinkHierarchy(payload, current = null)'), true, 'main process derives monitor hierarchy from Server Link');
   assert.equal(mainSource.includes("payload.parentGroup = String(project.name || '').trim() || 'Untitled Server';"), true, 'linked server name replaces manual parent metadata');
   assert.equal(mainSource.includes('await applyUptimeServerLinkHierarchy(payload, current);'), true, 'server hierarchy is enforced before monitor persistence');
-  assert.match(mainSource, /uptime:monitors:create[\s\S]*await executeUptimeMonitorCheck\([\s\S]*monitor = transition\.monitor;/, 'new enabled monitors return their first persisted health result');
-  assert.match(mainSource, /uptime:monitors:run-now[\s\S]*await executeUptimeMonitorCheck\([\s\S]*completed: true/, 'Run now completes and persists a check without depending on the detached worker');
-  assert.match(mainSource, /uptime:monitors:update[\s\S]*monitor\.state === 'enabled'[\s\S]*maybeStartDetachedUptimeWorker/, 'enabling a monitor starts the detached worker');
+  assert.match(mainSource, /async function createUptimeMonitorOperation[\s\S]*await executeUptimeMonitorCheck\([\s\S]*monitor = transition\.monitor;/, 'new enabled monitors return their first persisted health result');
+  assert.match(mainSource, /async function runUptimeMonitorNowOperation[\s\S]*await executeUptimeMonitorCheck\([\s\S]*completed: true/, 'Run now completes and persists a check without depending on the detached worker');
+  assert.match(mainSource, /async function updateUptimeMonitorOperation[\s\S]*monitor\.state === 'enabled'[\s\S]*maybeStartDetachedUptimeWorker/, 'enabling a monitor starts the detached worker');
+  assert.equal(mainSource.includes('async function syncUptimeWorkspaceBestEffort(context, options = {})'), true, 'cloud sync failures do not block local Uptime operations');
+  assert.match(mainSource, /async function listUptimeMonitorsOperation[\s\S]*queueUptimeWorkspaceSync\(context\)[\s\S]*listMonitors/, 'monitor reads return local data while cloud sync continues');
+  assert.match(mainSource, /async function createUptimeMonitorOperation[\s\S]*createMonitor[\s\S]*queueUptimeTransitionSync/, 'monitor creation persists locally before cloud sync');
+  assert.match(mainSource, /if \(transition\.maintenance\) writes\.push\(writeUptimeCloudRecord/, 'maintenance changes remain cloud synchronized');
+  assert.match(mainSource, /const UPTIME_CLOUD_SYNC_INTERVAL_MS = 30000;[\s\S]*uptimeCloudLastSyncAt\.set\(context\.workspaceId, Date\.now\(\)\);/, 'failed cloud reconciliation is throttled between dashboard refreshes');
 });
 
 test('starts the durable worker control plane and routes notification clicks to Uptime', async () => {
   const mainSource = await fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
   assert.equal(mainSource.includes('await initializeUptimeControlPlane({ startWorker: true });'), true);
   assert.equal(mainSource.includes('await uptimeScheduledWorkerService.start(context.workspaceId'), true);
+  assert.match(mainSource, /onTransition: async \(transition\) => queueUptimeTransitionSync\(context, transition\)/, 'worker heartbeats and checks do not wait for cloud writes');
+  assert.match(mainSource, /queueUptimeWorkspaceSync\(context\);[\s\S]*await uptimeScheduledWorkerService\.start/, 'worker startup does not wait for cloud reconciliation');
   assert.equal(mainSource.includes("mainWindow.webContents.send('uptime:navigate', target)"), true);
   assert.equal(mainSource.includes('parseUptimeNavigationArgument()'), true);
   assert.equal(mainSource.includes('serviceStatus.processId'), true);

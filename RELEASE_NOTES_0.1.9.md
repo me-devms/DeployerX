@@ -1,6 +1,13 @@
 ## DeployerX 0.1.9
 
-DeployerX 0.1.9 is an authentication reliability update for packaged desktop releases.
+DeployerX 0.1.9 is an authentication and Uptime Monitor reliability update for packaged desktop releases.
+
+### Uptime Monitor fixes
+
+- Fixed monitor lists, changes, checks, incidents, maintenance, and reports failing when workspace cloud synchronization is temporarily unavailable.
+- Kept local monitoring operational while cloud synchronization is pending, with automatic best-effort reconciliation.
+- Reduced SQL.js database reloads and lock contention that could incorrectly report the background worker as offline.
+- Increased worker heartbeat tolerance and throttled cloud reconciliation retries during dashboard refreshes.
 
 ### Authentication fixes
 

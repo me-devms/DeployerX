@@ -61,6 +61,9 @@ DeployerX brings the tools used throughout a server's lifecycle into one focused
 
 ## What's new in v0.1.9
 
+- Fixed Uptime Monitor operations failing when workspace cloud synchronization is temporarily unavailable.
+- Reduced Uptime database reloads and lock contention that could incorrectly report the background worker as offline.
+- Increased worker heartbeat tolerance and throttled cloud reconciliation retries during dashboard refreshes.
 - Fixed Google sign-in and Firebase account access in packaged applications by replacing placeholder release credentials with the validated production configuration.
 - Added build-time validation that rejects missing, malformed, or placeholder Firebase and Google OAuth values.
 - Added a live release preflight against Firebase Authentication and Google OAuth so invalid client configuration blocks publishing.

@@ -3,7 +3,7 @@ const { UptimeDailyRollupService, maintenanceApplies } = require('./reporting');
 
 const DEFAULT_MAXIMUM_CONCURRENCY = 8;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 5000;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 15000;
 
 async function executeUptimeMonitorCheck({
   controlDatabase,

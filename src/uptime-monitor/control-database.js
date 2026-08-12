@@ -365,6 +365,7 @@ class UptimeControlDatabase {
     if (!Number.isInteger(this.lockTimeoutMs) || this.lockTimeoutMs < 100 || this.lockTimeoutMs > 120000) throw new TypeError('Uptime control database lock timeout is invalid.');
     if (!Number.isInteger(this.lockRetryMs) || this.lockRetryMs < 1 || this.lockRetryMs > 1000) throw new TypeError('Uptime control database lock retry interval is invalid.');
     this.database = null;
+    this.databaseFileState = null;
     this.initialized = false;
     this.operationQueue = Promise.resolve();
   }
@@ -388,6 +389,7 @@ class UptimeControlDatabase {
           if (existingBytes) await this.#createMigrationBackup(currentVersion);
           await this.#migrate(currentVersion);
         } else this.#verifySchema();
+        if (!this.databaseFileState) this.databaseFileState = await this.#readDatabaseFileState();
         this.initialized = true;
         return this;
       } catch (error) {
@@ -788,6 +790,7 @@ class UptimeControlDatabase {
     await this.operationQueue;
     if (this.database) this.database.close();
     this.database = null;
+    this.databaseFileState = null;
     this.initialized = false;
   }
 
@@ -893,6 +896,7 @@ class UptimeControlDatabase {
       try { await handle.writeFile(Buffer.from(this.database.export())); await handle.sync(); }
       finally { await handle.close(); }
       await fs.rename(temporaryPath, this.databasePath);
+      this.databaseFileState = await this.#readDatabaseFileState();
     } catch (error) {
       await fs.rm(temporaryPath, { force: true });
       throw error;
@@ -900,6 +904,8 @@ class UptimeControlDatabase {
   }
 
   async #reload() {
+    const fileState = await this.#readDatabaseFileState();
+    if (this.database && this.databaseFileState === fileState) return;
     let bytes;
     try { bytes = await fs.readFile(this.databasePath); }
     catch (error) {
@@ -924,6 +930,17 @@ class UptimeControlDatabase {
       throw error;
     }
     if (previous) previous.close();
+    this.databaseFileState = fileState;
+  }
+
+  async #readDatabaseFileState() {
+    try {
+      const stats = await fs.stat(this.databasePath);
+      return `${stats.size}:${stats.mtimeMs}`;
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
   }
 
   async #withFileLock(operation) {
