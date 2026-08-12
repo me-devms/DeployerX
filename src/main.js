@@ -13,6 +13,7 @@ const { promisify } = require('util');
 const { autoUpdater } = require('electron-updater');
 const nodemailer = require('nodemailer');
 const { Client } = require('ssh2');
+const { assertFirebaseConfig, sanitizeFirebaseConfigForRuntime, validateFirebaseConfig } = require('./firebase-config');
 const { ServerMonitoringSessionManager } = require('./server-monitoring/session-manager');
 const { DeployerXMcpServer } = require('./mcp-server');
 const { RdpSessionManager } = require('./rdp-session');
@@ -4089,17 +4090,7 @@ async function writeSettings(nextSettings) {
 }
 
 async function saveFirebaseConfig(config) {
-  const normalized = {
-    apiKey: String(config.apiKey || '').trim(),
-    authDomain: String(config.authDomain || '').trim(),
-    projectId: String(config.projectId || config.project_id || '').trim(),
-    googleClientId: String(config.googleClientId || config.googleOAuthClientId || '').trim(),
-    googleClientSecret: String(config.googleClientSecret || config.googleOAuthClientSecret || '').trim(),
-    googleRedirectUri: String(config.googleRedirectUri || '').trim()
-  };
-  if (!normalized.apiKey || !normalized.projectId) {
-    throw new Error('Firebase Web config must include apiKey and projectId.');
-  }
+  const normalized = assertFirebaseConfig(config);
   if (!normalized.authDomain) normalized.authDomain = `${normalized.projectId}.firebaseapp.com`;
   await fs.writeFile(getUserFirebaseConfigPath(), JSON.stringify(normalized, null, 2));
   firebaseConfigCache = null;
@@ -4171,18 +4162,17 @@ async function loadFirebaseConfig({ refresh = false } = {}) {
 
   const envConfig =
     process.env.FIREBASE_API_KEY && process.env.FIREBASE_PROJECT_ID
-      ? {
+      ? sanitizeFirebaseConfigForRuntime({
           apiKey: process.env.FIREBASE_API_KEY,
           authDomain: process.env.FIREBASE_AUTH_DOMAIN || '',
           projectId: process.env.FIREBASE_PROJECT_ID,
           googleClientId: process.env.FIREBASE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
           googleClientSecret: process.env.FIREBASE_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
-          googleRedirectUri: process.env.FIREBASE_GOOGLE_REDIRECT_URI || '',
-          source: 'environment'
-        }
+          googleRedirectUri: process.env.FIREBASE_GOOGLE_REDIRECT_URI || ''
+        })
       : null;
   if (envConfig) {
-    firebaseConfigCache = envConfig;
+    firebaseConfigCache = { ...envConfig, source: 'environment' };
     return firebaseConfigCache;
   }
 
@@ -4197,14 +4187,10 @@ async function loadFirebaseConfig({ refresh = false } = {}) {
   for (const configPath of candidatePaths) {
     try {
       const parsed = JSON.parse(await fs.readFile(configPath, 'utf8'));
-      if (parsed.apiKey && parsed.projectId) {
+      const config = sanitizeFirebaseConfigForRuntime(parsed);
+      if (config) {
         firebaseConfigCache = {
-          apiKey: String(parsed.apiKey),
-          authDomain: String(parsed.authDomain || ''),
-          projectId: String(parsed.projectId),
-          googleClientId: String(parsed.googleClientId || parsed.googleOAuthClientId || ''),
-          googleClientSecret: String(parsed.googleClientSecret || parsed.googleOAuthClientSecret || ''),
-          googleRedirectUri: String(parsed.googleRedirectUri || ''),
+          ...config,
           source: configPath
         };
         return firebaseConfigCache;
@@ -4220,9 +4206,10 @@ async function loadFirebaseConfig({ refresh = false } = {}) {
 
 async function firebaseConfigStatus() {
   const config = await loadFirebaseConfig({ refresh: true });
+  const validation = config ? validateFirebaseConfig(config, { requireGoogle: true }) : null;
   return {
     configured: Boolean(config?.apiKey && config?.projectId),
-    googleConfigured: Boolean(config?.googleClientId),
+    googleConfigured: Boolean(validation?.valid),
     projectId: config?.projectId || '',
     source: config?.source || ''
   };
@@ -4794,9 +4781,7 @@ function listen(server, host = '127.0.0.1') {
 let cancelPendingGoogleLogin = null;
 
 async function requestGoogleTokens(config) {
-  if (!config.googleClientId) {
-    throw new Error('Google login needs googleClientId in firebase.config.json.');
-  }
+  config = assertFirebaseConfig(config, { requireGoogle: true });
 
   const state = base64Url(crypto.randomBytes(18));
   const verifier = base64Url(crypto.randomBytes(48));
