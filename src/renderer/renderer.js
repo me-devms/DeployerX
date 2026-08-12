@@ -6546,17 +6546,29 @@ function updateRdpFullscreenButton() {
 
 function rdpMessage(value, fallback) {
   if (typeof value !== 'string') return fallback;
-  const message = value.trim();
-  return message && message !== '[object Object]' ? message : fallback;
+  const message = value.replace(/\s+/g, ' ').trim();
+  if (!message || message === '[object Object]') return fallback;
+  if (/content security policy|wasm-unsafe-eval|webassembly\.instantiate/i.test(message)) {
+    return 'Remote Desktop could not initialize. Restart DeployerX and try again.';
+  }
+  return message.length <= 240 ? message : fallback;
+}
+
+function rdpHeaderStatus(status, protocol) {
+  if (status === 'connected') return 'Connected';
+  if (status === 'connecting') return 'Connecting...';
+  if (status === 'error') return `${protocol} connection failed`;
+  return 'Not connected';
 }
 
 function renderRdpStatus(status, message, { hasSession = Boolean(state.rdpSessionId), resetDisplays = status !== 'connected' } = {}) {
   const protocol = windowsConnectionProtocol().toUpperCase();
   message = rdpMessage(message, status === 'connected' ? 'Connected' : `${protocol} connection failed.`);
+  const headerStatus = rdpHeaderStatus(status, protocol);
   const connected = status === 'connected';
   const connecting = status === 'connecting';
-  els.rdpToolbarStatus.textContent = message;
-  els.terminalStatus.textContent = message;
+  els.rdpToolbarStatus.textContent = headerStatus;
+  els.terminalStatus.textContent = headerStatus;
   els.rdpConnectHint.textContent = message;
   els.rdpWorkspace.classList.toggle('rdp-connected', connected);
   els.rdpWorkspace.classList.toggle('rdp-connecting', connecting);

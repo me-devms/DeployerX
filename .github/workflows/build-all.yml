@@ -1,0 +1,145 @@
+name: Build all platforms
+run-name: Build all platforms ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example 1.2.3
+        required: true
+        type: string
+      publish_release:
+        description: Upload packages to a GitHub release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare public build configuration
+        shell: pwsh
+        run: Copy-Item firebase.config.example.json firebase.config.json
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Set package version
+        shell: pwsh
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json')); p.version=process.env.BUILD_VERSION; fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
+      - name: Build Windows setup and portable packages
+        run: npm run package:win:app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeployerX-Windows-x64
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/*.yml
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install RPM packaging tools
+        run: sudo apt-get update && sudo apt-get install --yes rpm
+      - name: Prepare public build configuration
+        run: cp firebase.config.example.json firebase.config.json
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Set package version
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json')); p.version=process.env.BUILD_VERSION; fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
+      - name: Build Linux packages
+        run: npm run package:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeployerX-Linux-x64
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
+            dist/*.blockmap
+            dist/*.yml
+          if-no-files-found: error
+
+  mac:
+    name: macOS ${{ matrix.arch }}
+    runs-on: macos-13
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare public build configuration
+        run: cp firebase.config.example.json firebase.config.json
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Set package version
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json')); p.version=process.env.BUILD_VERSION; fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
+      - name: Build macOS packages
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run package:mac:${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeployerX-macOS-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/*.yml
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: ${{ inputs.publish_release }}
+    needs: [windows, linux, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          tag="v${BUILD_VERSION}"
+          notes_file="RELEASE_NOTES_${BUILD_VERSION}.md"
+          mapfile -d '' files < <(find release-artifacts -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.zip' \) -print0)
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [[ -f "$notes_file" ]]; then
+              gh release edit "$tag" --title "DeployerX $tag" --notes-file "$notes_file" --repo "$GITHUB_REPOSITORY"
+            fi
+            gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            if [[ -f "$notes_file" ]]; then
+              gh release create "$tag" "${files[@]}" --title "DeployerX $tag" --notes-file "$notes_file" --repo "$GITHUB_REPOSITORY"
+            else
+              gh release create "$tag" "${files[@]}" --title "DeployerX $tag" --generate-notes --repo "$GITHUB_REPOSITORY"
+            fi
+          fi

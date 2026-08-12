@@ -308,7 +308,7 @@ test('keeps staged, installed, and runtime executable paths aligned', () => {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(configuration.projectRoot, 'package.json'), 'utf8'),
   );
-  const resource = packageJson.build.extraResources.find(
+  const resource = packageJson.build.win.extraResources.find(
     (entry) => entry.to === 'db-access-manager',
   );
   assert.ok(resource, 'Electron Builder must install the companion resource');

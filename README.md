@@ -59,36 +59,43 @@ DeployerX brings the tools used throughout a server's lifecycle into one focused
 - Expose bounded SSH, SFTP, monitoring, and uptime tools to trusted AI clients through a loopback-only MCP endpoint.
 - Choose from light and dark themes designed for long operational sessions.
 
-## What's new in v0.1.6
+## What's new in v0.1.7
 
-- Added the top-level **SSH** action for immediate terminal access.
-- Made terminal tab numbering continuous after tabs are closed.
-- Added usernames to terminal labels for multi-user server sessions.
-- Corrected form, dashboard, search, toolbar, and button styling across every bundled theme.
-- Improved server-list scrolling, search alignment, and SFTP path controls.
-- Preserved exact file and directory name casing in remote browser rows.
+- Added native release packages for Windows, Linux, Intel Mac, and Apple Silicon Mac.
+- Added a Windows release launcher that starts every platform build through GitHub Actions and downloads the results.
+- Fixed Remote Desktop WebAssembly initialization under the renderer security policy.
+- Kept detailed Remote Desktop failures readable without overflowing compact status areas.
+- Preserved exact casing for terminal usernames, remote files, directories, and other dynamic labels.
+- Refreshed the project README and EverythingX attribution.
 
-Read the complete changes on the [v0.1.6 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.1.6).
+Read the complete changes on the [v0.1.7 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.1.7).
 
 > [!NOTE]
-> The Windows artifacts for v0.1.6 intentionally exclude the DeployerX DB Access Manager payload.
+> The hosted Windows artifacts for v0.1.7 intentionally exclude the local-only DeployerX DB Access Manager payload.
 
 ## Download
 
-DeployerX is currently distributed for 64-bit Windows.
+DeployerX is distributed for 64-bit Windows and Linux, plus Intel and Apple Silicon Macs.
 
-| Package | Use it when | Download |
+| Platform | Package | Download |
 | --- | --- | --- |
-| **Setup** | You want Start Menu and desktop shortcuts with a normal installation | [DeployerX-0.1.6-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.6/DeployerX-0.1.6-Setup-x64.exe) |
-| **Portable** | You want to run DeployerX directly without installation | [DeployerX-0.1.6-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.6/DeployerX-0.1.6-Portable-x64.exe) |
+| **Windows x64** | Setup | [DeployerX-0.1.7-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-Setup-x64.exe) |
+| **Windows x64** | Portable | [DeployerX-0.1.7-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-Portable-x64.exe) |
+| **Linux x64** | AppImage | [DeployerX-0.1.7-x64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.AppImage) |
+| **Linux x64** | Debian/Ubuntu | [DeployerX-0.1.7-x64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.deb) |
+| **Linux x64** | Fedora/RHEL | [DeployerX-0.1.7-x64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.rpm) |
+| **macOS Intel** | DMG | [DeployerX-0.1.7-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.dmg) |
+| **macOS Intel** | ZIP | [DeployerX-0.1.7-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.zip) |
+| **macOS Apple Silicon** | DMG | [DeployerX-0.1.7-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-arm64.dmg) |
+| **macOS Apple Silicon** | ZIP | [DeployerX-0.1.7-arm64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-arm64.zip) |
 
-Windows may show a SmartScreen warning because the current release artifacts are unsigned. Confirm that the file came from this repository's release page before running it.
+Windows may show a SmartScreen warning and macOS may require manual approval because the current release artifacts are unsigned. Confirm that every file came from this repository's release page before running it.
 
 ## Run from source
 
 Requirements:
 
-- Windows 10 or Windows 11
+- Windows, Linux, or macOS
 - Node.js LTS and npm
 - Git
 
@@ -100,6 +107,17 @@ npm start
 ```
 
 Choose **Local Workspace** on first launch to use DeployerX without a hosted backend. Firebase configuration is optional and only required for cloud workspace features.
+
+## Build release packages
+
+Windows setup and portable executables can be built locally with `build-exe.bat`.
+To build every supported package from Windows, commit and push the repository, sign in with the GitHub CLI, and run:
+
+```powershell
+build-all.bat 1.2.3
+```
+
+The command starts native GitHub-hosted builds for Windows x64, Linux x64, macOS Intel, and macOS Apple Silicon, waits for them, and downloads the packages into `dist`. Add `--release` to also create or update the matching `v1.2.3` GitHub release. The hosted Windows package excludes the local-only DB Access Manager companion; use `build-exe.bat` when that payload is required. The macOS packages are unsigned until Apple signing and notarization credentials are configured in the repository.
 
 ## Local-first by default
 
