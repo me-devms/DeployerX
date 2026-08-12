@@ -80,11 +80,15 @@ jobs:
 
   mac:
     name: macOS ${{ matrix.arch }}
-    runs-on: macos-13
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
