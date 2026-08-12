@@ -66,6 +66,34 @@ test('starts, samples, pauses, and stops a monitoring session', async () => {
   assert.equal(manager.sessions.size, 0);
 });
 
+test('reconnects an owned monitoring connection after transport loss until explicitly stopped', async () => {
+  const events = [];
+  const clients = [];
+  const manager = new ServerMonitoringSessionManager({
+    emit: (event) => events.push(event),
+    clientFactory: () => {
+      const client = new FakeClient();
+      clients.push(client);
+      return client;
+    },
+    pollIntervalMs: 60000
+  });
+
+  manager.start({ sessionId: 'persistent-monitor', projectId: 'project-1', connectionConfig: { host: 'localhost', username: 'tester' } });
+  await waitFor(() => events.filter((event) => event.type === 'sample').length === 1);
+  clients[0].emit('close');
+
+  await waitFor(() => clients.length === 2, 1500);
+  await waitFor(() => events.filter((event) => event.type === 'sample').length === 2);
+  assert.ok(events.some((event) => event.status === 'reconnecting'));
+
+  manager.stop('persistent-monitor');
+  const clientCount = clients.length;
+  clients.at(-1).emit('close');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(clients.length, clientCount);
+});
+
 test('borrows an existing terminal SSH client without connecting or closing it', async () => {
   const events = [];
   const connection = new FakeClient();
@@ -106,4 +134,25 @@ test('shows an error after three consecutive metric collection failures', async 
   await waitFor(() => events.some((event) => event.type === 'error'));
   assert.match(events.find((event) => event.type === 'error').message, /still opening/);
   manager.stop('failed-monitor');
+});
+
+test('recycles an owned connection after repeated collector failures', async () => {
+  const events = [];
+  const clients = [];
+  const manager = new ServerMonitoringSessionManager({
+    emit: (event) => events.push(event),
+    clientFactory: () => {
+      const client = clients.length ? new FakeClient() : new FlakyClient(3);
+      clients.push(client);
+      return client;
+    },
+    pollIntervalMs: 5,
+    startupGraceMs: 0
+  });
+
+  manager.start({ sessionId: 'stalled-monitor', projectId: 'project-1', connectionConfig: { host: 'localhost', username: 'tester' } });
+  await waitFor(() => clients.length === 2, 1500);
+  await waitFor(() => events.some((event) => event.type === 'sample'), 1500);
+  assert.ok(events.some((event) => event.status === 'reconnecting'));
+  manager.stop('stalled-monitor');
 });

@@ -226,7 +226,13 @@ const activeWindowsVpnProfiles = new Map();
 const serverMonitoringSessionManager = new ServerMonitoringSessionManager({
   emit: (event) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('server-monitoring:event', event);
-  }
+  },
+  connectionStarter: (connection, state) => connectClientWithProjectRoute(
+    connection,
+    state.project,
+    state.connectionConfig,
+    { protocol: 'ssh' }
+  )
 });
 const TEMPLATE_CATEGORIES = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance', 'Security', 'Hosting', 'Web Server', 'Cache', 'Control Panel', 'PaaS'];
 const FIREBASE_AUTH_URL = 'https://identitytoolkit.googleapis.com/v1';
@@ -7687,7 +7693,9 @@ function toConnectionConfig(project) {
     host: ssh.host,
     port: Number(ssh.port || 22),
     username: ssh.username,
-    readyTimeout: Number(ssh.timeout || 20000)
+    readyTimeout: Number(ssh.timeout || 20000),
+    keepaliveInterval: 15000,
+    keepaliveCountMax: 4
   };
 
   if (ssh.authType === 'key') {
@@ -8485,6 +8493,10 @@ async function executeDeployment(project, upload, runId) {
   });
 }
 
+function quoteTerminalShellPath(remotePath) {
+  return `'${String(remotePath || '').replace(/'/g, `'\\''`)}'`;
+}
+
 async function startTerminal(project, sessionId, size = {}) {
   const validationError = validateConnectionProject(project);
   if (validationError) throw new Error(validationError);
@@ -8536,7 +8548,9 @@ async function startTerminal(project, sessionId, size = {}) {
         });
 
         const promptDirectoryTracking = "if [ -n \"$BASH_VERSION\" ]; then PS1='\\[\\e]1337;DeployerXPwd=$PWD\\a\\]'\"$PS1\"; fi";
-        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; stty -echo -echonl; printf '\\r\\033[2K'\n`);
+        const startupDirectory = String(size.startupDirectory || '').trim();
+        const changeDirectory = startupDirectory ? `cd -- ${quoteTerminalShellPath(startupDirectory)}; ` : '';
+        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; ${changeDirectory}printf '\\r\\033[1A\\033[2K\\r'; stty echo echonl\n`);
         emitTerminal(sessionId, 'connected', 'Terminal connected.');
       }
     );
@@ -8803,9 +8817,11 @@ function openSftpChannel(connection) {
 
 function isSftpSubsystemUnavailableError(error) {
   const message = String(error?.message || error || '');
-  return Number(error?.code) === 127
+  return Number(error?.reason) === 2
+    || Number(error?.code) === 127
     || /exit code 127.*establishing SFTP session/i.test(message)
-    || /SFTP subsystem.*(?:unavailable|not found|failed)/i.test(message);
+    || /SFTP subsystem.*(?:unavailable|not found|failed)/i.test(message)
+    || /channel open failure:\s*open failed/i.test(message);
 }
 
 function unavailableTerminalDirectory(remotePath) {
@@ -13358,7 +13374,11 @@ ipcMain.handle('deployment:stop', async (_event, runId) => stopDeployment(runId)
 
 ipcMain.handle('terminal:start', async (_event, payload) => {
   const sessionId = payload.sessionId || `${Date.now()}`;
-  startTerminal(payload.project, sessionId, { cols: payload.cols, rows: payload.rows }).catch((error) => {
+  startTerminal(payload.project, sessionId, {
+    cols: payload.cols,
+    rows: payload.rows,
+    startupDirectory: payload.startupDirectory
+  }).catch((error) => {
     emitTerminal(sessionId, 'failed', error.message || 'Could not connect SSH.');
   });
   return { sessionId };
@@ -13367,15 +13387,14 @@ ipcMain.handle('terminal:start', async (_event, payload) => {
 ipcMain.handle('server-monitoring:start', async (_event, payload = {}) => {
   const project = payload.project || {};
   if (['vnc', 'rdp'].includes(project.serverType)) throw new Error('Real-time monitoring currently requires an SSH-capable server.');
-  const terminalSessionId = String(payload.terminalSessionId || '');
-  const terminalState = activeTerminals.get(terminalSessionId);
-  if (!terminalState?.connection || !terminalState.stream) throw new Error('Connect SSH before starting real-time monitoring.');
-  if (terminalState.projectId !== String(project.id || '')) throw new Error('The SSH terminal does not belong to the selected server.');
+  const validationError = validateConnectionProject(project);
+  if (validationError) throw new Error(validationError);
   const sessionId = String(payload.sessionId || `${Date.now()}-${crypto.randomUUID()}`);
   return serverMonitoringSessionManager.start({
     sessionId,
     projectId: String(project.id || ''),
-    connection: terminalState.connection
+    project,
+    connectionConfig: toConnectionConfig(project)
   });
 });
 

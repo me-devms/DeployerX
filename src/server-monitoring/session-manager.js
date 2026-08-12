@@ -2,9 +2,10 @@ const { Client } = require('ssh2');
 const { buildCollectorCommand, executeCollectorCommand, parseCollectorOutput } = require('./linux-collector');
 
 class ServerMonitoringSessionManager {
-  constructor({ emit = () => {}, clientFactory = () => new Client(), pollIntervalMs = 2000, startupRetryMs = 250, startupGraceMs = 8000, processIntervalMs = 5000, storageIntervalMs = 10000 } = {}) {
+  constructor({ emit = () => {}, clientFactory = () => new Client(), connectionStarter = (connection, { connectionConfig }) => connection.connect(connectionConfig), pollIntervalMs = 2000, startupRetryMs = 250, startupGraceMs = 8000, processIntervalMs = 5000, storageIntervalMs = 10000 } = {}) {
     this.emit = emit;
     this.clientFactory = clientFactory;
+    this.connectionStarter = connectionStarter;
     this.pollIntervalMs = pollIntervalMs;
     this.startupRetryMs = startupRetryMs;
     this.startupGraceMs = startupGraceMs;
@@ -13,14 +14,16 @@ class ServerMonitoringSessionManager {
     this.sessions = new Map();
   }
 
-  start({ sessionId, projectId, connectionConfig, connection = null }) {
+  start({ sessionId, projectId, project = null, connectionConfig, connection = null }) {
     if (!sessionId || !projectId || (!connection && (!connectionConfig?.host || !connectionConfig?.username))) throw new Error('A valid monitoring session and SSH server are required.');
     this.stop(sessionId, { emit: false });
     const state = {
       sessionId,
       projectId,
+      project,
       connectionConfig,
       connection,
+      connectionResource: null,
       ownsConnection: !connection,
       timer: null,
       startupRetryTimer: null,
@@ -65,8 +68,12 @@ class ServerMonitoringSessionManager {
     if (!state) return false;
     state.stopped = true;
     clearInterval(state.timer);
+    clearTimeout(state.startupRetryTimer);
     clearTimeout(state.reconnectTimer);
-    if (state.ownsConnection) state.connection?.end();
+    if (state.ownsConnection) {
+      state.connection?.end();
+      state.connectionResource?.release?.().catch(() => {});
+    }
     this.sessions.delete(sessionId);
     if (options.emit !== false) this.#emit(state, 'status', { status: 'stopped' });
     return true;
@@ -86,7 +93,7 @@ class ServerMonitoringSessionManager {
     this.emit({ sessionId: state.sessionId, projectId: state.projectId, type, ...payload });
   }
 
-  #connect(state) {
+  async #connect(state) {
     if (state.stopped || !this.sessions.has(state.sessionId)) return;
     clearTimeout(state.reconnectTimer);
     this.#emit(state, 'status', { status: state.reconnectAttempt ? 'reconnecting' : 'connecting', attempt: state.reconnectAttempt });
@@ -104,11 +111,27 @@ class ServerMonitoringSessionManager {
     connection.on('close', () => {
       if (state.stopped || state.connection !== connection) return;
       state.connection = null;
+      const connectionResource = state.connectionResource;
+      state.connectionResource = null;
+      connectionResource?.release?.().catch(() => {});
       clearInterval(state.timer);
       state.timer = null;
       this.#scheduleReconnect(state);
     });
-    connection.connect(state.connectionConfig);
+    try {
+      const connectionResource = await this.connectionStarter(connection, state);
+      if (state.stopped || state.connection !== connection) {
+        connection.end();
+        await connectionResource?.release?.();
+        return;
+      }
+      state.connectionResource = connectionResource || null;
+    } catch (error) {
+      if (state.stopped || state.connection !== connection) return;
+      state.connection = null;
+      this.#emit(state, 'error', { message: error.message || 'The monitoring SSH connection failed.' });
+      this.#scheduleReconnect(state);
+    }
   }
 
   #scheduleReconnect(state) {
@@ -153,6 +176,11 @@ class ServerMonitoringSessionManager {
         retryStartup = inStartupGrace;
         if (!inStartupGrace && state.consecutivePollFailures >= 3) {
           this.#emit(state, 'error', { message: error.message || 'Could not collect server metrics.' });
+          if (state.ownsConnection && state.connection) {
+            clearInterval(state.timer);
+            state.timer = null;
+            state.connection.end();
+          }
         }
       }
     } finally {

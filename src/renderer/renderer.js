@@ -10700,8 +10700,7 @@ async function startServerMonitoringForProject(project, terminalSession = getCon
   if (!project || !terminalSession?.sessionId || !terminalSession.connected || isVncServerType(project.serverType)) return false;
   reconcileServerMonitoringEntries();
   const entry = state.serverMonitoring.entries[String(project.id)];
-  if (entry.sessionId && entry.terminalSessionId === terminalSession.sessionId) return true;
-  if (entry.sessionId) await stopServerMonitoring(project.id);
+  if (entry.sessionId) return true;
   const sessionId = `monitor_${window.crypto.randomUUID()}`;
   entry.sessionId = sessionId;
   entry.terminalSessionId = terminalSession.sessionId;
@@ -10709,7 +10708,10 @@ async function startServerMonitoringForProject(project, terminalSession = getCon
   entry.error = '';
   renderServerMonitoring();
   try {
-    await window.deployerx.startServerMonitoring({ sessionId, terminalSessionId: terminalSession.sessionId, project });
+    const selectedUser = (project.ssh?.users || []).find((user) => user.id === terminalSession.sshUserId) || defaultTerminalUser(project);
+    const monitoringProject = structuredClone(project);
+    if (selectedUser) monitoringProject.ssh = { ...monitoringProject.ssh, ...selectedUser };
+    await window.deployerx.startServerMonitoring({ sessionId, project: monitoringProject });
     return true;
   } catch (error) {
     if (entry.sessionId !== sessionId) return false;
@@ -19741,7 +19743,7 @@ function confirmDangerousAction(message, detail = '', confirmLabel = 'Confirm') 
   const iconHref = isLogout
     ? '#icon-log-out'
     : normalizedLabel.includes('disconnect')
-      ? '#icon-unplug'
+      ? '#icon-disconnect'
       : normalizedLabel.includes('delete') || normalizedLabel.includes('prune')
         ? '#icon-trash'
         : /stop|cancel|close terminal/.test(normalizedLabel)
@@ -25516,9 +25518,7 @@ async function ensureTerminal(terminalSession, project) {
   terminalSession.connected = false;
   terminalSession.status = 'Connecting...';
   terminalSession.output = 'Ready.\r\n';
-  terminalSession.pendingInput = startupDirectory
-    ? `printf '\\r\\033[2K'; cd -- ${quoteShellPath(startupDirectory)}; stty echo echonl\r`
-    : '';
+  terminalSession.pendingInput = '';
   terminalSession.outputBuffer = '';
   terminalSession.rawBuffer = '';
   terminalSession.currentDirectory = '';
@@ -25549,7 +25549,8 @@ async function ensureTerminal(terminalSession, project) {
     sessionId,
     project,
     cols: terminal.cols,
-    rows: terminal.rows
+    rows: terminal.rows,
+    startupDirectory
   });
   const nextSessionId = response.sessionId || sessionId;
   if (nextSessionId !== sessionId) {
@@ -28560,22 +28561,7 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
     removeTerminalSessionRegistration(closedSessionId);
     setTerminalSessionStatus(terminalSession, event.type === 'failed' ? 'Connection failed' : 'Disconnected', false);
     const monitoring = state.serverMonitoring.entries[String(terminalSession.projectId)];
-    if (monitoring?.terminalSessionId === closedSessionId) {
-      await stopServerMonitoring(terminalSession.projectId);
-      const replacement = getConnectedTerminalSession(terminalSession.projectId);
-      const project = state.projects.find((item) => String(item.id) === String(terminalSession.projectId));
-      if (state.currentView === 'server-monitoring' && replacement && project) {
-        await startServerMonitoringForProject(project, replacement);
-      } else {
-        monitoring.status = getTerminalTabs(terminalSession.projectId)?.some((session) => session.sessionId) ? 'connecting-ssh' : 'ssh-required';
-        renderServerMonitoring();
-      }
-    } else if (monitoring) {
-      if (!getConnectedTerminalSession(terminalSession.projectId)) {
-        monitoring.status = getTerminalTabs(terminalSession.projectId)?.some((session) => session.sessionId) ? 'connecting-ssh' : 'ssh-required';
-      }
-      renderServerMonitoring();
-    }
+    if (monitoring) renderServerMonitoring();
   }
 });
 

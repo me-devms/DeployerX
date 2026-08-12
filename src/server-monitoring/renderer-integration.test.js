@@ -29,15 +29,16 @@ test('binds monitoring navigation, sidebar selection, preload APIs, and main-pro
   assert.match(main, /serverMonitoringSessionManager\.stopAll\(\)/);
 });
 
-test('connects each card through the persistent terminal SSH connection', () => {
+test('connects each card through an independent persistent monitoring SSH connection', () => {
   assert.match(renderer, /getConnectedTerminalSession/);
-  assert.match(renderer, /terminalSessionId: terminalSession\.sessionId/);
+  assert.match(renderer, /monitoringProject\.ssh = \{ \.\.\.monitoringProject\.ssh, \.\.\.selectedUser \}/);
   assert.match(renderer, /data-monitor-connect/);
   assert.match(renderer, /connectServerMonitoringSsh\(project\.id, \{ restart: Boolean\(terminalSession\) \}\)/);
   assert.match(renderer, /async function connectAllServerMonitoring\(\)[\s\S]*state\.serverMonitoring\.order[\s\S]*connectServerMonitoringSsh\(project\.id, \{ useDefaultUser: true \}\)/);
   assert.match(styles, /\.server-monitoring-card-connect/);
-  assert.match(main, /activeTerminals\.get\(terminalSessionId\)/);
-  assert.match(main, /connection: terminalState\.connection/);
+  assert.match(main, /connectionConfig: toConnectionConfig\(project\)/);
+  assert.match(main, /keepaliveInterval: 15000/);
+  assert.doesNotMatch(main, /activeTerminals\.get\(terminalSessionId\)/);
 });
 
 test('Connect All bypasses the user prompt and selects each default SSH user', () => {
