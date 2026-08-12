@@ -81,9 +81,9 @@ DeployerX is distributed for 64-bit Windows and Linux, plus Intel and Apple Sili
 | --- | --- | --- |
 | **Windows x64** | Setup | [DeployerX-0.1.7-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-Setup-x64.exe) |
 | **Windows x64** | Portable | [DeployerX-0.1.7-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-Portable-x64.exe) |
-| **Linux x64** | AppImage | [DeployerX-0.1.7-x64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.AppImage) |
-| **Linux x64** | Debian/Ubuntu | [DeployerX-0.1.7-x64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.deb) |
-| **Linux x64** | Fedora/RHEL | [DeployerX-0.1.7-x64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.rpm) |
+| **Linux x64** | AppImage | [DeployerX-0.1.7-x86_64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x86_64.AppImage) |
+| **Linux x64** | Debian/Ubuntu | [DeployerX-0.1.7-amd64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-amd64.deb) |
+| **Linux x64** | Fedora/RHEL | [DeployerX-0.1.7-x86_64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x86_64.rpm) |
 | **macOS Intel** | DMG | [DeployerX-0.1.7-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.dmg) |
 | **macOS Intel** | ZIP | [DeployerX-0.1.7-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-x64.zip) |
 | **macOS Apple Silicon** | DMG | [DeployerX-0.1.7-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.1.7/DeployerX-0.1.7-arm64.dmg) |
