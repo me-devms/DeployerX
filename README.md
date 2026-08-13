@@ -59,18 +59,18 @@ DeployerX brings the tools used throughout a server's lifecycle into one focused
 - Expose bounded SSH, SFTP, monitoring, and uptime tools to trusted AI clients through a loopback-only MCP endpoint.
 - Choose from light and dark themes designed for long operational sessions.
 
-## What's new in v0.2.0
+## What's new in v0.2.1
 
-- Server Monitoring now uses its own resilient SSH connection, so metrics continue when an interactive terminal closes.
-- Added SSH keepalives and automatic monitoring reconnection for more stable long-running sessions.
-- Fixed terminal startup-directory handling and duplicate shell prompts when opening terminals and SFTP paths.
-- Improved detection and fallback behavior when a server does not expose an SFTP subsystem.
-- Includes the packaged authentication and Uptime Monitor reliability fixes from v0.1.9.
+- Preserved the encrypted MCP access token across application updates and restart handoffs.
+- Added DeployerX-managed MCP SSH execution with reusable connections and live streamed command output.
+- Mirrored MCP SSH activity into a read-only terminal tab without exposing stored credentials.
+- Expanded MCP error redaction for SSH, SFTP, proxy, key, passphrase, and multi-user credentials.
+- Fixed terminal repainting, keyboard focus, and visible shell echo after navigation and connection.
 
-Read the complete changes on the [v0.2.0 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.2.0).
+Read the complete changes on the [v0.2.1 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.2.1).
 
 > [!NOTE]
-> The hosted Windows artifacts for v0.2.0 intentionally exclude the local-only DeployerX DB Access Manager payload.
+> The hosted Windows artifacts for v0.2.1 intentionally exclude the local-only DeployerX DB Access Manager payload.
 
 ## Download
 
@@ -78,15 +78,15 @@ DeployerX is distributed for 64-bit Windows and Linux, plus Intel and Apple Sili
 
 | Platform | Package | Download |
 | --- | --- | --- |
-| **Windows x64** | Setup | [DeployerX-0.2.0-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-Setup-x64.exe) |
-| **Windows x64** | Portable | [DeployerX-0.2.0-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-Portable-x64.exe) |
-| **Linux x64** | AppImage | [DeployerX-0.2.0-x86_64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-x86_64.AppImage) |
-| **Linux x64** | Debian/Ubuntu | [DeployerX-0.2.0-amd64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-amd64.deb) |
-| **Linux x64** | Fedora/RHEL | [DeployerX-0.2.0-x86_64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-x86_64.rpm) |
-| **macOS Intel** | DMG | [DeployerX-0.2.0-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-x64.dmg) |
-| **macOS Intel** | ZIP | [DeployerX-0.2.0-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-x64.zip) |
-| **macOS Apple Silicon** | DMG | [DeployerX-0.2.0-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-arm64.dmg) |
-| **macOS Apple Silicon** | ZIP | [DeployerX-0.2.0-arm64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.0/DeployerX-0.2.0-arm64.zip) |
+| **Windows x64** | Setup | [DeployerX-0.2.1-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-Setup-x64.exe) |
+| **Windows x64** | Portable | [DeployerX-0.2.1-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-Portable-x64.exe) |
+| **Linux x64** | AppImage | [DeployerX-0.2.1-x86_64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-x86_64.AppImage) |
+| **Linux x64** | Debian/Ubuntu | [DeployerX-0.2.1-amd64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-amd64.deb) |
+| **Linux x64** | Fedora/RHEL | [DeployerX-0.2.1-x86_64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-x86_64.rpm) |
+| **macOS Intel** | DMG | [DeployerX-0.2.1-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-x64.dmg) |
+| **macOS Intel** | ZIP | [DeployerX-0.2.1-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-x64.zip) |
+| **macOS Apple Silicon** | DMG | [DeployerX-0.2.1-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-arm64.dmg) |
+| **macOS Apple Silicon** | ZIP | [DeployerX-0.2.1-arm64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.1/DeployerX-0.2.1-arm64.zip) |
 
 Windows may show a SmartScreen warning and macOS may require manual approval because the current release artifacts are unsigned. Confirm that every file came from this repository's release page before running it.
 

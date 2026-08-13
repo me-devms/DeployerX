@@ -22,18 +22,37 @@ test('renders accessible SSH terminal tabs with a fixed new-tab control', async 
 });
 
 test('keeps SSH shells isolated by tab and starts every terminal at the filesystem root', async () => {
-  const source = await fs.readFile(path.join(rendererDirectory, 'renderer.js'), 'utf8');
+  const [source, mainSource] = await Promise.all([
+    fs.readFile(path.join(rendererDirectory, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(rendererDirectory, '..', 'main.js'), 'utf8')
+  ]);
 
   assert.equal(source.includes('activeTerminalTabIds: {}'), true, 'active tab state per server');
   assert.equal(source.includes("find((session) => session.sessionId === sessionId)"), true, 'events resolve their own terminal session');
   assert.equal(source.includes('state.activeTerminalTabIds[session.projectId] === session.tabId'), true, 'only the selected tab writes to xterm');
   assert.equal(source.includes('terminalSessions?.some((session) => session.sessionId && session.connected)'), true, 'project SSH state includes every tab');
   assert.equal(source.includes("createTerminalTabSession(projectId, { startupDirectory = '/' } = {})"), true, 'every terminal defaults to the filesystem root');
-  assert.equal(source.includes('`printf \'\\\\r\\\\033[2K\'; cd -- ${quoteShellPath(startupDirectory)}; stty echo echonl\\r`'), true, 'startup clears the initial prompt, changes to the quoted root path, and restores terminal echo');
+  assert.match(mainSource, /changeDirectory = startupDirectory \? `cd -- \$\{quoteTerminalShellPath\(startupDirectory\)\}; ` : '';[\s\S]*?stream\.write\(`stty sane[\s\S]*?\$\{changeDirectory\}[\s\S]*?stty echo echonl/, 'startup changes to the quoted root path and restores terminal echo');
   assert.equal(source.includes('await window.deployerx.stopTerminal(session.sessionId)'), true, 'closing a tab stops only its own shell');
   assert.equal(source.includes('if (!isVisibleTerminalSession(terminalSession)) return;'), true, 'background connections cannot steal focus');
   assert.equal(source.includes("document.body.classList.toggle('project-view-active', isProject)"), true, 'project view locks document scrolling');
   assert.match(source, /els\.connectTerminalButton\.addEventListener\('click', \(\) => \{\s+connectTerminal\(\)\.catch\(\(error\) => showAlert\(error\.message \|\| 'Could not connect SSH\.'\)\);\s+\}\);/, 'connect button must call connectTerminal without passing the click event as the project');
+});
+
+test('restores terminal rendering and keyboard focus after navigation', async () => {
+  const source = await fs.readFile(path.join(rendererDirectory, 'renderer.js'), 'utf8');
+
+  assert.match(source, /function restoreTerminalInteraction[\s\S]*?fitTerminal\(\);[\s\S]*?terminal\.refresh\(0, Math\.max\(0, terminal\.rows - 1\)\);[\s\S]*?resizeActiveTerminal\(\);[\s\S]*?terminal\.focus\(\);/, 'visible SSH terminals are refitted, repainted, resized, and focused');
+  assert.match(source, /function setProjectTab[\s\S]*?restoreTerminalInteraction\(\);/, 'returning from the FTP tab restores the SSH terminal');
+  assert.match(source, /if \(event\.type === 'connected'\)[\s\S]*?if \(isVisibleTerminalSession\(terminalSession\)\) restoreTerminalInteraction\(\);/, 'a newly connected terminal receives keyboard focus');
+});
+
+test('does not disable remote shell echo when creating the SSH PTY', async () => {
+  const mainSource = await fs.readFile(path.join(rendererDirectory, '..', 'main.js'), 'utf8');
+  const terminalStart = mainSource.slice(mainSource.indexOf('async function startTerminal'), mainSource.indexOf('function resizeTerminal'));
+
+  assert.equal(terminalStart.includes('modes: { ECHO: 0, ECHONL: 0 }'), false, 'typed shell input remains visible');
+  assert.equal(terminalStart.includes('stty echo echonl'), true, 'shell startup also normalizes echo flags');
 });
 
 test('keeps terminal tab numbers contiguous and identifies multi-user sessions', async () => {

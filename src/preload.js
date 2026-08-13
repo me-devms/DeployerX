@@ -567,6 +567,11 @@ contextBridge.exposeInMainWorld('deployerx', {
     ipcRenderer.on('terminal:event', handler);
     return () => ipcRenderer.removeListener('terminal:event', handler);
   },
+  onMcpTerminalEvent: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('mcp-terminal:event', handler);
+    return () => ipcRenderer.removeListener('mcp-terminal:event', handler);
+  },
   onServerMonitoringEvent: (callback) => {
     const handler = (_event, message) => callback(message);
     ipcRenderer.on('server-monitoring:event', handler);

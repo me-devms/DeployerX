@@ -193,6 +193,7 @@ const appPackage = require('../package.json');
 
 const STORE_FILE = 'projects.json';
 const SETTINGS_FILE = 'settings.json';
+const MCP_TOKEN_FILE = 'mcp-token.enc';
 const APP_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'deployerx-logo.ico' : 'deployerx-logo.png');
 const DATABASE_MANAGER_PACKAGED_SMOKE_ARGUMENT = '--database-manager-packaged-smoke';
 const DATABASE_MANAGER_PACKAGED_SMOKE_RELEASE_ARGUMENT = '--database-manager-packaged-smoke-release=';
@@ -219,6 +220,7 @@ let mcpRestorePromise = null;
 let mcpHealthTimer = null;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
+const mcpSshConnections = new Map();
 const activeFtpSessions = new Map();
 const activeVncNetworkSessions = new Map();
 const activeTerminalUploads = new Map();
@@ -1252,6 +1254,10 @@ function getStorePath() {
 
 function getSettingsPath() {
   return path.join(app.getPath('userData'), SETTINGS_FILE);
+}
+
+function getMcpTokenPath() {
+  return path.join(app.getPath('userData'), MCP_TOKEN_FILE);
 }
 
 function getUserFirebaseConfigPath() {
@@ -5634,6 +5640,50 @@ function createMcpToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
+async function writeEncryptedMcpToken(tokenEncrypted) {
+  const tokenPath = getMcpTokenPath();
+  const temporaryPath = `${tokenPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporaryPath, String(tokenEncrypted), { mode: 0o600 });
+    await fs.rename(temporaryPath, tokenPath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function persistMcpToken(token) {
+  const tokenEncrypted = encryptMcpToken(token);
+  await writeEncryptedMcpToken(tokenEncrypted);
+  return tokenEncrypted;
+}
+
+async function readPersistedMcpToken(config = {}) {
+  let fileTokenEncrypted = '';
+  try {
+    fileTokenEncrypted = String(await fs.readFile(getMcpTokenPath(), 'utf8')).trim();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+
+  const settingsTokenEncrypted = String(config.tokenEncrypted || '');
+  const candidates = [...new Set([fileTokenEncrypted, settingsTokenEncrypted].filter(Boolean))];
+  let lastError;
+  for (const tokenEncrypted of candidates) {
+    try {
+      const token = decryptMcpToken(tokenEncrypted);
+      if (!fileTokenEncrypted || tokenEncrypted !== fileTokenEncrypted) {
+        await writeEncryptedMcpToken(tokenEncrypted);
+      }
+      return { token, tokenEncrypted };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  return { token: '', tokenEncrypted: '' };
+}
+
 const UPTIME_CLOUD_COLLECTIONS = Object.freeze({
   monitors: 'uptimeMonitors',
   checks: 'uptimeCheckWindows',
@@ -6102,6 +6152,9 @@ function ensureMcpServer() {
         const data = await readCurrentStore();
         return data.projects || [];
       },
+      sshOperations: {
+        execute: executeManagedMcpSshCommand
+      },
       uptimeOperations: {
         getStatus: getUptimeStatusOperation,
         listMonitors: listUptimeMonitorsOperation,
@@ -6143,7 +6196,7 @@ async function publicMcpIntegration(config = null) {
   let token = '';
   let serverCount = 0;
   try {
-    token = decryptMcpToken(normalized.tokenEncrypted);
+    ({ token } = await readPersistedMcpToken(normalized));
   } catch (error) {
     normalized.lastError = error.message || String(error);
   }
@@ -6174,12 +6227,14 @@ async function startMcpIntegration(payload = {}) {
   const settings = await readSettings();
   const current = normalizeMcpIntegration(settings.mcpIntegration || {});
   const port = Math.min(65535, Math.max(1024, Math.round(Number(payload.port) || current.port || 43821)));
-  const token = decryptMcpToken(current.tokenEncrypted) || createMcpToken();
+  const persisted = await readPersistedMcpToken(current);
+  const token = persisted.token || createMcpToken();
+  const tokenEncrypted = persisted.tokenEncrypted || await persistMcpToken(token);
   const next = normalizeMcpIntegration({
     ...current,
     enabled: true,
     port,
-    tokenEncrypted: current.tokenEncrypted || encryptMcpToken(token),
+    tokenEncrypted,
     lastError: '',
     updatedAt: nowIso()
   });
@@ -6200,9 +6255,10 @@ async function rotateMcpToken() {
   const settings = await readSettings();
   const current = normalizeMcpIntegration(settings.mcpIntegration || {});
   const token = createMcpToken();
+  const tokenEncrypted = await persistMcpToken(token);
   const next = normalizeMcpIntegration({
     ...current,
-    tokenEncrypted: encryptMcpToken(token),
+    tokenEncrypted,
     lastError: '',
     updatedAt: nowIso()
   });
@@ -6221,7 +6277,7 @@ async function rotateMcpToken() {
 async function testMcpIntegration() {
   const settings = await readSettings();
   const config = normalizeMcpIntegration(settings.mcpIntegration || {});
-  const token = decryptMcpToken(config.tokenEncrypted);
+  const { token } = await readPersistedMcpToken(config);
   if (!token || !ensureMcpServer().status().running) throw new Error('The DeployerX MCP server is still starting. Try again shortly.');
   const body = JSON.stringify({ jsonrpc: '2.0', id: 'deployerx-test', method: 'tools/list' });
   const result = await new Promise((resolve, reject) => {
@@ -6233,7 +6289,7 @@ async function testMcpIntegration() {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
-          Accept: 'application/json, text/event-stream',
+          Accept: 'application/json',
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(body)
         },
@@ -6280,24 +6336,38 @@ async function restoreMcpIntegrationAttempt() {
   const settings = await readSettings();
   const current = normalizeMcpIntegration(settings.mcpIntegration || {});
   let token;
-  let tokenEncrypted = current.tokenEncrypted;
+  let tokenEncrypted;
   try {
-    token = decryptMcpToken(tokenEncrypted);
-  } catch {
-    token = '';
-    tokenEncrypted = '';
+    ({ token, tokenEncrypted } = await readPersistedMcpToken(current));
+  } catch (error) {
+    // Keep the durable ciphertext intact. A transient safeStorage/keychain
+    // failure must not be interpreted as a request to rotate the MCP token.
+    const failed = normalizeMcpIntegration({
+      ...current,
+      lastError: String(error?.message || error || 'MCP token could not be decrypted.'),
+      updatedAt: nowIso()
+    });
+    await writeMcpIntegrationSettings(failed);
+    scheduleMcpRestoreRetry();
+    return publicMcpIntegration(failed);
   }
-  token ||= createMcpToken();
+  if (!token) {
+    token = createMcpToken();
+    tokenEncrypted = await persistMcpToken(token);
+  }
   const config = normalizeMcpIntegration({
     ...current,
-    tokenEncrypted: tokenEncrypted || encryptMcpToken(token),
+    tokenEncrypted,
     lastError: '',
     updatedAt: current.updatedAt || nowIso()
   });
   await writeMcpIntegrationSettings(config);
 
   let lastError;
-  for (const delayMs of [0, 300, 1000]) {
+  // During an update/restart the previous Electron process may still be
+  // releasing the loopback listener. Give it enough time to drain before
+  // recording a startup failure; the health watchdog remains the fallback.
+  for (const delayMs of [0, 300, 1000, 3000, 10000]) {
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
     try {
       await ensureMcpServer().start({ port: config.port, token });
@@ -8493,6 +8563,144 @@ async function executeDeployment(project, upload, runId) {
   });
 }
 
+function emitMcpTerminal(project, type, payload, sessionId = '') {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('mcp-terminal:event', {
+    sessionId,
+    projectId: String(project?.id || ''),
+    projectName: String(project?.name || 'Server'),
+    type,
+    payload
+  });
+}
+
+function reusableSshConnection(projectId) {
+  const id = String(projectId || '');
+  const terminal = [...activeTerminals.entries()].find(([, entry]) => entry.projectId === id && entry.connection && entry.stream);
+  if (terminal) return { connection: terminal[1].connection, reused: true, terminalSessionId: terminal[0] };
+  const managed = mcpSshConnections.get(id);
+  if (managed?.ready && managed.connection) return { connection: managed.connection, reused: true, terminalSessionId: '' };
+  return null;
+}
+
+async function managedMcpSshConnection(project) {
+  const projectId = String(project.id || '');
+  const reusable = reusableSshConnection(projectId);
+  if (reusable) return reusable;
+
+  const pending = mcpSshConnections.get(projectId);
+  if (pending?.promise) return pending.promise;
+
+  const connection = new Client();
+  const entry = { connection, networkAccess: null, ready: false, promise: null };
+  const promise = new Promise(async (resolve, reject) => {
+    let opening = true;
+    const fail = (error) => {
+      if (mcpSshConnections.get(projectId) === entry) mcpSshConnections.delete(projectId);
+      entry.networkAccess?.release().catch(() => {});
+      connection.end();
+      if (opening) reject(error);
+      else emitMcpTerminal(project, 'connection-error', String(error?.message || error));
+    };
+    connection.once('ready', () => {
+      opening = false;
+      entry.ready = true;
+      resolve({ connection, reused: false, terminalSessionId: '' });
+    });
+    connection.on('error', fail);
+    connection.on('close', () => {
+      if (mcpSshConnections.get(projectId) === entry) mcpSshConnections.delete(projectId);
+      entry.networkAccess?.release().catch(() => {});
+    });
+    try {
+      entry.networkAccess = await connectClientWithProjectRoute(connection, project, toConnectionConfig(project), { protocol: 'ssh' });
+    } catch (error) {
+      fail(error);
+    }
+  });
+  entry.promise = promise;
+  mcpSshConnections.set(projectId, entry);
+  return promise;
+}
+
+function appendMcpCommandOutput(chunks, data, currentBytes) {
+  const buffer = Buffer.from(data);
+  const remaining = Math.max(0, 1024 * 1024 - currentBytes);
+  if (remaining) chunks.push(buffer.subarray(0, remaining));
+  return currentBytes + buffer.length;
+}
+
+async function executeManagedMcpSshCommand(project, command, timeoutMs, { onOutput } = {}) {
+  const validationError = validateConnectionProject(project);
+  if (validationError) throw new Error(validationError);
+  const { connection, reused, terminalSessionId } = await managedMcpSshConnection(project);
+  const sessionId = `mcp-${Date.now()}-${crypto.randomUUID()}`;
+  const mirror = (type, payload) => {
+    if (terminalSessionId) emitTerminal(terminalSessionId, type, payload);
+    else emitMcpTerminal(project, type, payload, sessionId);
+  };
+  mirror('started', { command, reusedConnection: reused });
+  mirror('log', `\r\n\x1b[36m[MCP Agent]\x1b[0m $ ${command}\r\n`);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    const stdout = [];
+    const stderr = [];
+    let stream;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) {
+        if (terminalSessionId) {
+          mirror('error', `\r\n\x1b[31m[MCP Agent]\x1b[0m ${String(error?.message || error)}\r\n`);
+        } else {
+          mirror('failed', String(error?.message || error));
+        }
+        reject(error);
+      } else {
+        mirror('completed', { exitCode: result.exit_code, signal: result.signal });
+        mirror('log', `\r\n\x1b[36m[MCP Agent]\x1b[0m command finished with exit code ${result.exit_code ?? 'unknown'}.\r\n`);
+        resolve(result);
+      }
+    };
+    const timer = setTimeout(() => {
+      stream?.close?.();
+      finish(new Error(`SSH command timed out after ${timeoutMs} ms.`));
+    }, timeoutMs);
+
+    connection.exec(command, (error, channel) => {
+      if (error) return finish(error);
+      stream = channel;
+      channel.on('data', (data) => {
+        const text = data.toString();
+        stdoutBytes = appendMcpCommandOutput(stdout, data, stdoutBytes);
+        mirror('log', text);
+        onOutput?.('stdout', text);
+      });
+      channel.stderr?.on('data', (data) => {
+        const text = data.toString();
+        stderrBytes = appendMcpCommandOutput(stderr, data, stderrBytes);
+        mirror('error', text);
+        onOutput?.('stderr', text);
+      });
+      channel.on('close', (exitCode, signal) => finish(null, {
+        exit_code: Number.isInteger(exitCode) ? exitCode : null,
+        signal: signal || null,
+        stdout: Buffer.concat(stdout).toString('utf8'),
+        stderr: Buffer.concat(stderr).toString('utf8'),
+        stdout_truncated: stdoutBytes > 1024 * 1024,
+        stderr_truncated: stderrBytes > 1024 * 1024,
+        connection_reused: reused,
+        live_session_id: sessionId
+      }));
+      channel.on('error', finish);
+    });
+  });
+}
+
 function quoteTerminalShellPath(remotePath) {
   return `'${String(remotePath || '').replace(/'/g, `'\\''`)}'`;
 }
@@ -8524,8 +8732,7 @@ async function startTerminal(project, sessionId, size = {}) {
         cols,
         rows,
         width,
-        height,
-        modes: { ECHO: 0, ECHONL: 0 }
+        height
       },
       (error, stream) => {
         if (error) {
@@ -9464,6 +9671,8 @@ app.on('before-quit', () => {
   disposeDatabaseAccessFallbackWindows();
   databaseConnectionService?.closeAll().catch(() => {});
   databaseDriverRuntimeRegistry?.stopAll().catch(() => {});
+  for (const entry of mcpSshConnections.values()) entry.connection?.end();
+  mcpSshConnections.clear();
   if (tray && !tray.isDestroyed()) tray.destroy();
   tray = null;
   if (mcpServer) mcpServer.stop().catch(() => {});

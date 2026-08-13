@@ -73,6 +73,83 @@ test('MCP routes uptime calls through the application uptime control plane', asy
   assert.equal(response.result.structuredContent.runtime.status, 'up');
 });
 
+test('MCP delegates SSH to DeployerX without exposing credentials and emits live output notifications', async () => {
+  const project = {
+    id: 'server-1',
+    name: 'Production',
+    ssh: { host: 'private.example', username: 'deploy', password: 'never-return-this' }
+  };
+  const notifications = [];
+  let received;
+  const server = new DeployerXMcpServer({
+    getProjects: async () => [project],
+    sshOperations: {
+      execute: async (selectedProject, command, timeoutMs, { onOutput }) => {
+        received = { selectedProject, command, timeoutMs };
+        onOutput('stdout', 'live stdout\n');
+        onOutput('stderr', 'live stderr\n');
+        return { exit_code: 0, stdout: 'live stdout\n', stderr: 'live stderr\n' };
+      }
+    }
+  });
+
+  const response = await server.handleRpc({
+    jsonrpc: '2.0', id: 22, method: 'tools/call',
+    params: { name: 'deployerx_ssh_execute', arguments: { server_id: 'server-1', command: 'uptime', timeout_ms: 5000 } }
+  }, { notify: (notification) => notifications.push(notification) });
+
+  assert.equal(received.selectedProject, project);
+  assert.deepEqual({ command: received.command, timeoutMs: received.timeoutMs }, { command: 'uptime', timeoutMs: 5000 });
+  assert.deepEqual(notifications.map((item) => item.params.data.stream), ['stdout', 'stderr']);
+  assert.equal(JSON.stringify(response).includes('never-return-this'), false);
+  assert.equal(response.result.structuredContent.exit_code, 0);
+
+  server.sshOperations.execute = async () => { throw new Error(`authentication failed: ${project.ssh.password}`); };
+  const failed = await server.handleRpc({
+    jsonrpc: '2.0', id: 24, method: 'tools/call',
+    params: { name: 'deployerx_ssh_execute', arguments: { server_id: 'server-1', command: 'false' } }
+  });
+  assert.equal(JSON.stringify(failed).includes('never-return-this'), false);
+  assert.match(failed.result.content[0].text, /\[redacted\]/);
+});
+
+test('MCP Streamable HTTP sends progress and the final tool result as SSE events', async () => {
+  const port = await availablePort();
+  const server = new DeployerXMcpServer({
+    getProjects: async () => [{ id: 'server-1', name: 'Production', ssh: { host: 'private.example' } }],
+    sshOperations: {
+      execute: async (_project, _command, _timeoutMs, { onOutput }) => {
+        onOutput('stdout', 'one\n');
+        onOutput('stdout', 'two\n');
+        return { exit_code: 0, stdout: 'one\ntwo\n', stderr: '' };
+      }
+    }
+  });
+  try {
+    const status = await server.start({ port, token: 'stream-token' });
+    const response = await fetch(status.url, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer stream-token',
+        Accept: 'text/event-stream',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 23, method: 'tools/call',
+        params: { name: 'deployerx_ssh_execute', arguments: { server_id: 'server-1', command: 'watch-task' } }
+      })
+    });
+    const body = await response.text();
+    assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+    assert.match(body, /"method":"notifications\/message"/);
+    assert.match(body, /"chunk":"one\\n"/);
+    assert.match(body, /"id":23/);
+    assert.match(body, /"exit_code":0/);
+  } finally {
+    await server.stop();
+  }
+});
+
 test('MCP accepts an authenticated Streamable HTTP ping', async () => {
   const server = new DeployerXMcpServer({ getProjects: async () => [] });
   const port = await availablePort();
@@ -136,4 +213,14 @@ test('desktop integration keeps MCP always on and exposes no stop control', () =
   assert.doesNotMatch(html, /<div><code>deployerx_list_servers<\/code>/);
   assert.match(renderer, /config\.tools[\s\S]*mcpToolList\.innerHTML/);
   assert.match(main, /tools:\s*ensureMcpServer\(\)\.tools\(\)/);
+});
+
+test('desktop restart preserves the MCP token and retries the listener handoff', () => {
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+  const restore = main.match(/async function restoreMcpIntegrationAttempt\(\) \{[\s\S]*?\n\}/)?.[0] || '';
+
+  assert.match(restore, /readPersistedMcpToken\(current\)/);
+  assert.match(restore, /catch \(error\) \{[\s\S]*writeMcpIntegrationSettings\(failed\)[\s\S]*scheduleMcpRestoreRetry\(\)[\s\S]*return publicMcpIntegration\(failed\)/);
+  assert.doesNotMatch(restore, /catch[^}]*tokenEncrypted = ''/);
+  assert.match(restore, /for \(const delayMs of \[0, 300, 1000, 3000, 10000\]\)/);
 });

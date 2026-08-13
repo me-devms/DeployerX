@@ -1520,11 +1520,7 @@ function activateTerminalTab(tabId, { focus = true } = {}) {
     if (!session.homeDirectory) ensureTerminalHomeDirectory(session.sessionId).catch(() => {});
     else refreshSshDirectory(session).catch(() => {});
   }
-  requestAnimationFrame(() => {
-    fitTerminal();
-    resizeActiveTerminal();
-    if (focus) terminal.focus();
-  });
+  restoreTerminalInteraction({ focus });
 }
 
 async function openNewTerminalTab() {
@@ -10990,12 +10986,7 @@ function showView(view) {
     }
     stopUptimeAutoRefresh();
     if (isProject) {
-    requestAnimationFrame(() => {
-      if (state.activeProjectTab === 'ssh') {
-        fitAddon.fit();
-        if (state.terminalConnected) terminal.focus();
-      }
-    });
+    if (state.activeProjectTab === 'ssh') restoreTerminalInteraction();
     }
   }
 }
@@ -11035,7 +11026,7 @@ function setProjectTab(tab) {
       ensureActiveProjectLocalFtpReady().catch((error) => showAlert(error.message || 'Could not load local files.'));
     }
   } else {
-    requestAnimationFrame(fitTerminal);
+    restoreTerminalInteraction();
   }
 }
 
@@ -20296,6 +20287,20 @@ function fitTerminal() {
   fitAddon.fit();
 }
 
+function restoreTerminalInteraction({ focus = true } = {}) {
+  requestAnimationFrame(() => {
+    if (
+      state.currentView !== 'project' ||
+      state.activeProjectTab !== 'ssh' ||
+      els.terminal.offsetParent === null
+    ) return;
+    fitTerminal();
+    terminal.refresh(0, Math.max(0, terminal.rows - 1));
+    resizeActiveTerminal();
+    if (focus && state.terminalConnected) terminal.focus();
+  });
+}
+
 function resizeActiveTerminal() {
   if (!state.activeTerminalSessionId) return;
   window.deployerx.resizeTerminal({
@@ -28481,6 +28486,52 @@ window.deployerx?.onRdpEvent?.((event) => {
 window.deployerx?.onVncFullscreenChanged?.((enabled) => applyRdpFullscreen(enabled));
 window.deployerx?.onServerMonitoringFullscreenChanged?.((enabled) => applyServerMonitoringFullscreen(enabled));
 
+function mcpTerminalSession(event) {
+  const projectId = String(event.projectId || '');
+  if (!projectId) return null;
+  const tabs = getTerminalTabs(projectId, true);
+  let session = tabs.find((item) => item.readOnly && item.label === 'MCP Agent');
+  if (!session) {
+    session = blankTerminalSession(projectId, {
+      tabId: `mcp-terminal-${event.sessionId}`,
+      label: 'MCP Agent',
+      startupDirectory: ''
+    });
+    session.sessionId = event.sessionId;
+    session.connected = true;
+    session.status = 'MCP agent active';
+    session.output = `MCP Agent activity on ${event.projectName || 'server'}\r\n`;
+    session.readOnly = true;
+    tabs.push(session);
+  }
+  if (session.sessionId && session.sessionId !== event.sessionId) delete state.terminalSessionProjectIds[session.sessionId];
+  session.sessionId = event.sessionId;
+  state.terminalSessionProjectIds[event.sessionId] = projectId;
+  return session;
+}
+
+window.deployerx?.onMcpTerminalEvent?.((event) => {
+  const session = mcpTerminalSession(event);
+  if (!session) return;
+  if (event.type === 'started') {
+    session.connected = true;
+    session.status = event.payload?.reusedConnection ? 'MCP agent using existing SSH' : 'MCP agent connected';
+  }
+  if (event.type === 'log' || event.type === 'error') appendTerminalSessionOutput(session, String(event.payload || ''));
+  if (event.type === 'completed') {
+    session.connected = false;
+    session.status = `MCP command finished (${event.payload?.exitCode ?? 'unknown'})`;
+  }
+  if (event.type === 'failed') {
+    session.connected = false;
+    session.status = 'MCP command failed';
+    appendTerminalSessionOutput(session, `\r\n${String(event.payload || 'MCP command failed.')}\r\n`);
+  }
+  renderTerminalTabs(session.projectId);
+  if (isVisibleTerminalSession(session)) updateTerminalStatus(session.status, session.connected);
+  renderProjects();
+});
+
 window.deployerx?.onTerminalEvent?.(async (event) => {
   const terminalSession = getTerminalSessionById(event.sessionId);
   if (!terminalSession) return;
@@ -28488,6 +28539,7 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
   if (event.type === 'connected') {
     terminalSession.connected = true;
     setTerminalSessionStatus(terminalSession, terminalSession.sshUsername ? `Connected as ${terminalSession.sshUsername}` : 'Connected', true);
+    if (isVisibleTerminalSession(terminalSession)) restoreTerminalInteraction();
     ensureTerminalHomeDirectory(event.sessionId).catch(() => {});
     if (terminalSession.pendingInput) {
       trackTerminalInputChunk(terminalSession.pendingInput, event.sessionId);
@@ -28698,6 +28750,7 @@ function handleTerminalKeyboardShortcut(event) {
 // Xterm's keyboard hook runs before its hidden textarea converts Ctrl+V to ^V.
 terminal.attachCustomKeyEventHandler((event) => !handleTerminalKeyboardShortcut(event));
 terminal.onData((data) => {
+  if (getTerminalSession()?.readOnly) return;
   if (data === '\x03') stopScriptQueue();
   sendTerminalInput(data).catch((error) => appendLog(error.message, 'error'));
 });

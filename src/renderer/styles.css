@@ -9131,7 +9131,7 @@ canvas.rdp-canvas {
   gap: 8px;
   border-top: 0;
   background: transparent;
-  padding: 0 20px 20px;
+  padding: 12px 20px 20px;
   justify-content: flex-end;
 }
 
@@ -9180,7 +9180,7 @@ canvas.rdp-canvas {
   }
 
   .confirm-card .modal-footer {
-    padding: 0 16px 16px;
+    padding: 12px 16px 16px;
   }
 
   .confirm-card .button {

@@ -57,7 +57,7 @@ const TOOLS = [
   {
     name: 'deployerx_ssh_execute',
     title: 'Run an SSH command',
-    description: 'Run a non-interactive command on a saved DeployerX server over SSH.',
+    description: 'Run a command through a DeployerX-managed SSH connection. Credentials remain inside DeployerX and command output is streamed live to the MCP client and DeployerX terminal.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -634,9 +634,10 @@ function toolResult(result) {
 }
 
 class DeployerXMcpServer {
-  constructor({ getProjects, uptimeOperations = {} }) {
+  constructor({ getProjects, uptimeOperations = {}, sshOperations = {} }) {
     this.getProjects = getProjects;
     this.uptimeOperations = uptimeOperations;
+    this.sshOperations = sshOperations;
     this.server = null;
     this.port = 0;
     this.token = '';
@@ -714,6 +715,21 @@ class DeployerXMcpServer {
     response.end(payload === undefined ? '' : JSON.stringify(payload));
   }
 
+  startEventStream(response) {
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive',
+      'X-Content-Type-Options': 'nosniff'
+    });
+  }
+
+  sendEvent(response, payload) {
+    if (!response.destroyed && !response.writableEnded) {
+      response.write(`event: message\ndata: ${JSON.stringify(payload)}\n\n`);
+    }
+  }
+
   async readBody(request) {
     const chunks = [];
     let bytes = 0;
@@ -758,13 +774,22 @@ class DeployerXMcpServer {
       this.sendJson(response, 400, jsonRpcError(null, -32700, 'Parse error', String(error?.message || error)));
       return;
     }
-    const responsePayload = await this.handleRpc(payload);
+    const acceptsEvents = String(request.headers.accept || '').toLowerCase().includes('text/event-stream');
+    if (acceptsEvents) this.startEventStream(response);
+    const responsePayload = await this.handleRpc(payload, {
+      notify: acceptsEvents ? (notification) => this.sendEvent(response, notification) : null
+    });
     if (responsePayload === null) {
-      response.writeHead(202, { 'Cache-Control': 'no-store' });
+      if (!acceptsEvents) response.writeHead(202, { 'Cache-Control': 'no-store' });
       response.end();
       return;
     }
-    this.sendJson(response, 200, responsePayload);
+    if (acceptsEvents) {
+      this.sendEvent(response, responsePayload);
+      response.end();
+    } else {
+      this.sendJson(response, 200, responsePayload);
+    }
   }
 
   async projects() {
@@ -781,13 +806,29 @@ class DeployerXMcpServer {
 
   redactError(error, project) {
     let message = String(error?.message || error || 'Tool call failed.');
-    for (const secret of [project?.ssh?.host, project?.ssh?.username, project?.ftp?.host, project?.ftp?.username]) {
+    const sshUsers = Array.isArray(project?.ssh?.users) ? project.ssh.users : [];
+    const secrets = [
+      project?.ssh?.host,
+      project?.ssh?.username,
+      project?.ssh?.password,
+      project?.ssh?.privateKey,
+      project?.ssh?.passphrase,
+      project?.ftp?.host,
+      project?.ftp?.username,
+      project?.ftp?.password,
+      project?.ftp?.privateKey,
+      project?.ftp?.passphrase,
+      project?.proxy?.username,
+      project?.proxy?.password,
+      ...sshUsers.flatMap((user) => [user?.username, user?.password, user?.privateKey, user?.passphrase])
+    ];
+    for (const secret of secrets) {
       if (secret) message = message.split(String(secret)).join('[redacted]');
     }
     return message;
   }
 
-  async callTool(name, args = {}) {
+  async callTool(name, args = {}, context = {}) {
     if (name === 'deployerx_list_servers') {
       return { servers: (await this.projects()).map(publicServer) };
     }
@@ -836,7 +877,25 @@ class DeployerXMcpServer {
       if (name === 'deployerx_ssh_execute') {
         const command = asNonEmptyString(args.command, 'command');
         const timeoutMs = clamp(args.timeout_ms, 1000, 300000, 120000);
-        return { server_id: String(project.id), ...(await executeSshCommand(project, command, timeoutMs)) };
+        const execute = typeof this.sshOperations.execute === 'function'
+          ? this.sshOperations.execute
+          : executeSshCommand;
+        const onOutput = (stream, chunk) => {
+          if (typeof context.notify !== 'function' || !chunk) return;
+          context.notify({
+            jsonrpc: '2.0',
+            method: 'notifications/message',
+            params: {
+              level: stream === 'stderr' ? 'warning' : 'info',
+              logger: 'deployerx.ssh',
+              data: { server_id: String(project.id), stream, chunk: String(chunk) }
+            }
+          });
+        };
+        return {
+          server_id: String(project.id),
+          ...(await execute(project, command, timeoutMs, { onOutput }))
+        };
       }
       if (name === 'deployerx_sftp_list') {
         const remotePath = String(args.path || '.').trim() || '.';
@@ -911,7 +970,7 @@ class DeployerXMcpServer {
     }
   }
 
-  async handleRpc(payload) {
+  async handleRpc(payload, context = {}) {
     if (!payload || Array.isArray(payload) || payload.jsonrpc !== '2.0' || typeof payload.method !== 'string') {
       return jsonRpcError(payload?.id, -32600, 'Invalid Request');
     }
@@ -927,7 +986,7 @@ class DeployerXMcpServer {
           id: payload.id,
           result: {
             protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.has(requestedVersion) ? requestedVersion : MCP_PROTOCOL_VERSION,
-            capabilities: { tools: { listChanged: false } },
+            capabilities: { tools: { listChanged: false }, logging: {} },
             serverInfo: { name: 'DeployerX', title: 'DeployerX servers and uptime monitoring', version: '1.1.0' },
             instructions: 'Use server IDs from deployerx_list_servers for SSH, SFTP, and live metrics. Uptime tools manage monitors, checks, incidents, maintenance, worker settings, and reports without exposing stored credentials.'
           }
@@ -938,7 +997,7 @@ class DeployerXMcpServer {
       if (payload.method === 'tools/call') {
         const toolName = asNonEmptyString(payload.params?.name, 'Tool name');
         try {
-          const result = await this.callTool(toolName, payload.params?.arguments || {});
+          const result = await this.callTool(toolName, payload.params?.arguments || {}, context);
           return { jsonrpc: '2.0', id: payload.id, result: toolResult(result) };
         } catch (error) {
           return {
