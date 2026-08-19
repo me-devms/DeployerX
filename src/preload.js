@@ -177,6 +177,8 @@ contextBridge.exposeInMainWorld('deployerx', {
   createBackupMysqlConnection: (payload) => ipcRenderer.invoke('backup:connections:mysql:create', payload),
   testBackupMysqlConnection: (id) => ipcRenderer.invoke('backup:connections:mysql:test', { id }),
   discoverBackupMysqlDatabases: (id, payload = {}) => ipcRenderer.invoke('backup:connections:mysql:discover', { id, ...payload }),
+  getBackupNativeToolStatus: (engine) => ipcRenderer.invoke('backup:native-tools:status', { engine }),
+  installBackupNativeTools: (engine) => ipcRenderer.invoke('backup:native-tools:install', { engine }),
   listBackupMariadbConnections: () => ipcRenderer.invoke('backup:connections:mariadb:list'),
   createBackupMariadbConnection: (payload) => ipcRenderer.invoke('backup:connections:mariadb:create', payload),
   testBackupMariadbConnection: (id) => ipcRenderer.invoke('backup:connections:mariadb:test', { id }),

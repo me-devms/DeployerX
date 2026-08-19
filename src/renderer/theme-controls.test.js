@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const stylesPath = path.join(__dirname, 'styles.css');
+const htmlPath = path.join(__dirname, 'index.html');
 const themeIds = [
   'deployerx-light',
   'termius-dark',
@@ -53,4 +54,16 @@ test('Catppuccin primary controls use dark text on the light mauve accent', asyn
   assert.match(styles, /\.button\.solid\s*\{[^}]*color:\s*var\(--primary-contrast\);[^}]*background:\s*var\(--primary\);/s);
   assert.match(styles, /\.project-tab\.active\s*\{[^}]*background:\s*var\(--primary\);[^}]*color:\s*var\(--primary-contrast\);/s);
   assert.match(styles, /\.button\.solid\.danger\s*\{[^}]*color:\s*#ffffff;/s);
+});
+
+test('settings navigation keeps Theme and About reachable on short windows', async () => {
+  const [html, styles] = await Promise.all([
+    fs.readFile(htmlPath, 'utf8'),
+    fs.readFile(stylesPath, 'utf8')
+  ]);
+
+  assert.match(html, /data-settings-tab="theme"/);
+  assert.match(html, /data-settings-tab="about"/);
+  assert.match(styles, /\.settings-nav\s*\{[^}]*max-height:\s*calc\(100dvh - var\(--app-header-height\) - 40px\);[^}]*overflow-y:\s*auto;/s);
+  assert.match(styles, /\.settings-view \.settings-nav\s*\{[^}]*max-height:\s*none;[^}]*overflow-y:\s*hidden;/s);
 });

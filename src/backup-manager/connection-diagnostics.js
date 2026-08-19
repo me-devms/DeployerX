@@ -33,7 +33,7 @@ const NEXT_ACTIONS = Object.freeze({
   MYSQL_AUTHENTICATION_FAILED: 'Update the MySQL username or password, then run the test again.',
   MYSQL_TLS_FAILED: 'Verify the MySQL certificate and TLS mode, then run the test again.',
   MYSQL_CONNECT_FAILED: 'Confirm the MySQL host, port, firewall, and service, then run the test again.',
-  MYSQL_NATIVE_TOOL_NOT_FOUND: 'Install the MySQL 8 client tools and ensure mysql and mysqldump are available on PATH.',
+  MYSQL_NATIVE_TOOL_NOT_FOUND: 'Use the in-app setup to download and configure the MySQL client tools, then run the test again.',
   MYSQL_SERVER_VERSION_UNSUPPORTED: 'Use a supported MySQL 8 server or install a compatible adapter.',
   MYSQL_OPERATION_TIMEOUT: 'Check MySQL availability and network latency, then run the test again.',
   CONNECTION_TEST_INVALID_RESULT: 'Review the connection adapter output and run the test again.'

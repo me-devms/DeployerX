@@ -1,0 +1,95 @@
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-Medium.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-SemiBold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-ExtraBold.ttf") format("truetype");
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0b1118;
+  --bg-deep: #070c12;
+  --nav: rgba(11, 17, 24, 0.86);
+  --surface: #111821;
+  --surface-2: #172130;
+  --surface-3: #1b2838;
+  --text: #f1f6fb;
+  --text-muted: #9db0c8;
+  --text-faint: #657890;
+  --teal: #2ecfa6;
+  --teal-bright: #5be6c1;
+  --teal-ink: #041d16;
+  --blue: #4ea1ff;
+  --purple: #a879ff;
+  --red: #ff5c7a;
+  --amber: #f7b955;
+  --line: rgba(184, 207, 232, 0.12);
+  --line-strong: rgba(184, 207, 232, 0.22);
+  --grid: rgba(46, 207, 166, 0.09);
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  --font-sans: "DM Sans", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --shell: 1280px;
+  --gutter: 32px;
+  --section-space: clamp(88px, 10vw, 144px);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --header-height: 76px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f8fb;
+  --bg-deep: #eaf0f5;
+  --nav: rgba(245, 248, 251, 0.88);
+  --surface: #ffffff;
+  --surface-2: #edf3f7;
+  --surface-3: #e1eaf1;
+  --text: #111c27;
+  --text-muted: #4d6174;
+  --text-faint: #708398;
+  --teal: #087e65;
+  --teal-bright: #0c9678;
+  --teal-ink: #ffffff;
+  --blue: #176db8;
+  --purple: #7045bd;
+  --red: #c93855;
+  --amber: #a96400;
+  --line: rgba(17, 45, 66, 0.13);
+  --line-strong: rgba(17, 45, 66, 0.24);
+  --grid: rgba(8, 126, 101, 0.1);
+  --shadow: 0 24px 70px rgba(22, 48, 70, 0.15);
+}

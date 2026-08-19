@@ -2770,6 +2770,17 @@ const els = {
   backupMysqlDiscoverButton: document.getElementById('backupMysqlDiscoverButton'),
   backupMysqlSaveSourceButton: document.getElementById('backupMysqlSaveSourceButton'),
   backupMysqlError: document.getElementById('backupMysqlError'),
+  backupNativeToolModal: document.getElementById('backupNativeToolModal'),
+  backupNativeToolTitle: document.getElementById('backupNativeToolTitle'),
+  backupNativeToolSubtitle: document.getElementById('backupNativeToolSubtitle'),
+  backupNativeToolCloseButton: document.getElementById('backupNativeToolCloseButton'),
+  backupNativeToolCancelButton: document.getElementById('backupNativeToolCancelButton'),
+  backupNativeToolMessage: document.getElementById('backupNativeToolMessage'),
+  backupNativeToolPackage: document.getElementById('backupNativeToolPackage'),
+  backupNativeToolSize: document.getElementById('backupNativeToolSize'),
+  backupNativeToolError: document.getElementById('backupNativeToolError'),
+  backupNativeToolStatus: document.getElementById('backupNativeToolStatus'),
+  backupNativeToolInstallButton: document.getElementById('backupNativeToolInstallButton'),
   backupRedisModal: document.getElementById('backupRedisModal'),
   backupRedisModalTitle: document.getElementById('backupRedisModalTitle'),
   backupRedisForm: document.getElementById('backupRedisForm'),
@@ -17104,6 +17115,77 @@ function backupDatabaseUi(engine = state.backupDatabaseEngine) {
   };
 }
 
+const NATIVE_TOOL_ERROR_ENGINES = Object.freeze({
+  MYSQL_NATIVE_TOOL_NOT_FOUND: 'mysql'
+});
+let backupNativeToolDependency = null;
+let backupNativeToolRetry = null;
+
+function formatDownloadSize(bytes) {
+  const megabytes = Number(bytes || 0) / (1024 * 1024);
+  return megabytes > 0 ? `${Math.round(megabytes)} MB download` : '';
+}
+
+async function offerBackupNativeToolSetup(error, retry) {
+  const engine = NATIVE_TOOL_ERROR_ENGINES[String(error?.code || '')];
+  if (!engine || !window.deployerx?.getBackupNativeToolStatus) return false;
+  try {
+    const dependency = await window.deployerx.getBackupNativeToolStatus(engine);
+    if (!dependency?.supported) return false;
+    backupNativeToolDependency = dependency;
+    backupNativeToolRetry = retry;
+    els.backupNativeToolTitle.textContent = `Set up ${dependency.label} tools`;
+    els.backupNativeToolSubtitle.textContent = 'Required for backup and recovery';
+    els.backupNativeToolMessage.textContent = `DeployerX needs these tools to connect to ${dependency.label} and create reliable backups. Setup is automatic.`;
+    els.backupNativeToolPackage.textContent = dependency.packageLabel;
+    els.backupNativeToolSize.textContent = [dependency.version ? `Version ${dependency.version}` : '', formatDownloadSize(dependency.downloadBytes)].filter(Boolean).join(' / ');
+    els.backupNativeToolError.textContent = '';
+    els.backupNativeToolError.classList.add('hidden');
+    els.backupNativeToolStatus.textContent = '';
+    setModalVisible(true, els.backupNativeToolModal);
+    window.setTimeout(() => els.backupNativeToolInstallButton.focus(), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function closeBackupNativeToolModal() {
+  if (pendingActions.has('backup:native-tools:install')) return;
+  setModalVisible(false, els.backupNativeToolModal);
+  backupNativeToolDependency = null;
+  backupNativeToolRetry = null;
+}
+
+async function installBackupNativeTools() {
+  if (!backupNativeToolDependency || pendingActions.has('backup:native-tools:install')) return;
+  pendingActions.add('backup:native-tools:install');
+  setButtonLoading(els.backupNativeToolInstallButton, true);
+  els.backupNativeToolCancelButton.disabled = true;
+  els.backupNativeToolCloseButton.disabled = true;
+  els.backupNativeToolError.classList.add('hidden');
+  els.backupNativeToolStatus.textContent = 'Downloading and setting up the client tools...';
+  try {
+    await window.deployerx.installBackupNativeTools(backupNativeToolDependency.engine);
+    const retry = backupNativeToolRetry;
+    els.backupNativeToolStatus.textContent = 'Setup complete. Retrying the connection...';
+    setModalVisible(false, els.backupNativeToolModal);
+    backupNativeToolDependency = null;
+    backupNativeToolRetry = null;
+    showToast('Database tools are ready.');
+    await retry?.();
+  } catch (error) {
+    els.backupNativeToolStatus.textContent = '';
+    els.backupNativeToolError.textContent = error.message || 'DeployerX could not set up the database tools.';
+    els.backupNativeToolError.classList.remove('hidden');
+  } finally {
+    pendingActions.delete('backup:native-tools:install');
+    setButtonLoading(els.backupNativeToolInstallButton, false);
+    els.backupNativeToolCancelButton.disabled = false;
+    els.backupNativeToolCloseButton.disabled = false;
+  }
+}
+
 function syncBackupPostgresqlDeploymentProfile({ resetEndpointDefaults = false } = {}) {
   const postgresql = state.backupDatabaseEngine === 'postgresql';
   const supabase = postgresql && backupPostgresqlDeploymentProfile() === 'supabase';
@@ -17303,7 +17385,10 @@ async function discoverBackupMysql() {
     }
     const tested = await window.deployerx[database.testConnection](state.backupMysqlConnectionId);
     await loadBackupConnections();
-    if (tested.result.status !== 'success') throw new Error(tested.result.error?.safeMessage || `The ${database.label} connection test failed.`);
+    if (tested.result.status !== 'success') {
+      if (await offerBackupNativeToolSetup(tested.result.error, discoverBackupMysql)) return;
+      throw new Error(tested.result.error?.safeMessage || `The ${database.label} connection test failed.`);
+    }
     const discovered = await window.deployerx[database.discoverDatabases](state.backupMysqlConnectionId, { kind: 'database' });
     state.backupMysqlDatabases = discovered.items || [];
     clearBackupDatabaseObjects();
@@ -19485,6 +19570,7 @@ async function testBackupDatabaseConnection(connectionId, engine, button) {
   try {
     const response = await window.deployerx[database.testConnection](connectionId);
     await loadBackupConnections();
+    if (response.result.status !== 'success' && await offerBackupNativeToolSetup(response.result.error, () => testBackupDatabaseConnection(connectionId, engine, button))) return;
     openBackupDiagnostics(allBackupConnections().find((connection) => connection.id === connectionId && connection.connectionKind === database.engine));
     if (response.result.status === 'success') showToast(`${database.label} source connection is ready.`);
   } catch (error) {
@@ -27357,6 +27443,10 @@ els.backupMysqlCloseButton.addEventListener('click', closeBackupMysqlModal);
 els.backupMysqlCancelButton.addEventListener('click', closeBackupMysqlModal);
 els.backupMysqlModal.querySelector('[data-backup-mysql-close]').addEventListener('click', closeBackupMysqlModal);
 els.backupMysqlDiscoverButton.addEventListener('click', discoverBackupMysql);
+els.backupNativeToolCloseButton.addEventListener('click', closeBackupNativeToolModal);
+els.backupNativeToolCancelButton.addEventListener('click', closeBackupNativeToolModal);
+els.backupNativeToolModal.querySelector('[data-backup-native-tool-close]').addEventListener('click', closeBackupNativeToolModal);
+els.backupNativeToolInstallButton.addEventListener('click', installBackupNativeTools);
 els.backupDatabaseDiscoverObjectsButton.addEventListener('click', discoverBackupDatabaseObjects);
 els.backupMysqlPitrEnabled.addEventListener('change', () => { if (els.backupMysqlPitrEnabled.checked) els.backupMysqlPhysicalEnabled.checked = false; syncBackupDatabaseObjectSelection(); });
 els.backupMysqlPhysicalEnabled.addEventListener('change', () => { if (els.backupMysqlPhysicalEnabled.checked) els.backupMysqlPitrEnabled.checked = false; syncBackupDatabaseObjectSelection(); });
@@ -28014,6 +28104,10 @@ document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   hideFtpContextMenu();
   if (variablePromptResolve) closeVariablePrompt(null);
+  if (!els.backupNativeToolModal.classList.contains('hidden')) {
+    closeBackupNativeToolModal();
+    return;
+  }
   if (!els.backupJobModal.classList.contains('hidden')) closeBackupJobModal();
   if (!els.backupBrowserModal.classList.contains('hidden')) closeBackupBrowser();
   if (!els.backupDiagnosticsModal.classList.contains('hidden')) closeBackupDiagnostics();

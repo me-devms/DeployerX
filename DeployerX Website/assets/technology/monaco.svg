@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Monaco code editor</title>
+  <path d="M10 14 25 6v52l-15-8V14Z" fill="#176db8"/>
+  <path d="M25 6 56 12v40l-31 6V6Z" fill="#4ea1ff"/>
+  <path d="m18 32 11-9v7l-5 3 5 3v7L18 34v-2Zm31 0L38 23v7l5 3-5 3v7l11-9v-2Z" fill="#fff"/>
+  <path d="m36 20-7 26" stroke="#0b1118" stroke-width="4" stroke-linecap="round"/>
+</svg>

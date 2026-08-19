@@ -4042,6 +4042,37 @@ tool_timeout_sec = 300</pre>
       </form>
     </div>
 
+    <div id="backupNativeToolModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="backupNativeToolTitle">
+      <div class="modal-backdrop" data-backup-native-tool-close></div>
+      <section class="modal-card small backup-native-tool-card">
+        <header class="modal-header">
+          <div>
+            <h2 id="backupNativeToolTitle">Set up database tools</h2>
+            <p id="backupNativeToolSubtitle">Required for backup and recovery</p>
+          </div>
+          <button id="backupNativeToolCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-x"></use></svg>
+          </button>
+        </header>
+        <div class="modal-body backup-native-tool-body">
+          <p id="backupNativeToolMessage">The required database tools are not installed.</p>
+          <div class="backup-native-tool-package">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-database"></use></svg>
+            <span><strong id="backupNativeToolPackage"></strong><small id="backupNativeToolSize"></small></span>
+          </div>
+          <p id="backupNativeToolError" class="inline-error hidden" role="alert"></p>
+          <p id="backupNativeToolStatus" class="backup-native-tool-status" aria-live="polite"></p>
+        </div>
+        <footer class="modal-footer">
+          <button id="backupNativeToolCancelButton" class="button outline" type="button">Cancel</button>
+          <button id="backupNativeToolInstallButton" class="button solid" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-import"></use></svg>
+            Download and set up
+          </button>
+        </footer>
+      </section>
+    </div>
+
     <div id="backupRedisModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="backupRedisModalTitle">
       <div class="modal-backdrop" data-backup-redis-close></div>
       <form id="backupRedisForm" class="modal-card small backup-mysql-modal-card">

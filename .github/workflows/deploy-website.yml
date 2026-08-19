@@ -1,0 +1,53 @@
+name: Validate and deploy website
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "DeployerX Website/**"
+      - "package.json"
+      - ".github/workflows/deploy-website.yml"
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: Cloudflare Pages project name
+        required: true
+        default: deployer-x
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployerx-website-production
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate website source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify current release and website UI
+        run: >-
+          node --test
+          "DeployerX Website/contributors-ui.test.js"
+          "DeployerX Website/technology-logos-ui.test.js"
+          "DeployerX Website/release-current-ui.test.js"
+
+  deploy:
+    name: Deploy current website
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy "DeployerX Website" --project-name="${{ inputs.project_name }}" --branch=master

@@ -2926,6 +2926,47 @@ select.project-dropdown-native {
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
+.backup-native-tool-card {
+  width: min(620px, 100%);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.backup-native-tool-body {
+  display: grid;
+  gap: 16px;
+}
+
+.backup-native-tool-package {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+.backup-native-tool-package > .button-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+.backup-native-tool-package > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.backup-native-tool-package small,
+.backup-native-tool-status {
+  color: var(--muted);
+}
+
+.backup-native-tool-status:empty {
+  display: none;
+}
+
 .backup-mysql-modal-card .modal-header > div,
 #backupMysqlRestoreModal .modal-header > div,
 #backupSqliteModal .modal-header > div,
@@ -11906,11 +11947,15 @@ html[data-theme]:not([data-theme="tokyo-day"]):not([data-theme="solarized-light"
   top: clamp(20px, 3.4cqw, 38px);
   display: grid;
   align-content: start;
+  max-height: calc(100dvh - var(--app-header-height) - 40px);
   gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   padding: 20px 12px;
+  scrollbar-width: thin;
 }
 
 .settings-nav h1 {
@@ -13298,8 +13343,10 @@ html[data-theme="solarized-light"] .mcp-client-row[data-mcp-client-id="codex"] .
     display: flex;
     width: 100%;
     max-width: none;
+    max-height: none;
     gap: 4px;
     overflow-x: auto;
+    overflow-y: hidden;
     border-radius: 8px;
     padding: 8px;
     scrollbar-width: none;

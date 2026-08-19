@@ -118,7 +118,7 @@ function safeAdapterError(error, operation) {
     if (stderr.includes('access denied')) return new DatabaseAdapterError('MYSQL_AUTHENTICATION_FAILED', 'MySQL authentication failed. Check the username and password.', { category: 'authentication' });
     if (stderr.includes('ssl') || stderr.includes('tls') || stderr.includes('certificate')) return new DatabaseAdapterError('MYSQL_TLS_FAILED', 'MySQL TLS verification failed. Check the server certificate and TLS mode.', { category: 'integrity' });
     if (stderr.includes('unknown host') || stderr.includes("can't connect") || stderr.includes('connection refused')) return new DatabaseAdapterError('MYSQL_CONNECT_FAILED', 'DeployerX could not connect to MySQL. Check the host, port, firewall, and service.', { category: 'connectivity', retryable: true });
-    if (error.code === 'NATIVE_EXECUTABLE_NOT_FOUND') return new DatabaseAdapterError('MYSQL_NATIVE_TOOL_NOT_FOUND', 'Install the MySQL 8 client tools and make mysql and mysqldump available on PATH.', { category: 'compatibility' });
+    if (error.code === 'NATIVE_EXECUTABLE_NOT_FOUND') return new DatabaseAdapterError('MYSQL_NATIVE_TOOL_NOT_FOUND', 'The MySQL client tools are not set up yet.', { category: 'compatibility' });
     if (error.code === 'NATIVE_PROCESS_CANCELED') return new DatabaseAdapterError('MYSQL_OPERATION_CANCELED', `The MySQL ${operation} was canceled.`, { category: 'canceled' });
     if (error.code === 'NATIVE_PROCESS_TIMEOUT') return new DatabaseAdapterError('MYSQL_OPERATION_TIMEOUT', `The MySQL ${operation} exceeded its timeout.`, { category: 'timeout', retryable: true });
   }

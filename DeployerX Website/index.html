@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0b1118">
+    <meta name="description" content="DeployerX is a local-first desktop workspace for SSH, SFTP, deployments, uptime monitoring, backups, and remote server administration on Windows, macOS, and Linux.">
+    <meta name="keywords" content="DeployerX, server management, SSH, SFTP, deployment automation, uptime monitoring, backups, Windows, macOS, Linux">
+    <meta property="og:title" content="DeployerX - Server operations from one workspace">
+    <meta property="og:description" content="Manage hosts, run deployments, monitor uptime, and protect backups from one local-first desktop workspace for Windows, macOS, and Linux.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="assets/deployerx-command-center.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <title>DeployerX - Server Operations, Deployment and Monitoring</title>
+    <link rel="icon" type="image/png" href="assets/deployerx-logo.png">
+    <link rel="stylesheet" href="css/tokens.css?v=0.2.3">
+    <link rel="stylesheet" href="css/base.css?v=0.2.3">
+    <link rel="stylesheet" href="css/components.css?v=0.2.3">
+    <link rel="stylesheet" href="css/responsive.css?v=0.2.3">
+    <script>document.documentElement.className = document.documentElement.className.replace('no-js', 'js');</script>
+    <script src="js/main.js?v=0.2.3" defer></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "DeployerX",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Windows 10, Windows 11, macOS, Linux",
+        "description": "A local-first workspace for SSH, SFTP, deployments, uptime monitoring, backups, and remote server administration.",
+        "url": "https://github.com/me-devms/DeployerX",
+        "downloadUrl": "https://github.com/me-devms/DeployerX/releases/latest"
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7A5.4 5.4 0 0 0 19.4 4 5 5 0 0 0 19.3.5S18.2.1 15 1.8a13.4 13.4 0 0 0-6 0C5.8.1 4.7.5 4.7.5A5 5 0 0 0 4.6 4a5.4 5.4 0 0 0-1.4 3.7c0 5.3 3.5 6.5 6.8 7A4.8 4.8 0 0 0 9 18v4"/><path d="M9 18c-4.5 2-5-2-7-2"/></symbol>
+      <symbol id="icon-star" viewBox="0 0 24 24"><path d="m12 2.5 3 6.1 6.7 1-4.9 4.7 1.2 6.7-6-3.2-6 3.2 1.2-6.7-4.9-4.7 6.7-1z"/></symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9"/></symbol>
+      <symbol id="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></symbol>
+      <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></symbol>
+      <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+      <symbol id="icon-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></symbol>
+      <symbol id="icon-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+      <symbol id="icon-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+      <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="icon-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+      <symbol id="icon-cloud" viewBox="0 0 24 24"><path d="M17.5 19H7a5 5 0 1 1 4.9-6 6 6 0 1 1 5.6 6Z"/></symbol>
+      <symbol id="icon-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+      <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="icon-external" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 5h6l2 2h10v12H3z"/></symbol>
+      <symbol id="icon-windows" viewBox="0 0 24 24"><path d="M3 4.8 10.7 3.7v7.5H3V4.8Zm8.8-1.3L21 2v9.2h-9.2V3.5ZM3 12.3h7.7v7.5L3 18.7v-6.4Zm8.8 0H21V22l-9.2-1.3v-8.4Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="icon-apple" viewBox="0 0 24 24"><path d="M16.7 12.8c0-2.6 2.1-3.8 2.2-3.9a4.8 4.8 0 0 0-3.8-2.1c-1.6-.2-3.2 1-4 .9-.9 0-2.2-.9-3.6-.9A5.3 5.3 0 0 0 3 9.5c-1.9 3.3-.5 8.2 1.4 10.9.9 1.3 2 2.8 3.5 2.7 1.4-.1 2-1 3.7-1s2.2 1 3.7 1c1.5 0 2.5-1.3 3.4-2.7a12 12 0 0 0 1.6-3.2 4.6 4.6 0 0 1-3.6-4.4ZM14 5.1A4.7 4.7 0 0 0 15.1 1a4.8 4.8 0 0 0-3.2 2.2 4.4 4.4 0 0 0-1.1 3.3A4 4 0 0 0 14 5.1Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="icon-linux" viewBox="0 0 24 24"><path d="M12 2.4c-2.6 0-4 2.3-4 5.1 0 1.4.3 2.5-.3 3.8-.5 1.1-1.8 2.2-2.4 3.8-.8 2.2.2 4.1 1.4 4.1.7 0 1-.4 1.5-.8.7 1.8 2.1 3.2 3.8 3.2s3.1-1.4 3.8-3.2c.5.4.8.8 1.5.8 1.2 0 2.2-1.9 1.4-4.1-.6-1.6-1.9-2.7-2.4-3.8-.6-1.3-.3-2.4-.3-3.8 0-2.8-1.4-5.1-4-5.1Z"/><path d="M9.7 8.3c.4.5 1.2.8 2.3.8s1.9-.3 2.3-.8M9.1 16.7c.8.7 1.8 1.1 2.9 1.1s2.1-.4 2.9-1.1"/><circle cx="10.2" cy="6.4" r=".6" fill="currentColor" stroke="none"/><circle cx="13.8" cy="6.4" r=".6" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="icon-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M18.36 5.64a9 9 0 0 1 0 12.73M5.64 18.36a9 9 0 0 1 0-12.73"/></symbol>
+      <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+      <symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    </svg>
+
+    <nav class="navbar" id="navbar" aria-label="Primary navigation">
+      <div class="nav-inner shell">
+        <a class="brand" href="#top" aria-label="DeployerX home">
+          <img src="assets/deployerx-logo.png" alt="" width="36" height="36">
+          <span>Deployer<span>X</span></span>
+        </a>
+        <div class="nav-actions">
+          <a class="github-badge" href="https://github.com/me-devms/DeployerX" target="_blank" rel="noreferrer" aria-label="DeployerX on GitHub">
+            <svg><use href="#icon-github"></use></svg>
+            <span class="github-stars" aria-label="3 GitHub stars"><svg><use href="#icon-star"></use></svg><strong data-github-stars>3</strong></span>
+          </a>
+          <button class="icon-button theme-toggle" type="button" aria-label="Switch to light theme" data-tooltip="Change theme">
+            <svg class="moon-icon"><use href="#icon-moon"></use></svg>
+            <svg class="sun-icon"><use href="#icon-sun"></use></svg>
+          </button>
+          <button class="menu-button" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu-overlay">
+            <span>Menu</span>
+            <svg class="menu-icon"><use href="#icon-menu"></use></svg>
+            <svg class="close-icon"><use href="#icon-x"></use></svg>
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="menu-overlay" id="menu-overlay" aria-hidden="true">
+      <div class="menu-inner shell">
+        <p class="menu-label">Navigate DeployerX</p>
+        <nav class="overlay-nav" aria-label="Page sections">
+          <a href="#capabilities"><span>01</span>Capabilities</a>
+          <a href="#workflow"><span>02</span>Workflow</a>
+          <a href="#workspaces"><span>03</span>Workspaces</a>
+          <a href="#comparison"><span>04</span>Comparison</a>
+          <a href="#quick-start"><span>05</span>Quick Start</a>
+          <a href="#technology"><span>06</span>Technology</a>
+          <a href="#local-first"><span>07</span>Local First</a>
+          <a href="#releases"><span>08</span>Releases</a>
+          <a href="#faq"><span>09</span>FAQ</a>
+          <a href="#community"><span>10</span>Community</a>
+        </nav>
+        <div class="overlay-external">
+          <a href="https://github.com/me-devms/DeployerX" target="_blank" rel="noreferrer">GitHub <svg><use href="#icon-external"></use></svg></a>
+          <a href="https://github.com/me-devms/DeployerX/releases" target="_blank" rel="noreferrer">Releases <svg><use href="#icon-external"></use></svg></a>
+          <a href="https://github.com/me-devms/DeployerX/issues" target="_blank" rel="noreferrer">Issues <svg><use href="#icon-external"></use></svg></a>
+        </div>
+      </div>
+    </div>
+
+    <main id="main-content">
+      <header class="hero" id="top">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="hero-inner shell">
+          <div class="hero-copy">
+            <a class="release-pill" href="#release-notes-dialog" data-release-notes-trigger>
+              <span class="live-dot"></span>
+              <span><span data-latest-version>v0.2.3</span> available</span>
+              <strong>See what's new</strong>
+              <svg><use href="#icon-arrow"></use></svg>
+            </a>
+            <p class="hero-product">DeployerX</p>
+            <h1>Server operations,<br><span>without busywork.</span></h1>
+            <p class="hero-lead">Manage hosts, open SSH sessions, browse with SFTP, run repeatable deployments, monitor uptime, and protect backups from one <strong>local-first desktop workspace.</strong></p>
+            <div class="hero-actions">
+              <button class="button button-primary" type="button" data-download-trigger>
+                <svg><use href="#icon-download"></use></svg>
+                <span>Download <span data-latest-version>v0.2.3</span></span>
+              </button>
+              <a class="button button-secondary" href="https://github.com/me-devms/DeployerX" target="_blank" rel="noreferrer">
+                <svg><use href="#icon-github"></use></svg>
+                View on GitHub
+              </a>
+            </div>
+            <ul class="trust-list" aria-label="Product highlights">
+              <li><svg><use href="#icon-database"></use></svg>Local first</li>
+              <li><svg><use href="#icon-monitor"></use></svg>Windows, macOS &amp; Linux</li>
+              <li><svg><use href="#icon-github"></use></svg>Open development</li>
+              <li><svg><use href="#icon-cloud"></use></svg>Optional sync</li>
+            </ul>
+          </div>
+          <div class="hero-product-shot reveal" data-reveal>
+            <div class="product-shot-bar" aria-hidden="true">
+              <span></span><span></span><span></span>
+              <p>DeployerX / Command Center</p>
+              <em>Fleet online</em>
+            </div>
+            <img src="assets/deployerx-command-center.png" width="1424" height="835" alt="DeployerX Command Center showing server inventory, live SSH sessions, uptime alerts, backup protection, and fleet telemetry">
+            <div class="shot-status status-top" aria-hidden="true"><span></span>3 fleet nodes</div>
+            <div class="shot-status status-bottom" aria-hidden="true"><span></span>SSH live</div>
+          </div>
+        </div>
+        <a class="scroll-cue" href="#capabilities" aria-label="Scroll to capabilities"><span></span></a>
+      </header>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="capabilities">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">01 <span></span> Capabilities</p>
+            <h2>One workspace for infrastructure work.</h2>
+            <p>Register a host once, then move from access to observability and protection without switching between disconnected tools.</p>
+          </div>
+          <div class="capability-grid">
+            <article class="capability reveal" data-reveal>
+              <div class="capability-icon"><svg><use href="#icon-server"></use></svg></div>
+              <h3>Command Center</h3>
+              <ul><li>Fleet health overview</li><li>Active operation status</li><li>Grouped server inventory</li><li>Emergency Stop control</li></ul>
+            </article>
+            <article class="capability reveal" data-reveal>
+              <div class="capability-icon"><svg><use href="#icon-terminal"></use></svg></div>
+              <h3>Secure Access</h3>
+              <ul><li>Multi-tab SSH terminals</li><li>Per-user sessions</li><li>SFTP file browser</li><li>Embedded VNC workspace</li></ul>
+            </article>
+            <article class="capability reveal" data-reveal>
+              <div class="capability-icon"><svg><use href="#icon-activity"></use></svg></div>
+              <h3>Observability</h3>
+              <ul><li>Live resource telemetry</li><li>Process and service views</li><li>HTTP, TCP and TLS checks</li><li>Incidents and maintenance</li></ul>
+            </article>
+            <article class="capability reveal" data-reveal>
+              <div class="capability-icon"><svg><use href="#icon-shield"></use></svg></div>
+              <h3>Protection</h3>
+              <ul><li>Saved deployment commands</li><li>Repeatable host workflows</li><li>Backup jobs and repositories</li><li>Recovery and retention</li></ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="workflow">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">02 <span></span> Workflow</p>
+            <h2>From registered host to repeatable operation.</h2>
+            <p>Keep server context close to the work. Connections, commands, monitoring, and recovery stay attached to one operational workspace.</p>
+          </div>
+          <div class="workflow-layout">
+            <ol class="workflow-steps">
+              <li class="reveal" data-reveal><span>01</span><div><h3>Register once</h3><p>Organize Linux and Windows hosts into searchable groups and favorites.</p></div></li>
+              <li class="reveal" data-reveal><span>02</span><div><h3>Work from one place</h3><p>Connect through SSH or SFTP, save commands, and inspect live server health.</p></div></li>
+              <li class="reveal" data-reveal><span>03</span><div><h3>Operate with confidence</h3><p>Run deployments, watch uptime, verify backups, and interrupt active work when required.</p></div></li>
+            </ol>
+            <div class="workflow-console reveal" data-reveal aria-label="DeployerX operation flow illustration">
+              <div class="console-header"><span></span><span></span><span></span><p>operation.flow</p></div>
+              <div class="flow-node host-node"><svg><use href="#icon-server"></use></svg><div><small>REGISTERED HOST</small><strong>api.production</strong></div><em>ONLINE</em></div>
+              <div class="flow-line"><span></span><code>secure session</code><span></span></div>
+              <div class="flow-actions">
+                <div><svg><use href="#icon-terminal"></use></svg><span>Deploy</span><small>completed</small></div>
+                <div><svg><use href="#icon-activity"></use></svg><span>Monitor</span><small>live</small></div>
+                <div><svg><use href="#icon-shield"></use></svg><span>Backup</span><small>verified</small></div>
+              </div>
+              <div class="console-log"><span>09:42:18</span><p><b>$</b> deploy production --verify</p><em>exit 0</em></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="workspaces">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">03 <span></span> Workspaces</p>
+            <h2>The tools are connected. The data stays coherent.</h2>
+            <p>Each workspace serves a focused job while sharing the server context needed for daily operations.</p>
+          </div>
+          <div class="matrix-wrap reveal" data-reveal tabindex="0" aria-label="Scrollable workspace capability matrix">
+            <table class="workspace-matrix">
+              <thead><tr><th scope="col">Workspace</th><th scope="col">Connect</th><th scope="col">Operate</th><th scope="col">Observe</th><th scope="col">Protect</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Hosts</th><td><span class="yes"><svg><use href="#icon-check"></use></svg><span class="sr-only">Yes</span></span></td><td><span class="yes"><svg><use href="#icon-check"></use></svg><span class="sr-only">Yes</span></span></td><td>Inventory</td><td>Profiles</td></tr>
+                <tr><th scope="row">SSH &amp; SFTP</th><td><span class="yes"><svg><use href="#icon-check"></use></svg><span class="sr-only">Yes</span></span></td><td>Terminal + files</td><td>Session state</td><td>Host keys</td></tr>
+                <tr><th scope="row">Real-Time Monitor</th><td>Via SSH</td><td>Processes</td><td>Live telemetry</td><td>Service checks</td></tr>
+                <tr><th scope="row">Uptime</th><td>HTTP / TCP</td><td>Maintenance</td><td>Incidents</td><td>Reports</td></tr>
+                <tr><th scope="row">Backup Manager</th><td>Repositories</td><td>Jobs</td><td>Run status</td><td>Recovery points</td></tr>
+                <tr class="featured-row"><th scope="row">Command Center</th><td>Fleet state</td><td>Quick actions</td><td>Unified health</td><td>Backup status</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="comparison">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">04 <span></span> Comparison</p>
+            <h2>Compare the whole workflow, not just the terminal.</h2>
+            <p>Most alternatives solve one part of server work. DeployerX connects remote access, repeatable operations, observability, uptime, and recovery in the same desktop workspace.</p>
+          </div>
+          <div class="comparison-legend reveal" data-reveal aria-label="Comparison status legend">
+            <span><i class="comparison-status included"><svg><use href="#icon-check"></use></svg></i>Included</span>
+            <span><i class="comparison-status partial">~</i>Partial or scope-limited</span>
+            <span><i class="comparison-status absent">-</i>Not a core feature</span>
+          </div>
+          <div class="comparison-wrap reveal" data-reveal tabindex="0" aria-label="Scrollable DeployerX competitor comparison table">
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th scope="col">Capability</th>
+                  <th scope="col" class="deployerx-column"><strong>DeployerX</strong><small>Server operations</small></th>
+                  <th scope="col"><strong>Termius</strong><small>SSH client</small></th>
+                  <th scope="col"><strong>MobaXterm</strong><small>Remote toolbox</small></th>
+                  <th scope="col"><strong>Cockpit</strong><small>Linux web admin</small></th>
+                  <th scope="col"><strong>Portainer</strong><small>Container control</small></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Host inventory and groups</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Partial</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Container endpoints only</span></span></td></tr>
+                <tr><th scope="row">SSH terminal</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td></tr>
+                <tr><th scope="row">SFTP file management</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td></tr>
+                <tr><th scope="row">Saved commands and repeatable scripts</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Snippets included</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Macros and commands</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Container deployment workflows</span></span></td></tr>
+                <tr><th scope="row">Linux and Windows host workflows</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">SSH targets</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Remote protocol sessions</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Linux administration only</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Container hosts only</span></span></td></tr>
+                <tr><th scope="row">Live host telemetry</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Remote monitoring bar</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Container and endpoint scope</span></span></td></tr>
+                <tr><th scope="row">HTTP, TCP and TLS uptime checks</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a general uptime monitor</span></span></td></tr>
+                <tr><th scope="row">Incidents and maintenance windows</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td></tr>
+                <tr><th scope="row">Backup jobs and recovery points</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not an integrated backup manager</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a workload backup manager</span></span></td></tr>
+                <tr><th scope="row">VNC or remote desktop access</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included for compatible Windows hosts</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Virtual machine console scope</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td></tr>
+                <tr><th scope="row">Optional synchronized workspace</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Encrypted vault sync included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status partial">~<span class="sr-only">Centralized server rather than optional desktop sync</span></span></td></tr>
+                <tr><th scope="row">Emergency stop for active operations</th><td class="deployerx-column"><span class="comparison-status included"><svg><use href="#icon-check"></use></svg><span class="sr-only">Included</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td><td><span class="comparison-status absent">-<span class="sr-only">Not a core feature</span></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="comparison-notes reveal" data-reveal>
+            <p><strong>Different tools, different jobs.</strong> Termius is primarily an SSH client, MobaXterm is a Windows remote-access toolbox, Cockpit administers Linux systems through a web interface, and Portainer manages Docker and Kubernetes environments. A partial mark means the capability exists only for that product's narrower scope or through a related workflow.</p>
+            <p>Compared from publicly documented core features on August 12, 2026. Verify current capabilities on the official sites: <a href="https://termius.com/" target="_blank" rel="noreferrer">Termius</a>, <a href="https://mobaxterm.mobatek.net/" target="_blank" rel="noreferrer">MobaXterm</a>, <a href="https://cockpit-project.org/" target="_blank" rel="noreferrer">Cockpit</a>, and <a href="https://www.portainer.io/" target="_blank" rel="noreferrer">Portainer</a>.</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="quick-start">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">05 <span></span> Quick Start</p>
+            <h2>Choose local. Add cloud only when it helps.</h2>
+            <p>Install DeployerX on Windows, macOS, or Linux, or run it from source. A hosted account is not required for a local workspace.</p>
+          </div>
+          <div class="quick-start-panel reveal" data-reveal>
+            <div class="tab-list" role="tablist" aria-label="Quick start method">
+              <button id="tab-install" role="tab" aria-selected="true" aria-controls="panel-install" tabindex="0">Install</button>
+              <button id="tab-source" role="tab" aria-selected="false" aria-controls="panel-source" tabindex="-1">Run from source</button>
+            </div>
+            <div class="tab-panel" id="panel-install" role="tabpanel" aria-labelledby="tab-install">
+              <div class="download-choice">
+                <div><span class="download-icon"><svg><use href="#icon-download"></use></svg></span><div><small>RECOMMENDED</small><h3>Desktop packages</h3><p>Choose Windows Setup, a macOS DMG, or a native Linux package.</p></div></div>
+                <button class="text-link download-text-button" type="button" data-download-trigger>Choose download <svg><use href="#icon-arrow"></use></svg></button>
+              </div>
+              <div class="download-choice">
+                <div><span class="download-icon"><svg><use href="#icon-folder"></use></svg></span><div><small>NO INSTALLER</small><h3>Portable packages</h3><p>Use the Windows portable app or Linux AppImage without a system install.</p></div></div>
+                <button class="text-link download-text-button" type="button" data-download-trigger>Choose download <svg><use href="#icon-arrow"></use></svg></button>
+              </div>
+              <p class="download-note">Some systems may warn about unsigned release artifacts. Verify that the file came from the official repository.</p>
+            </div>
+            <div class="tab-panel" id="panel-source" role="tabpanel" aria-labelledby="tab-source" hidden>
+              <div class="code-header"><span>PowerShell</span><button class="copy-button" type="button" data-copy-target="source-command" aria-label="Copy source commands"><svg><use href="#icon-copy"></use></svg><span>Copy</span></button></div>
+              <pre id="source-command"><code><span class="code-comment"># Clone and run DeployerX</span>
+git clone https://github.com/me-devms/DeployerX.git
+cd DeployerX
+npm install
+npm start</code></pre>
+            </div>
+          </div>
+          <div class="quick-facts reveal" data-reveal>
+            <div><small>PLATFORMS</small><strong>Windows, macOS &amp; Linux</strong></div>
+            <div><small>LOCAL MODE</small><strong>No hosted backend</strong></div>
+            <div><small>WORKSPACE SYNC</small><strong>Optional</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="technology">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">06 <span></span> Technology</p>
+            <h2>Built from tools infrastructure teams already know.</h2>
+            <p>A pragmatic desktop stack for secure connections, rich terminals, local data, remote files, and optional team workspaces.</p>
+          </div>
+          <div class="tech-grid reveal" data-reveal>
+            <div><span class="tech-logo" aria-hidden="true"><img src="assets/technology/electron.svg" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>Electron</strong><small>Desktop runtime</small></div>
+            <div><span class="tech-logo" aria-hidden="true"><img src="assets/technology/nodejs.svg" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>Node.js</strong><small>Operations core</small></div>
+            <div><span class="tech-logo tech-logo-xterm" aria-hidden="true"><img src="assets/technology/xterm.png" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>xterm.js</strong><small>Terminal UI</small></div>
+            <div><span class="tech-logo" aria-hidden="true"><img src="assets/technology/ssh2.svg" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>ssh2</strong><small>Secure access</small></div>
+            <div><span class="tech-logo" aria-hidden="true"><img src="assets/technology/sqlite.svg" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>SQLite</strong><small>Local data</small></div>
+            <div><span class="tech-logo" aria-hidden="true"><img src="assets/technology/novnc.svg" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>noVNC</strong><small>Remote desktop</small></div>
+            <div><span class="tech-logo" aria-hidden="true"><img src="assets/technology/monaco.svg" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>Monaco</strong><small>Editing surface</small></div>
+            <div><span class="tech-logo" aria-hidden="true"><img src="assets/technology/firebase.svg" alt="" width="34" height="34" loading="lazy" decoding="async"></span><strong>Firebase</strong><small>Optional sync</small></div>
+          </div>
+          <p class="technical-note reveal" data-reveal><svg><use href="#icon-lock"></use></svg> SSH and MCP credentials are resolved inside the desktop main process. The authenticated MCP endpoint listens on <code>127.0.0.1</code> by default.</p>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="local-first">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">07 <span></span> Local First</p>
+            <h2>Your workspace starts on your machine.</h2>
+            <p>Use DeployerX without an account. Add a synchronized workspace only when a team or multi-device workflow needs it.</p>
+          </div>
+          <div class="local-grid">
+            <article class="local-column reveal" data-reveal><svg><use href="#icon-database"></use></svg><h3>Local workspace</h3><p>Server profiles, templates, settings, and operational data can remain on the current desktop user profile.</p><span>NO ACCOUNT REQUIRED</span></article>
+            <article class="local-column reveal" data-reveal><svg><use href="#icon-cloud"></use></svg><h3>Optional team sync</h3><p>Configure a Firebase workspace for team membership and synchronized workspace data when the workflow calls for it.</p><span>OPT-IN WORKFLOW</span></article>
+            <article class="local-column reveal" data-reveal><svg><use href="#icon-lock"></use></svg><h3>Clear boundaries</h3><p>Sensitive cloud values use authenticated encryption. SSH host-key checks and a loopback-only MCP endpoint reinforce local control.</p><span>SECURITY BY CONTEXT</span></article>
+          </div>
+          <div class="security-strip reveal" data-reveal>
+            <div><span class="pulse-dot"></span><small>LOCAL DATA</small><strong>Ready</strong></div>
+            <div><svg><use href="#icon-lock"></use></svg><small>CLOUD SECRETS</small><strong>Encrypted</strong></div>
+            <div><svg><use href="#icon-radio"></use></svg><small>MCP ENDPOINT</small><strong>127.0.0.1</strong></div>
+            <a href="https://github.com/me-devms/DeployerX#security-model" target="_blank" rel="noreferrer">Read security model <svg><use href="#icon-arrow"></use></svg></a>
+          </div>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="releases">
+        <div class="shell">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">08 <span></span> Releases</p>
+            <h2>Shipping in public.</h2>
+            <p>MCP client connections, automatic recovery, clearer security guidance, and consistent application typography.</p>
+          </div>
+          <article class="release-entry reveal" data-reveal>
+            <header><div><strong>v0.2.3</strong><span>Latest release</span></div><time datetime="2026-08-19">August 19, 2026</time></header>
+            <div class="release-content">
+              <div><span class="change-label added">Added</span><ul><li>One-click MCP connections for Codex, Claude Code, and OpenCode.</li><li>Bundled agent logos and connection status in Settings.</li></ul></div>
+              <div><span class="change-label improved">Improved</span><ul><li>Automatic MCP startup and recovery with encrypted token persistence.</li><li>Responsive MCP documentation and consistent DM Sans typography.</li></ul></div>
+              <div><span class="change-label fixed">Fixed</span><ul><li>Nearby-port retry and client configuration refresh after MCP handoff.</li><li>More accurate separation of local process state and listener reachability.</li></ul></div>
+            </div>
+            <footer><a href="https://github.com/me-devms/DeployerX/releases/tag/v0.2.3" target="_blank" rel="noreferrer">Read the complete release <svg><use href="#icon-arrow"></use></svg></a><a href="https://github.com/me-devms/DeployerX/releases" target="_blank" rel="noreferrer">All releases</a></footer>
+          </article>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section" id="faq">
+        <div class="shell faq-layout">
+          <div class="section-heading reveal" data-reveal>
+            <p class="section-kicker">09 <span></span> FAQ</p>
+            <h2>Questions before you connect a server.</h2>
+            <p>Practical details about local mode, platforms, sync, security, and downloads.</p>
+          </div>
+          <div class="faq-list reveal" data-reveal>
+            <article class="faq-item"><h3><button type="button" aria-expanded="false" aria-controls="faq-answer-1">Does DeployerX require an account?<svg><use href="#icon-chevron"></use></svg></button></h3><div class="faq-answer" id="faq-answer-1"><p>No. Choose Local Workspace on first launch to work without a hosted backend or cloud account.</p></div></article>
+            <article class="faq-item"><h3><button type="button" aria-expanded="false" aria-controls="faq-answer-2">Which systems can run DeployerX?<svg><use href="#icon-chevron"></use></svg></button></h3><div class="faq-answer" id="faq-answer-2"><p>The current desktop release supports 64-bit Windows and Linux, plus Intel and Apple Silicon Macs.</p></div></article>
+            <article class="faq-item"><h3><button type="button" aria-expanded="false" aria-controls="faq-answer-3">Can it manage Linux and Windows hosts?<svg><use href="#icon-chevron"></use></svg></button></h3><div class="faq-answer" id="faq-answer-3"><p>Yes. Hosts can include Linux and Windows machines. Compatible Windows hosts can also use the embedded VNC workspace.</p></div></article>
+            <article class="faq-item"><h3><button type="button" aria-expanded="false" aria-controls="faq-answer-4">Is cloud sync required?<svg><use href="#icon-chevron"></use></svg></button></h3><div class="faq-answer" id="faq-answer-4"><p>No. Firebase configuration is optional and is needed only for synchronized cloud workspace features.</p></div></article>
+            <article class="faq-item"><h3><button type="button" aria-expanded="false" aria-controls="faq-answer-5">How are synchronized secrets protected?<svg><use href="#icon-chevron"></use></svg></button></h3><div class="faq-answer" id="faq-answer-5"><p>Sensitive SSH values are encrypted before cloud storage with a key derived from the team passphrase. DeployerX cannot recover a lost passphrase.</p></div></article>
+            <article class="faq-item"><h3><button type="button" aria-expanded="false" aria-controls="faq-answer-6">Setup or portable download?<svg><use href="#icon-chevron"></use></svg></button></h3><div class="faq-answer" id="faq-answer-6"><p>Use Setup for a normal installation with shortcuts. Choose Portable when you want to run the application directly without installing it.</p></div></article>
+            <article class="faq-item"><h3><button type="button" aria-expanded="false" aria-controls="faq-answer-7">Why might SmartScreen show a warning?<svg><use href="#icon-chevron"></use></svg></button></h3><div class="faq-answer" id="faq-answer-7"><p>Current Windows release artifacts are unsigned. Confirm that the file came from the official DeployerX GitHub release page before running it.</p></div></article>
+          </div>
+        </div>
+      </section>
+
+      <div class="hairline shell"></div>
+
+      <section class="section community" id="community">
+        <div class="shell">
+          <div class="community-layout">
+            <div class="section-heading reveal" data-reveal>
+              <p class="section-kicker">10 <span></span> Community</p>
+              <h2>Built in the open.</h2>
+              <p>Inspect the source, report focused issues, and help make daily infrastructure work clearer and more reliable.</p>
+              <div class="inline-links"><a href="https://github.com/me-devms/DeployerX" target="_blank" rel="noreferrer">View source <svg><use href="#icon-arrow"></use></svg></a><a href="https://github.com/me-devms/DeployerX/issues" target="_blank" rel="noreferrer">Report an issue <svg><use href="#icon-arrow"></use></svg></a></div>
+            </div>
+            <div class="contribution-panel reveal" data-reveal>
+              <p>WAYS TO CONTRIBUTE</p>
+              <div><span>01</span><strong>Code</strong><small>Focused fixes and features</small></div>
+              <div><span>02</span><strong>Documentation</strong><small>Clear operating guidance</small></div>
+              <div><span>03</span><strong>Testing</strong><small>Real server workflows</small></div>
+              <div><span>04</span><strong>Issues</strong><small>Reproducible reports</small></div>
+              <a href="https://github.com/me-devms/DeployerX#contributing" target="_blank" rel="noreferrer">Read contributing guide <svg><use href="#icon-external"></use></svg></a>
+            </div>
+          </div>
+          <div class="contributors reveal" data-reveal>
+            <div class="contributor-avatars" aria-label="DeployerX contributors" data-contributor-avatars>
+              <a href="https://github.com/lxsuthar" target="_blank" rel="noreferrer" aria-label="lxsuthar on GitHub"><img src="assets/contributors/lxsuthar.png" width="48" height="48" alt="lxsuthar"></a>
+              <a href="https://github.com/me-devms" target="_blank" rel="noreferrer" aria-label="me-devms on GitHub"><img src="assets/contributors/me-devms.png" width="48" height="48" alt="me-devms"></a>
+              <a class="contributor-more" href="https://github.com/me-devms/DeployerX/graphs/contributors" target="_blank" rel="noreferrer" aria-label="View all DeployerX contributors" data-contributor-more><svg><use href="#icon-users"></use></svg></a>
+            </div>
+            <div class="contributors-copy"><p>The people behind DeployerX</p><span>Built through code, testing, documentation, and focused issue reports.</span></div>
+            <a class="contributors-link" href="https://github.com/me-devms/DeployerX/graphs/contributors" target="_blank" rel="noreferrer">View contributors <svg><use href="#icon-arrow"></use></svg></a>
+          </div>
+          <div class="final-cta reveal" data-reveal>
+            <div><p>READY WHEN YOU ARE</p><h2>Bring daily server operations into one workspace.</h2></div>
+            <div><button class="button button-primary" type="button" data-download-trigger><svg><use href="#icon-download"></use></svg>Download <span data-latest-version>v0.2.3</span></button><a class="button button-secondary" href="https://github.com/me-devms/DeployerX" target="_blank" rel="noreferrer"><svg><use href="#icon-github"></use></svg>View on GitHub</a></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog class="download-dialog" id="download-dialog" aria-labelledby="download-dialog-title">
+      <div class="download-dialog-shell">
+        <header class="download-dialog-header">
+          <a class="brand" href="#top" aria-label="DeployerX home">
+            <img src="assets/deployerx-logo.png" alt="" width="34" height="34">
+            <span>Deployer<span>X</span></span>
+          </a>
+          <button class="icon-button download-dialog-close" type="button" aria-label="Close download options">
+            <svg><use href="#icon-x"></use></svg>
+          </button>
+        </header>
+        <a class="dialog-star-link" href="https://github.com/me-devms/DeployerX" target="_blank" rel="noreferrer">
+          <span class="dialog-star-icon"><svg><use href="#icon-star"></use></svg></span>
+          <span class="dialog-star-copy">
+            <small>SUPPORT THE OPEN-SOURCE PROJECT</small>
+            <strong>Star DeployerX on GitHub</strong>
+          </span>
+          <span class="dialog-star-count"><strong data-github-stars>3</strong><small>STARS</small></span>
+          <svg class="dialog-star-arrow"><use href="#icon-external"></use></svg>
+        </a>
+        <div class="download-dialog-intro">
+          <p class="section-kicker">Latest release <span></span> <strong data-latest-version>v0.2.3</strong></p>
+          <h2 id="download-dialog-title">Choose your download.</h2>
+          <p>Select your operating system and package. Every option downloads directly from the latest GitHub release.</p>
+        </div>
+        <div class="download-dialog-divider"></div>
+        <div class="download-platforms" aria-live="polite">
+          <section class="download-platform" data-platform-group>
+            <div class="download-platform-heading"><span>01</span><h3>Windows</h3></div>
+            <div class="download-options">
+          <a class="download-option" href="https://github.com/me-devms/DeployerX/releases/download/v0.2.3/DeployerX-0.2.3-Portable-x64.exe" data-release-asset="windows-portable">
+            <span class="download-option-icon platform-windows"><svg><use href="#icon-windows"></use></svg></span>
+            <span class="download-option-copy"><small>NO INSTALLATION</small><strong>Portable App</strong><em data-asset-meta="windows-portable">Windows x64</em></span>
+            <svg class="download-option-arrow"><use href="#icon-download"></use></svg>
+          </a>
+          <a class="download-option" href="https://github.com/me-devms/DeployerX/releases/download/v0.2.3/DeployerX-0.2.3-Setup-x64.exe" data-release-asset="windows-setup">
+            <span class="download-option-icon platform-windows"><svg><use href="#icon-windows"></use></svg></span>
+            <span class="download-option-copy"><small>STANDARD INSTALLER</small><strong>Windows Setup</strong><em data-asset-meta="windows-setup">Windows x64</em></span>
+            <svg class="download-option-arrow"><use href="#icon-download"></use></svg>
+          </a>
+            </div>
+          </section>
+          <section class="download-platform" data-platform-group>
+            <div class="download-platform-heading"><span>02</span><h3>macOS</h3></div>
+            <div class="download-options">
+              <a class="download-option" href="https://github.com/me-devms/DeployerX/releases/download/v0.2.3/DeployerX-0.2.3-arm64.dmg" data-release-asset="mac-arm64">
+                <span class="download-option-icon platform-apple"><svg><use href="#icon-apple"></use></svg></span>
+                <span class="download-option-copy"><small>APPLE SILICON</small><strong>Mac DMG</strong><em data-asset-meta="mac-arm64">macOS Apple Silicon</em></span>
+                <svg class="download-option-arrow"><use href="#icon-download"></use></svg>
+              </a>
+              <a class="download-option" href="https://github.com/me-devms/DeployerX/releases/download/v0.2.3/DeployerX-0.2.3-x64.dmg" data-release-asset="mac-x64">
+                <span class="download-option-icon platform-apple"><svg><use href="#icon-apple"></use></svg></span>
+                <span class="download-option-copy"><small>INTEL PROCESSOR</small><strong>Mac DMG</strong><em data-asset-meta="mac-x64">macOS Intel</em></span>
+                <svg class="download-option-arrow"><use href="#icon-download"></use></svg>
+              </a>
+            </div>
+          </section>
+          <section class="download-platform" data-platform-group>
+            <div class="download-platform-heading"><span>03</span><h3>Linux</h3></div>
+            <div class="download-options">
+              <a class="download-option" href="https://github.com/me-devms/DeployerX/releases/download/v0.2.3/DeployerX-0.2.3-x86_64.AppImage" data-release-asset="linux-appimage">
+                <span class="download-option-icon platform-linux"><svg><use href="#icon-linux"></use></svg></span>
+                <span class="download-option-copy"><small>UNIVERSAL</small><strong>AppImage</strong><em data-asset-meta="linux-appimage">Linux x86_64</em></span>
+                <svg class="download-option-arrow"><use href="#icon-download"></use></svg>
+              </a>
+              <a class="download-option" href="https://github.com/me-devms/DeployerX/releases/download/v0.2.3/DeployerX-0.2.3-amd64.deb" data-release-asset="linux-deb">
+                <span class="download-option-icon platform-linux"><svg><use href="#icon-linux"></use></svg></span>
+                <span class="download-option-copy"><small>DEBIAN / UBUNTU</small><strong>DEB Package</strong><em data-asset-meta="linux-deb">Debian / Ubuntu x64</em></span>
+                <svg class="download-option-arrow"><use href="#icon-download"></use></svg>
+              </a>
+              <a class="download-option" href="https://github.com/me-devms/DeployerX/releases/download/v0.2.3/DeployerX-0.2.3-x86_64.rpm" data-release-asset="linux-rpm">
+                <span class="download-option-icon platform-linux"><svg><use href="#icon-linux"></use></svg></span>
+                <span class="download-option-copy"><small>FEDORA / RHEL</small><strong>RPM Package</strong><em data-asset-meta="linux-rpm">Fedora / RHEL x64</em></span>
+                <svg class="download-option-arrow"><use href="#icon-download"></use></svg>
+              </a>
+            </div>
+          </section>
+        </div>
+        <div class="download-dialog-footer">
+          <p><span class="download-ready-dot"></span><span data-release-status>Latest release verified from GitHub.</span></p>
+          <a href="https://github.com/me-devms/DeployerX/releases/latest" target="_blank" rel="noreferrer" data-latest-release-link>Release notes <svg><use href="#icon-external"></use></svg></a>
+        </div>
+        <p class="download-dialog-note">Your system may warn about unsigned artifacts through Windows SmartScreen or macOS Gatekeeper. On Linux, make the AppImage executable before opening it. Always verify that the download came from the official repository.</p>
+      </div>
+    </dialog>
+
+    <dialog class="release-dialog" id="release-notes-dialog" aria-labelledby="release-notes-dialog-title">
+      <div class="release-dialog-shell">
+        <header class="release-dialog-header">
+          <div>
+            <p class="section-kicker">Release notes <span></span> <strong data-release-notes-version>v0.2.3</strong></p>
+            <h2 id="release-notes-dialog-title" data-release-notes-title>What's new in DeployerX</h2>
+            <p class="release-dialog-meta" data-release-notes-meta>Loading the latest release notes...</p>
+          </div>
+          <button class="icon-button release-dialog-close" type="button" aria-label="Close release notes">
+            <svg><use href="#icon-x"></use></svg>
+          </button>
+        </header>
+        <div class="release-dialog-divider"></div>
+        <article class="release-notes-content" data-release-notes-content aria-live="polite">
+          <p class="release-notes-loading">Loading the latest release notes...</p>
+        </article>
+        <footer class="release-dialog-footer">
+          <span data-release-notes-status>Release notes are fetched from GitHub.</span>
+          <a href="https://github.com/me-devms/DeployerX/releases/latest" target="_blank" rel="noreferrer" data-release-notes-link>Open release on GitHub <svg><use href="#icon-external"></use></svg></a>
+        </footer>
+      </div>
+    </dialog>
+
+    <footer class="site-footer">
+      <div class="shell footer-grid">
+        <div class="footer-brand"><a class="brand" href="#top"><img src="assets/deployerx-logo.png" alt="" width="36" height="36"><span>Deployer<span>X</span></span></a><p>Operations, deployment, and observability for the servers you control.</p></div>
+        <div><h2>Product</h2><a href="https://github.com/me-devms/DeployerX/releases">Releases</a><a href="https://github.com/me-devms/DeployerX#run-from-source">Run from source</a><a href="#capabilities">Capabilities</a></div>
+        <div><h2>Project</h2><a href="https://github.com/me-devms/DeployerX">GitHub</a><a href="https://github.com/me-devms/DeployerX/issues">Issues</a><a href="https://github.com/me-devms/DeployerX#contributing">Contributing</a></div>
+        <div><h2>Reference</h2><a href="https://github.com/me-devms/DeployerX#security-model">Security model</a><a href="https://github.com/me-devms/DeployerX/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a><a href="https://github.com/me-devms/DeployerX#technology">Technology</a></div>
+      </div>
+      <div class="shell footer-bottom"><p>Created and maintained by <a href="https://everythingx.in/" target="_blank" rel="noreferrer">EverythingX</a>.</p><p>&copy; <span id="current-year">2026</span> DeployerX</p></div>
+    </footer>
+    <div class="copy-status sr-only" role="status" aria-live="polite"></div>
+  </body>
+</html>

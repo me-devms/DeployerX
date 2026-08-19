@@ -43,6 +43,7 @@ const { ADAPTER_ID: MARIADB_ADAPTER_ID, MariadbConnectionService, MariadbLogical
 const { MariadbRestoreService, RESTORE_CONFIRMATIONS: MARIADB_RESTORE_CONFIRMATIONS } = require('./backup-manager/mariadb-restore');
 const { MariadbSourceReaderService } = require('./backup-manager/mariadb-source-reader');
 const { ADAPTER_ID: MYSQL_ADAPTER_ID, MysqlConnectionService, MysqlLogicalAdapter } = require('./backup-manager/mysql-logical');
+const { NativeToolManager } = require('./backup-manager/native-tool-manager');
 const { MysqlRestoreService, RESTORE_CONFIRMATIONS: MYSQL_RESTORE_CONFIRMATIONS } = require('./backup-manager/mysql-restore');
 const { MysqlPhysicalRestoreService, RESTORE_CONFIRMATIONS: MYSQL_PHYSICAL_RESTORE_CONFIRMATIONS } = require('./backup-manager/mysql-physical-restore');
 const { MariadbPointInTimeRestoreService, MysqlPointInTimeRestoreService, PROFILES: MYSQL_FAMILY_PITR_PROFILES } = require('./backup-manager/mysql-family-pitr');
@@ -336,6 +337,7 @@ let databaseCloudSyncOutbox = null;
 let backupLocalConnectionService = null;
 let backupSshConnectionService = null;
 let backupMysqlConnectionService = null;
+let backupNativeToolManager = null;
 let backupMariadbConnectionService = null;
 let backupPostgresqlConnectionService = null;
 let backupSqlServerConnectionService = null;
@@ -2349,6 +2351,14 @@ function getBackupMysqlConnectionService() {
   getBackupControlDatabase();
   if (!backupMysqlConnectionService) throw new Error('MySQL source connections are not initialized.');
   return backupMysqlConnectionService;
+}
+
+function getBackupNativeToolManager() {
+  if (!backupNativeToolManager) {
+    backupNativeToolManager = new NativeToolManager({ rootDirectory: path.join(app.getPath('userData'), 'database-tools') });
+    backupNativeToolManager.activateInstalledSync();
+  }
+  return backupNativeToolManager;
 }
 
 function getBackupMariadbConnectionService() {
@@ -9912,6 +9922,7 @@ app.whenReady().then(async () => {
   listMcpClientsForRenderer().catch(() => {});
   await ensureStore();
   await ensureUptimeRoot();
+  getBackupNativeToolManager();
 
   if (isDatabaseManagerPackagedSmokeMode()) {
     try {
@@ -10844,6 +10855,14 @@ ipcMain.handle('backup:connections:ssh:browse', async (_event, payload = {}) => 
     cursor: payload.cursor,
     pageSize: payload.pageSize
   });
+});
+
+ipcMain.handle('backup:native-tools:status', async (_event, payload = {}) => {
+  return getBackupNativeToolManager().status(payload.engine);
+});
+
+ipcMain.handle('backup:native-tools:install', async (_event, payload = {}) => {
+  return getBackupNativeToolManager().install(payload.engine);
 });
 
 ipcMain.handle('backup:connections:mysql:list', async () => {
