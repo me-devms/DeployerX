@@ -190,17 +190,10 @@ jobs:
         shell: bash
         run: |
           tag="v${BUILD_VERSION}"
-          notes_file="RELEASE_NOTES_${BUILD_VERSION}.md"
           mapfile -d '' files < <(find release-artifacts -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.zip' -o -name 'latest.yml' -o -name '*.exe.blockmap' \) -print0)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if [[ -f "$notes_file" ]]; then
-              gh release edit "$tag" --title "DeployerX $tag" --notes-file "$notes_file" --repo "$GITHUB_REPOSITORY"
-            fi
+            gh release edit "$tag" --title "DeployerX $tag" --repo "$GITHUB_REPOSITORY"
             gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            if [[ -f "$notes_file" ]]; then
-              gh release create "$tag" "${files[@]}" --title "DeployerX $tag" --notes-file "$notes_file" --repo "$GITHUB_REPOSITORY"
-            else
-              gh release create "$tag" "${files[@]}" --title "DeployerX $tag" --generate-notes --repo "$GITHUB_REPOSITORY"
-            fi
+            gh release create "$tag" "${files[@]}" --title "DeployerX $tag" --generate-notes --repo "$GITHUB_REPOSITORY"
           fi
