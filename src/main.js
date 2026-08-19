@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, Notification, safeStorage, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, Notification, safeStorage, clipboard, nativeImage } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const crypto = require('crypto');
@@ -16,6 +17,9 @@ const { Client } = require('ssh2');
 const { assertFirebaseConfig, sanitizeFirebaseConfigForRuntime, validateFirebaseConfig } = require('./firebase-config');
 const { ServerMonitoringSessionManager } = require('./server-monitoring/session-manager');
 const { DeployerXMcpServer } = require('./mcp-server');
+const { listMcpClients, connectMcpClient, disconnectMcpClient } = require('./mcp-clients');
+
+const CODEX_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFSUlEQVR4nM2Ze4hVVRTG7x3TsqzUzIIym4wkdSytQDBnpmjSAqs/svorigR7KNlLykykZEroZSUjWT4qIiJEo6AosCgoreglvaR0pJE0x9IsJpvpFyvXdtasu8+558y9NH0wDOy91jrfOXvttb69b6FQAYDDgQuAm4D7gLnA1cCIwv8JwGjgGeB34vgb+Ai4Bij2JdF+wHzgANmxCajtC7KHAS8ZIl3AWuBaYBxwAjASuAR4EthnbH8GFgNvAtt1rk1X4RGgoeorAaxwX21sGfthwIYcK7ERaKwW2StN4NeAI8rYHwcsAzodqW/Vf43+/97Nd+nmLVaaCls04NfAoDK2c4B2R2IVMDHBZyywUu0CHq+E8BUm0OUpdk3AZvfF3gUmZHxOg3vRmb0l/KwGaIstFTAKWOeIbgNm9OJZZ5tS+YukVh7nqVoVOjTA6sjyN5t5wX5gATAwIeaxWkWGpDz3ZhNvSRaitcDblOJ+Z3eXaxTPAyel1O8bgd1qvweYLS8dse0P/GBWKnkDAudrzbREAm53ti3GpqFMbn5GHF9Ia4/4PGhsxhVSduuvxnA9MCUD4b0J8aSJvOwItmtL3+XGxe4U4ytpE3BZLPgA4CtjNF/HT8xLGDgSWAT8YXz/Ap4AhqrNYOBR1+Jlsy2U/AfGm/FZMcLzjMFSM56LMHAV0Oq+3nZgTIqIet3Zb1W9EnBDIbLbfzRJPjAvYeAs4B2S8V5S49BY09wKW1zsjS80k7e5uSyEu1wL3q3dTv5CVQh2TwPHJ5CW6nCrVhCLyd5Q8i3g1F4QDvhTldehGgsM0TGZwzQEEfr9U3SItHKbUidbAxEi0d2eg/ArwOkxAgKZUxsLSYGphQToSwV8CNSECdG0gh0Rp9xVIg0czHeP9Ukvaz6m4LowuFwHJA8HpBCeV0XCW7SNB3Ros+ihBIGjgZ1qI92vKIP3GsceohwYbuZEu06pEuEWaePazm03/fzQ0nf7PGTmz5WB88xAc+Qhn5p5Cf6ibIJKCRe6xyYB35hnjHQ+dWbuHhkoGrHxU2RZjgEedjt9vxH1FREWALeY2KcVSq8SgrhfHgavNw5rrINxPCPSlapFeFYSYZ3foXNrw0CNHgID5qY89FK3hL0pay05Cf9Wosk1L6VIB6xOUvzale5w6i5r48hFWE80AQs9kcn0xB5tl0ldabge/7sytOZOY5eHsHyYgMbYsSgG6UrTYqTV7xzgfZKxQQVSrhxWqRnUX2vJCUWknHFc7FIE3XSjE0iPidhvlTsNY5OX8NIkYRYM5NwVUGfEuL30O6Die7D6DFVxLiLdlj1pSD0uXPIQdg3ty2hayr2DMWoy4yP0BG270i497rTnOIzuzUC4SfWF3UdnxuIV3NFkUWReznifEIeUxUnRwIV/fRvNC6cRth9lZ1rM0PVazUaridhIzZ5pREmb3mBGj+Mc1AzPOSJ3Opu7Ix/gDd+mk0gvKZF0cbujgHrJ84R52eELIqqs2e92oxg7VKtcVJaoK/YhL+Uety6zc3eM6UafBLyVlIvGdkXeZ4UAsuQBsvT1Gf0m6AWgxWa7gRNafcD0XhHWQI+5LrUy5bg+MXJlKqs0J3YdZfwGmdOyXOX2q4RwUWuhJYEuX7iUlkbynZvv1Mvs1JtHqdHAq1mucvMSl1L2AdkhbXhYmZjjgY+Nz7KqkHUPqVchv1EvXvZpK5by84C7RJS5pzQ/a/VsWKe6e51btRcqSoUKXqjWaepy6NArspJa/1+SLuqPiZtco8BAxLjU3VF9RjQGPRDMUD0tvwxJ+5W06nGVkBf/APLOOieCuT2TAAAAAElFTkSuQmCC';
 const { RdpSessionManager } = require('./rdp-session');
 const { VncSessionManager } = require('./vnc-session');
 const { BackupAuditStore, StructuredLogStore } = require('./backup-manager/audit');
@@ -194,6 +198,7 @@ const appPackage = require('../package.json');
 const STORE_FILE = 'projects.json';
 const SETTINGS_FILE = 'settings.json';
 const MCP_TOKEN_FILE = 'mcp-token.enc';
+const MCP_AUTOSTART_ARGUMENT = '--mcp-autostart';
 const APP_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'deployerx-logo.ico' : 'deployerx-logo.png');
 const DATABASE_MANAGER_PACKAGED_SMOKE_ARGUMENT = '--database-manager-packaged-smoke';
 const DATABASE_MANAGER_PACKAGED_SMOKE_RELEASE_ARGUMENT = '--database-manager-packaged-smoke-release=';
@@ -218,6 +223,7 @@ let mcpServer;
 let mcpRestartTimer = null;
 let mcpRestorePromise = null;
 let mcpHealthTimer = null;
+let mcpClientRendererCache = null;
 const activeDeployments = new Map();
 const activeTerminals = new Map();
 const mcpSshConnections = new Map();
@@ -246,7 +252,9 @@ const UPTIME_WORKER_LOCK_RENEW_MS = 5000;
 const DATABASE_CLOUD_SYNC_INTERVAL_MS = 60 * 1000;
 const WORKSPACE_CONTROL_SYNC_INTERVAL_MS = 15 * 1000;
 const UPTIME_RUNTIME_FILE = 'runtime.json';
+const APP_USER_DATA_PATH = path.join(app.getPath('appData'), 'deployerx');
 const SESSION_DATA_PATH = path.join(os.tmpdir(), `DeployerX-session-${process.pid}`);
+app.setPath('userData', APP_USER_DATA_PATH);
 app.setPath('sessionData', SESSION_DATA_PATH);
 if (process.platform === 'win32') app.setAppUserModelId('com.everythingx.deployerx');
 const requiresSingleInstanceLock = !isWorkerMode() && !isDatabaseManagerPackagedSmokeMode();
@@ -3968,6 +3976,10 @@ function isWorkerMode() {
   return process.argv.includes('--uptime-worker');
 }
 
+function isMcpAutostartMode() {
+  return process.argv.includes(MCP_AUTOSTART_ARGUMENT);
+}
+
 function serviceModeLabel() {
   return isWorkerMode() ? 'worker' : 'window';
 }
@@ -4432,8 +4444,10 @@ function focusMainWindow() {
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
+    if (isMcpAutostartMode()) createTray();
     return;
   }
+  if (isMcpAutostartMode()) createTray();
   if (process.platform === 'darwin') app.dock?.show();
   focusMainWindow();
 }
@@ -4483,6 +4497,43 @@ function googleLoginResultHtml({
   autoClose = false
 }) {
   const logoDataUrl = `data:image/png;base64,${fsSync.readFileSync(path.join(__dirname, '..', 'assets', 'deployerx-logo.png')).toString('base64')}`;
+  const dmSansFontUrl = (fileName) => pathToFileURL(path.join(__dirname, 'assets', 'fonts', fileName)).href;
+  const dmSansFontFaces = `
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-Regular.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 500;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-Medium.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-SemiBold.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-Bold.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 800;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-ExtraBold.ttf')}") format("truetype");
+      }`;
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -4522,6 +4573,7 @@ function googleLoginResultHtml({
         }
       }
       * { box-sizing: border-box; }
+      ${dmSansFontFaces}
       body {
         margin: 0;
         min-height: 100vh;
@@ -4531,7 +4583,7 @@ function googleLoginResultHtml({
           linear-gradient(var(--line) 1px, transparent 1px),
           linear-gradient(90deg, var(--line) 1px, transparent 1px);
         background-size: 42px 42px;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: "DM Sans", sans-serif;
       }
       body::before {
         content: '';
@@ -5617,12 +5669,58 @@ async function writeCurrentStore(data) {
 
 function normalizeMcpIntegration(config = {}) {
   return {
-    enabled: true,
+    enabled: config.enabled !== false,
     port: Math.min(65535, Math.max(1024, Math.round(Number(config.port) || 43821))),
     tokenEncrypted: String(config.tokenEncrypted || ''),
     lastError: String(config.lastError || ''),
     updatedAt: String(config.updatedAt || '')
   };
+}
+
+function buildMcpAutostartArgs() {
+  if (process.defaultApp || !app.isPackaged) return [app.getAppPath(), MCP_AUTOSTART_ARGUMENT];
+  return [MCP_AUTOSTART_ARGUMENT];
+}
+
+function mcpLinuxAutostartEntry() {
+  const quote = (value) => `"${String(value || '').replace(/"/g, '\\"')}"`;
+  const launch = [quote(process.execPath), ...buildMcpAutostartArgs().map(quote)].join(' ');
+  return [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Version=1.0',
+    'Name=DeployerX MCP',
+    'Comment=Keep the DeployerX MCP server available after sign-in',
+    `Exec=${launch}`,
+    'Terminal=false',
+    'X-GNOME-Autostart-enabled=true'
+  ].join('\n');
+}
+
+async function setMcpAutostartEnabled(enabled) {
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    app.setLoginItemSettings(buildLoginItemSettings({
+      enabled,
+      execPath: process.execPath,
+      args: buildMcpAutostartArgs()
+    }));
+    return Boolean(app.getLoginItemSettings().openAtLogin);
+  }
+  const autostartDir = path.join(os.homedir(), '.config', 'autostart');
+  const autostartPath = path.join(autostartDir, 'deployerx-mcp.desktop');
+  if (!enabled) {
+    await fs.rm(autostartPath, { force: true });
+    return false;
+  }
+  await fs.mkdir(autostartDir, { recursive: true });
+  await fs.writeFile(autostartPath, `${mcpLinuxAutostartEntry()}\n`, 'utf8');
+  return true;
+}
+
+async function enableMcpAutostartForConnectedClients() {
+  const clients = await listMcpClients();
+  if (!clients.some((client) => client.connected)) return false;
+  return setMcpAutostartEnabled(true);
 }
 
 function encryptMcpToken(token) {
@@ -5634,6 +5732,14 @@ function decryptMcpToken(tokenEncrypted) {
   if (!tokenEncrypted) return '';
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this device.');
   return safeStorage.decryptString(Buffer.from(tokenEncrypted, 'base64'));
+}
+
+function mcpTokenErrorMessage(error) {
+  const message = String(error?.message || error || '');
+  if (/decrypt|string.*ciphertext|ciphertext.*decrypt/i.test(message)) {
+    return 'The saved MCP credential is no longer available on this device. It will be refreshed automatically when you connect an agent.';
+  }
+  return message || 'The MCP credential could not be read.';
 }
 
 function createMcpToken() {
@@ -5682,6 +5788,25 @@ async function readPersistedMcpToken(config = {}) {
   }
   if (lastError) throw lastError;
   return { token: '', tokenEncrypted: '' };
+}
+
+async function readOrCreatePersistedMcpToken(config = {}) {
+  try {
+    const persisted = await readPersistedMcpToken(config);
+    if (persisted.token) return { ...persisted, recovered: false };
+  } catch (error) {
+    if (!/decrypt|string.*ciphertext|ciphertext.*decrypt/i.test(String(error?.message || error || ''))) throw error;
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this device.');
+  }
+  const token = createMcpToken();
+  const tokenEncrypted = await persistMcpToken(token);
+  await writeMcpIntegrationSettings(normalizeMcpIntegration({
+    ...config,
+    tokenEncrypted,
+    lastError: '',
+    updatedAt: nowIso()
+  }));
+  return { token, tokenEncrypted, recovered: true };
 }
 
 const UPTIME_CLOUD_COLLECTIONS = Object.freeze({
@@ -6190,15 +6315,36 @@ function ensureMcpServer() {
   return mcpServer;
 }
 
+function isMcpAddressInUseError(error) {
+  return error?.code === 'EADDRINUSE' || /EADDRINUSE|address already in use/i.test(String(error?.message || error || ''));
+}
+
+async function startMcpServerWithPortFallback(preferredPort, token) {
+  const normalizedPort = Math.min(65535, Math.max(1024, Math.round(Number(preferredPort) || 43821)));
+  let lastError;
+  for (let offset = 0; offset < 32; offset += 1) {
+    const port = 1024 + ((normalizedPort - 1024 + offset) % (65535 - 1024 + 1));
+    try {
+      await ensureMcpServer().start({ port, token });
+      return port;
+    } catch (error) {
+      if (!isMcpAddressInUseError(error)) throw error;
+      lastError = error;
+    }
+  }
+  throw new Error(`No available local port was found near ${normalizedPort}. ${lastError?.message || ''}`.trim());
+}
+
 async function publicMcpIntegration(config = null) {
   const normalized = normalizeMcpIntegration(config || {});
   const runtime = ensureMcpServer().status();
+  const running = runtime.external ? await ensureMcpServer().isReachable() : runtime.running;
   let token = '';
   let serverCount = 0;
   try {
     ({ token } = await readPersistedMcpToken(normalized));
   } catch (error) {
-    normalized.lastError = error.message || String(error);
+    normalized.lastError = mcpTokenErrorMessage(error);
   }
   try {
     const data = await readCurrentStore();
@@ -6209,12 +6355,13 @@ async function publicMcpIntegration(config = null) {
   return {
     configured: Boolean(normalized.tokenEncrypted),
     enabled: normalized.enabled,
-    running: runtime.running,
+    running,
     port: normalized.port,
     url: `http://127.0.0.1:${normalized.port}/mcp`,
     token,
     serverCount,
     tools: ensureMcpServer().tools(),
+    clients: await listMcpClientsForRenderer(),
     lastError: runtime.lastError || normalized.lastError,
     updatedAt: normalized.updatedAt
   };
@@ -6227,7 +6374,7 @@ async function startMcpIntegration(payload = {}) {
   const settings = await readSettings();
   const current = normalizeMcpIntegration(settings.mcpIntegration || {});
   const port = Math.min(65535, Math.max(1024, Math.round(Number(payload.port) || current.port || 43821)));
-  const persisted = await readPersistedMcpToken(current);
+  const persisted = await readOrCreatePersistedMcpToken(current);
   const token = persisted.token || createMcpToken();
   const tokenEncrypted = persisted.tokenEncrypted || await persistMcpToken(token);
   const next = normalizeMcpIntegration({
@@ -6239,8 +6386,14 @@ async function startMcpIntegration(payload = {}) {
     updatedAt: nowIso()
   });
   await writeMcpIntegrationSettings(next);
+  await enableMcpAutostartForConnectedClients().catch(() => {});
   try {
-    await ensureMcpServer().start({ port, token });
+    const actualPort = await startMcpServerWithPortFallback(port, token);
+    if (actualPort !== next.port) {
+      next.port = actualPort;
+      await writeMcpIntegrationSettings(next);
+    }
+    await refreshConnectedMcpClientConfigurations(actualPort, token);
   } catch (error) {
     const failed = { ...next, lastError: String(error?.message || error), updatedAt: nowIso() };
     await writeMcpIntegrationSettings(failed);
@@ -6248,6 +6401,44 @@ async function startMcpIntegration(payload = {}) {
     throw new Error(`Could not start the DeployerX MCP server: ${error?.message || error}`);
   }
   return publicMcpIntegration(next);
+}
+
+async function listMcpClientsForRenderer() {
+  if (mcpClientRendererCache) return mcpClientRendererCache;
+  mcpClientRendererCache = Promise.resolve().then(async () => {
+    const clients = await listMcpClients();
+    return Promise.all(clients.map(async ({ configPath, iconPath, format, installed, ...client }) => {
+      let icon = client.id === 'codex'
+        ? CODEX_ICON_DATA_URL
+        : client.id === 'opencode'
+        ? 'assets/agent-logos/opencode.svg'
+        : client.id.startsWith('claude') ? 'assets/agent-logos/claude-code.svg' : '';
+      if (iconPath && !icon) {
+        try {
+          const image = ['.png', '.jpg', '.jpeg', '.ico'].includes(path.extname(iconPath).toLowerCase())
+            ? nativeImage.createFromPath(iconPath)
+            : await app.getFileIcon(iconPath, { size: 'normal' });
+          if (image && !image.isEmpty()) icon = image.toDataURL();
+        } catch { /* Keep the bundled fallback logo when file icon extraction fails. */ }
+      }
+      return { ...client, icon };
+    }));
+  }).catch((error) => {
+    mcpClientRendererCache = null;
+    throw error;
+  });
+  return mcpClientRendererCache;
+}
+
+async function refreshConnectedMcpClientConfigurations(port, token) {
+  const clients = await listMcpClients();
+  const url = `http://127.0.0.1:${port}/mcp`;
+  await Promise.all(
+    clients
+      .filter((client) => client.connected)
+      .map((client) => connectMcpClient(client.id, { url, token }).catch(() => {}))
+  );
+  mcpClientRendererCache = null;
 }
 
 async function rotateMcpToken() {
@@ -6258,13 +6449,17 @@ async function rotateMcpToken() {
   const tokenEncrypted = await persistMcpToken(token);
   const next = normalizeMcpIntegration({
     ...current,
+    enabled: true,
     tokenEncrypted,
     lastError: '',
     updatedAt: nowIso()
   });
   await writeMcpIntegrationSettings(next);
+  await enableMcpAutostartForConnectedClients().catch(() => {});
   try {
-    await ensureMcpServer().start({ port: next.port, token });
+    next.port = await startMcpServerWithPortFallback(next.port, token);
+    await refreshConnectedMcpClientConfigurations(next.port, token);
+    await writeMcpIntegrationSettings(next);
   } catch (error) {
     const failed = { ...next, lastError: String(error?.message || error), updatedAt: nowIso() };
     await writeMcpIntegrationSettings(failed);
@@ -6277,8 +6472,21 @@ async function rotateMcpToken() {
 async function testMcpIntegration() {
   const settings = await readSettings();
   const config = normalizeMcpIntegration(settings.mcpIntegration || {});
-  const { token } = await readPersistedMcpToken(config);
-  if (!token || !ensureMcpServer().status().running) throw new Error('The DeployerX MCP server is still starting. Try again shortly.');
+  if (!config.enabled) throw new Error('DeployerX MCP is disconnected. Connect an agent to start it again.');
+  const persisted = await readOrCreatePersistedMcpToken(config);
+  const server = ensureMcpServer();
+  const reachable = server.status().external ? await server.isReachable() : server.status().running;
+  if (persisted.recovered || !reachable) {
+    const actualPort = await startMcpServerWithPortFallback(config.port, persisted.token);
+    await refreshConnectedMcpClientConfigurations(actualPort, persisted.token);
+    if (actualPort !== config.port) {
+      config.port = actualPort;
+      await writeMcpIntegrationSettings({ ...config, tokenEncrypted: persisted.tokenEncrypted, lastError: '', updatedAt: nowIso() });
+    }
+  }
+  const { token } = persisted;
+  const ready = server.status().external ? await server.isReachable() : server.status().running;
+  if (!token || !ready) throw new Error('The DeployerX MCP server is still starting. Try again shortly.');
   const body = JSON.stringify({ jsonrpc: '2.0', id: 'deployerx-test', method: 'tools/list' });
   const result = await new Promise((resolve, reject) => {
     const request = http.request(
@@ -6315,6 +6523,77 @@ async function testMcpIntegration() {
   };
 }
 
+async function connectMcpClientIntegration(clientId) {
+  let config = normalizeMcpIntegration((await readSettings()).mcpIntegration || {});
+  const server = ensureMcpServer();
+  if (!(server.status().running && await server.isReachable())) {
+    await startMcpIntegration({ port: config.port });
+    config = normalizeMcpIntegration((await readSettings()).mcpIntegration || {});
+  }
+  const persisted = await readOrCreatePersistedMcpToken(config);
+  if (persisted.recovered) {
+    const actualPort = await startMcpServerWithPortFallback(config.port, persisted.token);
+    await refreshConnectedMcpClientConfigurations(actualPort, persisted.token);
+    if (actualPort !== config.port) {
+      config.port = actualPort;
+      await writeMcpIntegrationSettings({ ...config, tokenEncrypted: persisted.tokenEncrypted, lastError: '', updatedAt: nowIso() });
+    }
+  }
+  const { token } = persisted;
+  if (!token || !ensureMcpServer().status().running) throw new Error('The DeployerX MCP server could not be started.');
+  const result = await connectMcpClient(clientId, { url: `http://127.0.0.1:${config.port}/mcp`, token });
+  await setMcpAutostartEnabled(true).catch(() => {});
+  mcpClientRendererCache = null;
+  return result;
+}
+
+async function disconnectMcpClientIntegration(clientId) {
+  const result = await disconnectMcpClient(clientId);
+  const clients = await listMcpClients();
+  if (!clients.some((client) => client.connected)) await setMcpAutostartEnabled(false).catch(() => {});
+  mcpClientRendererCache = null;
+  return result;
+}
+
+async function disconnectMcpIntegration() {
+  const clients = await listMcpClients();
+  const disconnected = [];
+  const failures = [];
+  for (const client of clients) {
+    try {
+      disconnected.push(await disconnectMcpClient(client.id));
+    } catch (error) {
+      failures.push(`${client.name}: ${String(error?.message || error)}`);
+    }
+  }
+  if (failures.length) throw new Error(`Could not disconnect every MCP client. ${failures.join(' ')}`);
+  await ensureMcpServer().stop();
+  const settings = await readSettings();
+  const current = normalizeMcpIntegration(settings.mcpIntegration || {});
+  const next = normalizeMcpIntegration({
+    ...current,
+    enabled: false,
+    tokenEncrypted: '',
+    lastError: '',
+    updatedAt: nowIso()
+  });
+  await writeMcpIntegrationSettings(next);
+  await fs.rm(getMcpTokenPath(), { force: true });
+  await setMcpAutostartEnabled(false).catch(() => {});
+  mcpClientRendererCache = null;
+  return { ...await publicMcpIntegration(next), disconnected };
+}
+
+async function connectAllMcpClientsIntegration() {
+  const clients = await listMcpClients();
+  const results = [];
+  for (const client of clients) {
+    try { results.push(await connectMcpClientIntegration(client.id)); }
+    catch (error) { results.push({ id: client.id, name: client.name, connected: false, error: String(error?.message || error) }); }
+  }
+  return results;
+}
+
 function scheduleMcpRestoreRetry(delayMs = 10000) {
   if (isAppQuitting || mcpRestartTimer) return;
   mcpRestartTimer = setTimeout(() => {
@@ -6327,7 +6606,12 @@ function scheduleMcpRestoreRetry(delayMs = 10000) {
 function startMcpHealthWatchdog() {
   if (mcpHealthTimer) return;
   mcpHealthTimer = setInterval(() => {
-    if (!isAppQuitting && !ensureMcpServer().status().running) restoreMcpIntegration().catch(() => {});
+    if (isAppQuitting) return;
+    const server = ensureMcpServer();
+    const status = server.status();
+    Promise.resolve(status.external ? server.isReachable() : status.running)
+      .then((running) => { if (!running) return restoreMcpIntegration(); })
+      .catch(() => {});
   }, 15000);
   mcpHealthTimer.unref?.();
 }
@@ -6335,25 +6619,23 @@ function startMcpHealthWatchdog() {
 async function restoreMcpIntegrationAttempt() {
   const settings = await readSettings();
   const current = normalizeMcpIntegration(settings.mcpIntegration || {});
+  if (!current.enabled) {
+    await ensureMcpServer().stop().catch(() => {});
+    return publicMcpIntegration(current);
+  }
   let token;
   let tokenEncrypted;
   try {
-    ({ token, tokenEncrypted } = await readPersistedMcpToken(current));
+    ({ token, tokenEncrypted } = await readOrCreatePersistedMcpToken(current));
   } catch (error) {
-    // Keep the durable ciphertext intact. A transient safeStorage/keychain
-    // failure must not be interpreted as a request to rotate the MCP token.
     const failed = normalizeMcpIntegration({
       ...current,
-      lastError: String(error?.message || error || 'MCP token could not be decrypted.'),
+      lastError: mcpTokenErrorMessage(error),
       updatedAt: nowIso()
     });
     await writeMcpIntegrationSettings(failed);
     scheduleMcpRestoreRetry();
     return publicMcpIntegration(failed);
-  }
-  if (!token) {
-    token = createMcpToken();
-    tokenEncrypted = await persistMcpToken(token);
   }
   const config = normalizeMcpIntegration({
     ...current,
@@ -6370,10 +6652,13 @@ async function restoreMcpIntegrationAttempt() {
   for (const delayMs of [0, 300, 1000, 3000, 10000]) {
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
     try {
-      await ensureMcpServer().start({ port: config.port, token });
+      const actualPort = await startMcpServerWithPortFallback(config.port, token);
+      config.port = actualPort;
       config.lastError = '';
       config.updatedAt = nowIso();
       await writeMcpIntegrationSettings(config);
+      await refreshConnectedMcpClientConfigurations(actualPort, token);
+      await enableMcpAutostartForConnectedClients().catch(() => {});
       return publicMcpIntegration(config);
     } catch (error) {
       lastError = error;
@@ -8743,11 +9028,38 @@ async function startTerminal(project, sessionId, size = {}) {
         }
 
         terminalState.stream = stream;
-        stream.on('data', (data) => emitTerminal(sessionId, 'log', data.toString()));
+        const startupMarker = '\x1b]1337;DeployerXReady\x07';
+        let startupOutput = '';
+        let startupComplete = false;
+        let startupTimer;
+        const emitStartupOutput = (type, data) => {
+          const text = data.toString();
+          if (startupComplete) {
+            emitTerminal(sessionId, type, text);
+            return;
+          }
+          startupOutput += text;
+          const markerIndex = startupOutput.indexOf(startupMarker);
+          if (markerIndex < 0) return;
+          startupComplete = true;
+          clearTimeout(startupTimer);
+          const visibleOutput = startupOutput.slice(markerIndex + startupMarker.length);
+          startupOutput = '';
+          if (visibleOutput) emitTerminal(sessionId, type, visibleOutput);
+        };
+        startupTimer = setTimeout(() => {
+          if (startupComplete) return;
+          startupComplete = true;
+          emitTerminal(sessionId, 'log', startupOutput);
+          startupOutput = '';
+        }, 5000);
+        startupTimer.unref?.();
+        stream.on('data', (data) => emitStartupOutput('log', data));
         if (stream.stderr) {
-          stream.stderr.on('data', (data) => emitTerminal(sessionId, 'error', data.toString()));
+          stream.stderr.on('data', (data) => emitStartupOutput('error', data));
         }
         stream.on('close', () => {
+          clearTimeout(startupTimer);
           emitTerminal(sessionId, 'closed', 'Terminal closed.');
           serverMonitoringSessionManager.stopByConnection(connection);
           activeTerminals.delete(sessionId);
@@ -8757,7 +9069,7 @@ async function startTerminal(project, sessionId, size = {}) {
         const promptDirectoryTracking = "if [ -n \"$BASH_VERSION\" ]; then PS1='\\[\\e]1337;DeployerXPwd=$PWD\\a\\]'\"$PS1\"; fi";
         const startupDirectory = String(size.startupDirectory || '').trim();
         const changeDirectory = startupDirectory ? `cd -- ${quoteTerminalShellPath(startupDirectory)}; ` : '';
-        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; ${changeDirectory}printf '\\r\\033[1A\\033[2K\\r'; stty echo echonl\n`);
+        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; ${changeDirectory}printf '\\r\\033[1A\\033[2K\\r'; printf '\\033]1337;DeployerXReady\\a'; stty echo echonl\n`);
         emitTerminal(sessionId, 'connected', 'Terminal connected.');
       }
     );
@@ -9597,6 +9909,7 @@ function emergencyStop() {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
+  listMcpClientsForRenderer().catch(() => {});
   await ensureStore();
   await ensureUptimeRoot();
 
@@ -9635,13 +9948,13 @@ app.whenReady().then(async () => {
   await initializeUptimeControlPlane().catch(() => {});
   await restoreMcpIntegration().catch(() => {});
   startMcpHealthWatchdog();
-  createWindow();
+  createWindow({ show: !isMcpAutostartMode() });
   if (pendingSecondInstanceArguments) {
     const argv = pendingSecondInstanceArguments;
     pendingSecondInstanceArguments = null;
     openExistingMainWindow(argv);
   }
-  createTray();
+  if (!isMcpAutostartMode()) createTray();
   initializeAutoUpdater();
   await maybeStartDetachedUptimeWorker().catch(() => {});
   await startUptimeWindowPolling();
@@ -12976,6 +13289,11 @@ ipcMain.handle('mcp-integration:get', async () => {
 ipcMain.handle('mcp-integration:start', async (_event, payload = {}) => startMcpIntegration(payload));
 ipcMain.handle('mcp-integration:rotate-token', async () => rotateMcpToken());
 ipcMain.handle('mcp-integration:test', async () => testMcpIntegration());
+ipcMain.handle('mcp-integration:clients', async () => listMcpClientsForRenderer());
+ipcMain.handle('mcp-integration:connect-client', async (_event, clientId) => connectMcpClientIntegration(clientId));
+ipcMain.handle('mcp-integration:disconnect-client', async (_event, clientId) => disconnectMcpClientIntegration(clientId));
+ipcMain.handle('mcp-integration:connect-all', async () => connectAllMcpClientsIntegration());
+ipcMain.handle('mcp-integration:disconnect', async () => disconnectMcpIntegration());
 
 ipcMain.handle('auth:changePassword', async (_event, payload = {}) => {
   const currentPassword = String(payload.currentPassword || '');

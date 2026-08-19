@@ -626,6 +626,52 @@ function jsonRpcError(id, code, message, data) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message, ...(data ? { data } : {}) } };
 }
 
+function probeExistingMcpEndpoint(port, token) {
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 'deployerx-probe', method: 'tools/list' });
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    const request = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: '/mcp',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Connection: 'close'
+      },
+      timeout: 1500
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => {
+        try {
+          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+          finish(response.statusCode === 200 && Array.isArray(parsed?.result?.tools));
+        } catch {
+          finish(false);
+        }
+      });
+    });
+    let clientSocket;
+    request.on('socket', (socket) => { clientSocket = socket; });
+    request.on('timeout', () => {
+      finish(false);
+      request.destroy();
+      clientSocket?.destroy();
+    });
+    request.on('error', () => finish(false));
+    request.end(body);
+  });
+}
+
 function toolResult(result) {
   return {
     content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -642,15 +688,25 @@ class DeployerXMcpServer {
     this.port = 0;
     this.token = '';
     this.lastError = '';
+    this.external = false;
   }
 
   status() {
     return {
-      running: Boolean(this.server?.listening),
+      running: Boolean(this.server?.listening) || this.external,
+      external: this.external,
       port: this.port,
       url: this.port ? `http://127.0.0.1:${this.port}/mcp` : '',
       lastError: this.lastError
     };
+  }
+
+  async isReachable() {
+    if (this.server?.listening) return true;
+    if (!this.external) return false;
+    const reachable = await probeExistingMcpEndpoint(this.port, this.token);
+    if (!reachable) this.external = false;
+    return reachable;
   }
 
   tools() {
@@ -659,6 +715,7 @@ class DeployerXMcpServer {
 
   async start({ port, token }) {
     await this.stop();
+    this.external = false;
     this.port = clamp(port, 1024, 65535, 43821);
     this.token = asNonEmptyString(token, 'MCP token');
     this.lastError = '';
@@ -674,23 +731,37 @@ class DeployerXMcpServer {
       this.lastError = String(error?.message || error);
     });
 
-    await new Promise((resolve, reject) => {
-      const fail = (error) => {
-        this.lastError = String(error?.message || error);
-        reject(error);
-      };
-      this.server.once('error', fail);
-      this.server.listen(this.port, '127.0.0.1', () => {
-        this.server.removeListener('error', fail);
-        resolve();
+    try {
+      await new Promise((resolve, reject) => {
+        const fail = (error) => {
+          this.lastError = String(error?.message || error);
+          reject(error);
+        };
+        this.server.once('error', fail);
+        this.server.listen(this.port, '127.0.0.1', () => {
+          this.server.removeListener('error', fail);
+          resolve();
+        });
       });
-    });
+    } catch (error) {
+      const failedServer = this.server;
+      this.server = null;
+      failedServer?.removeAllListeners();
+      try { failedServer?.close(); } catch {}
+      if (error?.code === 'EADDRINUSE' && await probeExistingMcpEndpoint(this.port, this.token)) {
+        this.external = true;
+        this.lastError = '';
+        return this.status();
+      }
+      throw error;
+    }
     return this.status();
   }
 
   async stop() {
     const current = this.server;
     this.server = null;
+    this.external = false;
     if (!current?.listening) return;
     await new Promise((resolve) => {
       current.close(() => resolve());

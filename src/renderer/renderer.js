@@ -3708,6 +3708,7 @@ const els = {
   appUpdateRestartButton: document.getElementById('appUpdateRestartButton'),
   appUpdateOpenReleasesButton: document.getElementById('appUpdateOpenReleasesButton'),
   mcpIntegrationStatus: document.getElementById('mcpIntegrationStatus'),
+  mcpIntegrationError: document.getElementById('mcpIntegrationError'),
   mcpIntegrationForm: document.getElementById('mcpIntegrationForm'),
   mcpIntegrationPort: document.getElementById('mcpIntegrationPort'),
   mcpIntegrationStartButton: document.getElementById('mcpIntegrationStartButton'),
@@ -3720,10 +3721,12 @@ const els = {
   mcpCopyUrlButton: document.getElementById('mcpCopyUrlButton'),
   mcpCopyTokenButton: document.getElementById('mcpCopyTokenButton'),
   mcpRotateTokenButton: document.getElementById('mcpRotateTokenButton'),
+  mcpDisconnectButton: document.getElementById('mcpDisconnectButton'),
   mcpCodexConfig: document.getElementById('mcpCodexConfig'),
   mcpGenericConfig: document.getElementById('mcpGenericConfig'),
   mcpCopyCodexConfigButton: document.getElementById('mcpCopyCodexConfigButton'),
   mcpCopyGenericConfigButton: document.getElementById('mcpCopyGenericConfigButton'),
+  mcpClientList: document.getElementById('mcpClientList'),
   settingsImportAccountButton: document.getElementById('settingsImportAccountButton'),
   settingsExportAccountButton: document.getElementById('settingsExportAccountButton'),
   backupHistoryList: document.getElementById('backupHistoryList'),
@@ -20568,14 +20571,14 @@ function mcpCodexConfiguration(url) {
   return `[mcp_servers.deployerx]\nurl = "${url}"\nbearer_token_env_var = "DEPLOYERX_MCP_TOKEN"\ndefault_tools_approval_mode = "prompt"\ntool_timeout_sec = 300`;
 }
 
-function mcpGenericConfiguration(url) {
+function mcpGenericConfiguration(url, token = '<token>') {
   return JSON.stringify(
     {
       mcpServers: {
         deployerx: {
           type: 'http',
           url,
-          headers: { Authorization: 'Bearer <token>' }
+          headers: { Authorization: `Bearer ${token}` }
         }
       }
     },
@@ -20584,18 +20587,44 @@ function mcpGenericConfiguration(url) {
   );
 }
 
+function renderMcpClients(clients = []) {
+  if (!els.mcpClientList) return;
+  els.mcpClientList.innerHTML = clients.length
+    ? clients.map((client) => {
+      const logo = client.icon
+        ? `<img src="${escapeHtml(client.icon)}" alt="" />`
+        : `<span aria-hidden="true">${escapeHtml(client.name.charAt(0).toUpperCase())}</span>`;
+      const connected = Boolean(client.connected);
+      const action = connected
+        ? `<button class="button outline mcp-disconnect-button compact" type="button" data-mcp-disconnect="${escapeHtml(client.id)}" aria-label="Disconnect ${escapeHtml(client.name)}" title="Disconnect ${escapeHtml(client.name)}">${icon('x')}<span>Disconnect</span></button>`
+        : `<button class="button solid compact" type="button" data-mcp-connect="${escapeHtml(client.id)}">Connect MCP</button>`;
+      return `<div class="mcp-client-row${connected ? ' is-connected' : ''}" data-mcp-client-id="${escapeHtml(client.id)}"><div class="mcp-client-logo">${logo}</div><div class="mcp-client-copy"><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(connected ? 'DeployerX MCP connected' : client.description || 'Installed on this PC')}</span></div>${action}</div>`;
+    }).join('')
+    : '<div class="mcp-client-empty"><strong>No supported agents detected</strong><span>Install an MCP-compatible local agent, then reopen this page.</span></div>';
+  els.mcpClientList.querySelectorAll('[data-mcp-connect]').forEach((button) => {
+    button.addEventListener('click', () => connectMcpClient(button.dataset.mcpConnect, button));
+  });
+  els.mcpClientList.querySelectorAll('[data-mcp-disconnect]').forEach((button) => {
+    button.addEventListener('click', () => disconnectMcpClient(button.dataset.mcpDisconnect, button));
+  });
+}
+
 function renderMcpIntegration() {
   if (!els.mcpIntegrationStatus) return;
   const config = state.mcpIntegration || { configured: false, running: false, port: 43821, url: 'http://127.0.0.1:43821/mcp' };
-  const status = config.lastError ? 'error' : config.running ? 'running' : 'starting';
-  const labels = { error: 'Connection error', running: 'Running', starting: 'Starting' };
-  const styles = { error: 'error', running: 'up-to-date', starting: 'unconfigured' };
+  const status = config.lastError ? 'error' : config.running ? 'running' : config.enabled === false ? 'disconnected' : 'starting';
+  const labels = { error: 'Connection error', running: 'Running', starting: 'Starting', disconnected: 'Disconnected' };
+  const styles = { error: 'error', running: 'up-to-date', starting: 'unconfigured', disconnected: 'unconfigured' };
   const url = config.url || `http://127.0.0.1:${config.port || 43821}/mcp`;
   const token = config.token || '';
 
   els.mcpIntegrationStatus.textContent = labels[status];
   els.mcpIntegrationStatus.dataset.status = styles[status];
   els.mcpIntegrationStatus.title = config.lastError || '';
+  if (els.mcpIntegrationError) {
+    els.mcpIntegrationError.textContent = config.lastError || '';
+    els.mcpIntegrationError.hidden = !config.lastError;
+  }
   els.mcpIntegrationPort.value = String(config.port || 43821);
   els.mcpIntegrationUrl.textContent = url;
   els.mcpIntegrationToken.textContent = token || 'Preparing secure token';
@@ -20610,13 +20639,20 @@ function renderMcpIntegration() {
   els.mcpIntegrationTestButton.disabled = !config.running;
   els.mcpCopyTokenButton.disabled = !token;
   els.mcpRotateTokenButton.disabled = !config.configured;
+  els.mcpDisconnectButton.disabled = !config.enabled && !config.configured && !config.running;
   els.mcpCodexConfig.textContent = mcpCodexConfiguration(url);
   els.mcpGenericConfig.textContent = mcpGenericConfiguration(url);
+  renderMcpClients(config.clients || []);
 }
 
 async function loadMcpIntegration() {
+  const clientsPromise = window.deployerx.listMcpClients().then((clients) => {
+    state.mcpIntegration = { ...(state.mcpIntegration || {}), clients };
+    renderMcpIntegration();
+  }).catch(() => {});
   state.mcpIntegration = await window.deployerx.getMcpIntegration();
   renderMcpIntegration();
+  await clientsPromise;
   return state.mcpIntegration;
 }
 
@@ -20658,6 +20694,25 @@ async function rotateMcpToken() {
   state.mcpIntegration = await window.deployerx.rotateMcpToken();
   renderMcpIntegration();
   showToast('MCP token rotated');
+}
+
+async function disconnectMcpIntegration() {
+  const confirmed = await confirmDangerousAction(
+    'Disconnect DeployerX MCP?',
+    'This removes DeployerX MCP from connected local agents, stops the local server, and disables automatic startup.',
+    'Disconnect MCP'
+  );
+  if (!confirmed) return;
+  setButtonLoading(els.mcpDisconnectButton, true);
+  try {
+    state.mcpIntegration = await window.deployerx.disconnectMcpIntegration();
+    showToast('DeployerX MCP disconnected');
+    await loadMcpIntegration();
+  } catch (error) {
+    showAlert(error.message || 'Could not disconnect DeployerX MCP.');
+  } finally {
+    setButtonLoading(els.mcpDisconnectButton, false);
+  }
 }
 
 function copyMcpValue(value, successMessage) {
@@ -20869,6 +20924,53 @@ function notificationItems() {
     });
   }
   return items;
+}
+
+async function connectMcpClient(clientId, button) {
+  setButtonLoading(button, true);
+  try {
+    const result = await window.deployerx.connectMcpClient(clientId);
+    showToast(`${result.name} connected to DeployerX MCP`);
+    await loadMcpIntegration();
+  } catch (error) {
+    showAlert(error.message || 'Could not add MCP to this agent.');
+  } finally {
+    setButtonLoading(button, false);
+  }
+}
+
+async function disconnectMcpClient(clientId, button) {
+  setButtonLoading(button, true);
+  try {
+    const result = await window.deployerx.disconnectMcpClient(clientId);
+    showToast(`${result.name} disconnected from DeployerX MCP`);
+    await loadMcpIntegration();
+  } catch (error) {
+    showAlert(error.message || 'Could not disconnect this MCP agent.');
+  } finally {
+    setButtonLoading(button, false);
+  }
+}
+
+async function connectAllMcpClients() {
+  setButtonLoading(els.mcpConnectAllButton, true);
+  try {
+    const results = await window.deployerx.connectAllMcpClients();
+    const connected = results.filter((item) => item.connected).length;
+    showToast(`Added DeployerX MCP to ${connected} local agent${connected === 1 ? '' : 's'}`);
+    await loadMcpIntegration();
+  } catch (error) {
+    showAlert(error.message || 'Could not add MCP to local agents.');
+  } finally {
+    setButtonLoading(els.mcpConnectAllButton, false);
+  }
+}
+
+function prepareCloudMcpConfig() {
+  const token = state.mcpIntegration?.token;
+  if (!token) return;
+  copyMcpValue(mcpGenericConfiguration(state.mcpIntegration.url, token), 'Cloud MCP configuration copied');
+  if (els.mcpCloudConnectNote) els.mcpCloudConnectNote.textContent = 'Configuration copied. Replace the localhost URL with a trusted HTTPS tunnel or private route before adding it to a hosted agent.';
 }
 
 function notificationFingerprint(item) {
@@ -25888,6 +25990,7 @@ els.settingsLoginButtons.forEach((button) => button.addEventListener('click', ac
 els.mcpIntegrationForm.addEventListener('submit', applyMcpPortConfiguration);
 els.mcpIntegrationTestButton.addEventListener('click', testMcpIntegration);
 els.mcpRotateTokenButton.addEventListener('click', () => rotateMcpToken().catch((error) => showAlert(error.message || 'Could not rotate the MCP token.')));
+els.mcpDisconnectButton.addEventListener('click', () => disconnectMcpIntegration().catch((error) => showAlert(error.message || 'Could not disconnect DeployerX MCP.')));
 els.mcpCopyUrlButton.addEventListener('click', () => copyMcpValue(state.mcpIntegration?.url || els.mcpIntegrationUrl.textContent, 'MCP URL copied'));
 els.mcpCopyTokenButton.addEventListener('click', () => copyMcpValue(state.mcpIntegration?.token, 'MCP token copied'));
 els.mcpCopyCodexConfigButton.addEventListener('click', () => copyMcpValue(els.mcpCodexConfig.textContent, 'Codex configuration copied'));
@@ -27753,7 +27856,7 @@ let scriptRailWasCompact = window.innerWidth <= 1180;
 let sidebarCollapsedBeforeScriptRailOpen = null;
 function syncResponsivePanels({ initial = false } = {}) {
   const isCompact = window.innerWidth <= 1180;
-  if (['profile', 'ssh-file', 'server-monitoring'].includes(state.currentView)) {
+  if (['profile', 'ssh-file', 'server-monitoring', 'team'].includes(state.currentView)) {
     syncSidebarForView(state.currentView);
     scriptRailWasCompact = isCompact;
     return;

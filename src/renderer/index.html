@@ -2294,9 +2294,24 @@
                       </div>
                       <span id="mcpIntegrationStatus" class="app-update-pill mcp-status-pill" data-status="unconfigured">Stopped</span>
                     </div>
+                    <p id="mcpIntegrationError" class="mcp-error-message" hidden></p>
                     <p class="settings-muted">
-                      Give AI agents authenticated SSH, SFTP, live server metrics, and complete Uptime monitoring access. DeployerX starts MCP automatically and keeps credentials inside this app.
+                      Connect supported AI agents with authenticated SSH, SFTP, live server metrics, and complete Uptime monitoring. DeployerX starts MCP automatically and keeps credentials inside this app, while detected agents can be configured with one click.
                     </p>
+                    <div class="mcp-client-connect">
+                      <div id="mcpClientList" class="mcp-client-list"></div>
+                    </div>
+                    <div class="mcp-security-notice">
+                      <span>Anyone with the token and network access to this endpoint can run commands and change remote files through your saved servers.</span>
+                    </div>
+                  </div>
+
+                  <details class="settings-card mcp-documentation-card">
+                    <summary class="mcp-doc-heading mcp-doc-summary">
+                      <span class="settings-eyebrow">Documentation</span>
+                      <h2>Connect an AI client</h2>
+                      <p class="settings-muted">DeployerX keeps this MCP service available in the background after sign-in while the connection remains enabled.</p>
+                    </summary>
                     <form id="mcpIntegrationForm" class="mcp-control-row">
                       <label class="field mcp-port-field">
                         <span>Local port</span>
@@ -2313,6 +2328,7 @@
                         </button>
                       </div>
                     </form>
+                    <div class="mcp-doc-spacer" aria-hidden="true"></div>
                     <div class="mcp-details-grid">
                       <div class="mcp-detail-item">
                         <span class="mcp-detail-label">Streamable HTTP URL</span>
@@ -2333,32 +2349,25 @@
                         </div>
                       </div>
                     </div>
+                    <div class="mcp-doc-spacer" aria-hidden="true"></div>
                     <div class="settings-card-actions">
                       <span id="mcpIntegrationServerCount" class="settings-muted">0 SSH/SFTP servers available</span>
                       <button id="mcpRotateTokenButton" class="button outline" type="button" disabled>
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-key"></use></svg>
                         Rotate token
                       </button>
+                      <button id="mcpDisconnectButton" class="button outline" type="button" disabled>
+                        Disconnect MCP
+                      </button>
                     </div>
-                    <div class="mcp-security-notice">
-                      <strong>Treat the token like an SSH credential.</strong>
-                      <span>Anyone with the token and network access to this endpoint can run commands and change remote files through your saved servers.</span>
-                    </div>
-                  </div>
-
-                  <div class="settings-card mcp-documentation-card">
-                    <div class="mcp-doc-heading">
-                      <span class="settings-eyebrow">Documentation</span>
-                      <h2>Connect an AI client</h2>
-                      <p class="settings-muted">The desktop app must remain open while an agent uses this MCP endpoint.</p>
-                    </div>
+                    <div class="mcp-doc-spacer" aria-hidden="true"></div>
                     <ol class="mcp-steps">
-                      <li><strong>Open DeployerX.</strong><span>MCP starts automatically on the saved local port and remains available while the app is open.</span></li>
+                      <li><strong>Connect an agent.</strong><span>One-click setup saves the MCP connection for the selected local agent.</span></li>
                       <li><strong>Add the HTTP server.</strong><span>Use Streamable HTTP and send <code>Authorization: Bearer &lt;token&gt;</code> with every request.</span></li>
                       <li><strong>Verify access.</strong><span>Ask the client to list DeployerX servers before running a command or changing files.</span></li>
                     </ol>
 
-                    <details class="mcp-doc-section" open>
+                    <details class="mcp-doc-section">
                       <summary>Codex configuration</summary>
                       <p>Put the token in <code>DEPLOYERX_MCP_TOKEN</code>, then add this to your Codex <code>config.toml</code>.</p>
                       <div class="mcp-code-block">

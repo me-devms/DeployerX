@@ -1,3 +1,6 @@
+const path = require('path');
+const { pathToFileURL } = require('url');
+
 function maintenanceApplies(window, monitor) {
   const scope = window.scope || { type: 'workspace' };
   if (scope.type === 'workspace') return true;
@@ -259,6 +262,43 @@ function formatReportPercent(value) {
 }
 
 function uptimeReportHtml(report) {
+  const dmSansFontUrl = (fileName) => pathToFileURL(path.join(__dirname, '..', 'assets', 'fonts', fileName)).href;
+  const dmSansFontFaces = `
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-Regular.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 500;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-Medium.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-SemiBold.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-Bold.ttf')}") format("truetype");
+      }
+      @font-face {
+        font-family: "DM Sans";
+        font-style: normal;
+        font-weight: 800;
+        font-display: swap;
+        src: url("${dmSansFontUrl('DMSans-ExtraBold.ttf')}") format("truetype");
+      }`;
   const monitorRows = report.monitors.map((monitor) => `<tr><td>${escapeReportHtml(monitor.name)}</td><td>${escapeReportHtml(monitor.type.toUpperCase())}</td><td>${escapeReportHtml(formatReportPercent(monitor.availabilityPct))}</td><td>${escapeReportHtml(formatReportPercent(monitor.coveragePct))}</td><td>${monitor.incidentCount}</td><td>${monitor.p95LatencyMs == null ? '-' : `${monitor.p95LatencyMs} ms`}</td></tr>`).join('');
   const incidentRows = report.incidents.slice(0, 100).map((incident) => `<tr><td>${escapeReportHtml(incident.monitorId)}</td><td>${escapeReportHtml(incident.severity)}</td><td>${escapeReportHtml(incident.openedAt)}</td><td>${escapeReportHtml(incident.resolvedAt || 'Open')}</td><td>${escapeReportHtml(incident.summary)}</td></tr>`).join('');
   const dailyBars = report.daily.map((day) => `<span title="${escapeReportHtml(day.dateUtc)}" style="height:${Math.max(2, Number(day.availabilityPct) || 0)}%"></span>`).join('');
@@ -268,7 +308,7 @@ function uptimeReportHtml(report) {
     ['Group', report.filters?.group],
     ['Server', report.filters?.projectId]
   ].filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`).join(' / ') || 'Entire workspace';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>DeployerX Uptime Report</title><style>@page{size:A4;margin:14mm}*{box-sizing:border-box}body{font:12px Arial,sans-serif;color:#18181b;margin:0}header{border-bottom:2px solid #18181b;padding-bottom:12px;margin-bottom:18px}h1{font-size:24px;margin:0 0 5px}h2{font-size:15px;margin:20px 0 8px}.muted{color:#60646c;line-height:1.5}.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}.metric{border:1px solid #d4d4d8;padding:9px}.metric strong{display:block;font-size:15px;margin-top:4px}.trend{display:flex;align-items:end;gap:3px;height:90px;border-bottom:1px solid #a1a1aa;padding-top:8px}.trend span{flex:1;background:#0f8f8c;min-width:2px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #e4e4e7;text-align:left;padding:7px 5px;vertical-align:top;word-wrap:break-word}th{font-size:10px;text-transform:uppercase;color:#52525b}.method{margin-top:20px;padding:10px;background:#f4f4f5;line-height:1.5}</style></head><body><header><h1>DeployerX Uptime Report</h1><div class="muted">${escapeReportHtml(report.period.from)} to ${escapeReportHtml(report.period.to)} &middot; generated ${escapeReportHtml(report.generatedAt)}<br>Filters: ${escapeReportHtml(filterSummary)}</div></header><section class="metrics"><div class="metric">Availability<strong>${escapeReportHtml(formatReportPercent(report.summary.availabilityPct))}</strong></div><div class="metric">Coverage<strong>${escapeReportHtml(formatReportPercent(report.summary.coveragePct))}</strong></div><div class="metric">SLA result<strong>${escapeReportHtml(slaResult)}</strong></div><div class="metric">Incidents<strong>${report.summary.incidentCount}</strong></div><div class="metric">P95 latency<strong>${report.summary.p95LatencyMs == null ? '-' : `${report.summary.p95LatencyMs} ms`}</strong></div></section><h2>Daily availability trend</h2><div class="trend">${dailyBars}</div><h2>Monitor comparison</h2><table><thead><tr><th>Monitor</th><th>Type</th><th>Availability</th><th>Coverage</th><th>Incidents</th><th>P95 latency</th></tr></thead><tbody>${monitorRows || '<tr><td colspan="6">No monitors matched this report.</td></tr>'}</tbody></table><h2>Incidents</h2><table><thead><tr><th>Monitor ID</th><th>Severity</th><th>Opened</th><th>Resolved</th><th>Summary</th></tr></thead><tbody>${incidentRows || '<tr><td colspan="5">No incidents in this period.</td></tr>'}</tbody></table><div class="method"><strong>Methodology</strong><br>${escapeReportHtml(report.methodology)}</div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>DeployerX Uptime Report</title><style>@page{size:A4;margin:14mm}*{box-sizing:border-box}${dmSansFontFaces}body{font:12px "DM Sans",sans-serif;color:#18181b;margin:0}header{border-bottom:2px solid #18181b;padding-bottom:12px;margin-bottom:18px}h1{font-size:24px;margin:0 0 5px}h2{font-size:15px;margin:20px 0 8px}.muted{color:#60646c;line-height:1.5}.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}.metric{border:1px solid #d4d4d8;padding:9px}.metric strong{display:block;font-size:15px;margin-top:4px}.trend{display:flex;align-items:end;gap:3px;height:90px;border-bottom:1px solid #a1a1aa;padding-top:8px}.trend span{flex:1;background:#0f8f8c;min-width:2px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #e4e4e7;text-align:left;padding:7px 5px;vertical-align:top;word-wrap:break-word}th{font-size:10px;text-transform:uppercase;color:#52525b}.method{margin-top:20px;padding:10px;background:#f4f4f5;line-height:1.5}</style></head><body><header><h1>DeployerX Uptime Report</h1><div class="muted">${escapeReportHtml(report.period.from)} to ${escapeReportHtml(report.period.to)} &middot; generated ${escapeReportHtml(report.generatedAt)}<br>Filters: ${escapeReportHtml(filterSummary)}</div></header><section class="metrics"><div class="metric">Availability<strong>${escapeReportHtml(formatReportPercent(report.summary.availabilityPct))}</strong></div><div class="metric">Coverage<strong>${escapeReportHtml(formatReportPercent(report.summary.coveragePct))}</strong></div><div class="metric">SLA result<strong>${escapeReportHtml(slaResult)}</strong></div><div class="metric">Incidents<strong>${report.summary.incidentCount}</strong></div><div class="metric">P95 latency<strong>${report.summary.p95LatencyMs == null ? '-' : `${report.summary.p95LatencyMs} ms`}</strong></div></section><h2>Daily availability trend</h2><div class="trend">${dailyBars}</div><h2>Monitor comparison</h2><table><thead><tr><th>Monitor</th><th>Type</th><th>Availability</th><th>Coverage</th><th>Incidents</th><th>P95 latency</th></tr></thead><tbody>${monitorRows || '<tr><td colspan="6">No monitors matched this report.</td></tr>'}</tbody></table><h2>Incidents</h2><table><thead><tr><th>Monitor ID</th><th>Severity</th><th>Opened</th><th>Resolved</th><th>Summary</th></tr></thead><tbody>${incidentRows || '<tr><td colspan="5">No incidents in this period.</td></tr>'}</tbody></table><div class="method"><strong>Methodology</strong><br>${escapeReportHtml(report.methodology)}</div></body></html>`;
 }
 
 class UptimeDailyRollupService {

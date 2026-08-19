@@ -170,7 +170,7 @@ test('MCP accepts an authenticated Streamable HTTP ping', async () => {
 });
 
 test('MCP can recover after its configured port was temporarily unavailable', async () => {
-  const blocker = net.createServer();
+  const blocker = net.createServer((socket) => socket.destroy());
   await new Promise((resolve, reject) => {
     blocker.once('error', reject);
     blocker.listen(0, '127.0.0.1', resolve);
@@ -196,6 +196,28 @@ test('MCP can recover after its configured port was temporarily unavailable', as
   }
 });
 
+test('MCP adopts an existing DeployerX listener during a restart handoff', async () => {
+  const port = await availablePort();
+  const owner = new DeployerXMcpServer({ getProjects: async () => [] });
+  const restarting = new DeployerXMcpServer({ getProjects: async () => [] });
+  try {
+    await owner.start({ port, token: 'handoff-token' });
+    const status = await restarting.start({ port, token: 'handoff-token' });
+    assert.equal(status.running, true);
+    assert.equal(status.external, true);
+    await restarting.stop();
+    const response = await fetch(owner.status().url, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer handoff-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'ping' })
+    });
+    assert.equal(response.status, 200);
+  } finally {
+    await restarting.stop();
+    await owner.stop();
+  }
+});
+
 test('desktop integration keeps MCP always on and exposes no stop control', () => {
   const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
   const preload = fs.readFileSync(path.join(__dirname, 'preload.js'), 'utf8');
@@ -203,12 +225,12 @@ test('desktop integration keeps MCP always on and exposes no stop control', () =
   const html = fs.readFileSync(path.join(__dirname, 'renderer', 'index.html'), 'utf8');
 
   assert.match(main, /function normalizeMcpIntegration[\s\S]*enabled: true/);
-  assert.match(main, /await initializeUptimeControlPlane\(\)\.catch\(\(\) => \{\}\);\s*await restoreMcpIntegration\(\)\.catch\(\(\) => \{\}\);\s*startMcpHealthWatchdog\(\);\s*createWindow\(\);/);
+  assert.match(main, /await initializeUptimeControlPlane\(\)\.catch\(\(\) => \{\}\);\s*await restoreMcpIntegration\(\)\.catch\(\(\) => \{\}\);\s*startMcpHealthWatchdog\(\);\s*createWindow\(/);
   assert.doesNotMatch(main, /mcp-integration:stop|function stopMcpIntegration/);
   assert.doesNotMatch(preload, /stopMcpIntegration|mcp-integration:stop/);
   assert.doesNotMatch(renderer, /mcpIntegrationStopButton|stopMcpIntegration/);
   assert.doesNotMatch(html, /mcpIntegrationStopButton|Start MCP|Stop MCP/);
-  assert.match(html, /MCP starts automatically/);
+  assert.match(html, /DeployerX starts MCP automatically and keeps credentials inside this app/);
   assert.match(html, /id="mcpToolList"/);
   assert.doesNotMatch(html, /<div><code>deployerx_list_servers<\/code>/);
   assert.match(renderer, /config\.tools[\s\S]*mcpToolList\.innerHTML/);
@@ -219,8 +241,8 @@ test('desktop restart preserves the MCP token and retries the listener handoff',
   const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
   const restore = main.match(/async function restoreMcpIntegrationAttempt\(\) \{[\s\S]*?\n\}/)?.[0] || '';
 
-  assert.match(restore, /readPersistedMcpToken\(current\)/);
+  assert.match(restore, /readOrCreatePersistedMcpToken\(current\)/);
   assert.match(restore, /catch \(error\) \{[\s\S]*writeMcpIntegrationSettings\(failed\)[\s\S]*scheduleMcpRestoreRetry\(\)[\s\S]*return publicMcpIntegration\(failed\)/);
   assert.doesNotMatch(restore, /catch[^}]*tokenEncrypted = ''/);
-  assert.match(restore, /for \(const delayMs of \[0, 300, 1000, 3000, 10000\]\)/);
+  assert.match(restore, /startMcpServerWithPortFallback\(config\.port, token\)/);
 });

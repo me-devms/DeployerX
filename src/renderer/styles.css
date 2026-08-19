@@ -1,3 +1,43 @@
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-Medium.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-SemiBold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../assets/fonts/DMSans-ExtraBold.ttf") format("truetype");
+}
+
 :root {
   --bg: #f7f8fb;
   --surface: #ffffff;
@@ -18,6 +58,7 @@
   --terminal-text: #d4d4d8;
   --monitor-lock-overlay: rgba(247, 248, 251, 0.58);
   --app-header-height: 72px;
+  --font-sans: "DM Sans", sans-serif;
 }
 
 * {
@@ -36,8 +77,7 @@ body {
   margin: 0;
   color: var(--ink);
   background: var(--bg);
-  font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
@@ -11023,8 +11063,7 @@ html[data-theme] .verify-note strong {
   background: #f8f9fb;
   container-type: inline-size;
   container-name: settings-view;
-  font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
-    ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   letter-spacing: 0;
 }
 
@@ -12675,6 +12714,17 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   flex: 0 0 auto;
 }
 
+.mcp-error-message {
+  margin: 10px 0 0;
+  border-left: 3px solid #dc2626;
+  background: rgba(220, 38, 38, 0.07);
+  padding: 9px 12px;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
 .mcp-details-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -12708,20 +12758,38 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 }
 
 .mcp-control-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
   align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
   border-top: 1px solid var(--line);
   padding-top: 16px;
 }
 
 .mcp-port-field {
-  width: min(180px, 100%);
+  width: 100%;
 }
 
 .mcp-control-actions {
   margin: 0;
+  justify-content: flex-end;
+}
+
+.mcp-documentation-card .settings-card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  justify-content: initial;
+  gap: 10px;
+}
+
+.mcp-doc-spacer {
+  width: 100%;
+  height: 12px;
+}
+
+.mcp-documentation-card .settings-card-actions > .settings-muted {
+  min-width: 0;
 }
 
 .mcp-value-row {
@@ -12763,8 +12831,173 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   color: var(--muted);
 }
 
+.mcp-client-connect {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.mcp-client-connect h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 21px;
+}
+
+.mcp-client-list {
+  display: grid;
+  min-width: 0;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.mcp-client-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 11px 12px;
+}
+
+.mcp-client-row:last-child {
+  border-bottom: 0;
+}
+
+.mcp-client-logo {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mcp-client-logo img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+html[data-theme="deployerx-light"] .mcp-client-row[data-mcp-client-id="codex"] .mcp-client-logo,
+html[data-theme="tokyo-day"] .mcp-client-row[data-mcp-client-id="codex"] .mcp-client-logo,
+html[data-theme="solarized-light"] .mcp-client-row[data-mcp-client-id="codex"] .mcp-client-logo {
+  border-color: rgba(24, 24, 27, 0.18);
+  background: linear-gradient(180deg, #232329 0%, #131318 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(24, 24, 27, 0.12);
+}
+
+.mcp-client-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.mcp-client-copy strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mcp-client-copy span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.mcp-client-row.is-connected {
+  background: color-mix(in srgb, var(--success) 5%, var(--surface));
+}
+
+.mcp-client-row .button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  white-space: nowrap;
+}
+
+.mcp-disconnect-button {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--line));
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+  color: var(--success);
+}
+
+.mcp-disconnect-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+}
+
+.mcp-client-empty {
+  display: grid;
+  gap: 3px;
+  padding: 18px;
+  text-align: center;
+}
+
+.mcp-client-empty strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.mcp-client-empty span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.mcp-client-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-client-note {
+  max-width: 900px;
+}
+
 .mcp-documentation-card {
   gap: 18px;
+}
+
+.mcp-doc-summary {
+  position: relative;
+  cursor: pointer;
+  list-style: none;
+  padding-right: 28px;
+}
+
+.mcp-doc-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mcp-doc-summary::after {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  color: var(--muted);
+  content: '+';
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.mcp-documentation-card[open] .mcp-doc-summary::after {
+  content: '-';
 }
 
 .mcp-doc-heading {
@@ -12868,6 +13101,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   background: var(--surface-subtle);
   padding: 1px 4px;
   color: var(--ink);
+  white-space: nowrap;
 }
 
 .mcp-code-block {
@@ -12937,7 +13171,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
   }
 
   .mcp-control-row {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .mcp-port-field,
@@ -12955,6 +13189,16 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 
   .mcp-tool-list {
     grid-template-columns: 1fr;
+  }
+
+  .mcp-client-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .mcp-client-row .button {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 
@@ -15081,7 +15325,7 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 #dashboardView {
   color: #d8e3ed;
   background: #080c10;
-  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
 }
 
 .dashboard-view-header {
