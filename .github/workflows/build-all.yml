@@ -145,7 +145,22 @@ jobs:
       - name: Build macOS packages
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run package:mac:${{ matrix.arch }}
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm run package:mac:${{ matrix.arch }}; then
+              exit 0
+            fi
+            if [[ "$attempt" == "3" ]]; then
+              exit 1
+            fi
+            echo "macOS packaging attempt $attempt failed; cleaning temporary DMG mounts before retrying."
+            hdiutil info | awk '/^\/dev\/disk/ && /Apple_HFS/ { print $1 }' | while read -r device; do
+              hdiutil detach -force "$device" || true
+            done
+            rm -rf dist
+            sleep 10
+          done
       - name: Verify packaged authentication configuration
         run: node scripts/validate-firebase-config.js dist/mac*/DeployerX.app/Contents/Resources/firebase.config.json --require-google
       - uses: actions/upload-artifact@v4
