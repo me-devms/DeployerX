@@ -6034,65 +6034,73 @@ html[data-theme] .project-grid .project-card:focus-visible {
 }
 
 .vnc-display-selector {
-  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex: 0 0 auto;
-}
-
-.vnc-display-menu {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  z-index: 80;
-  display: grid;
-  width: 230px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface);
-  padding: 5px;
-  box-shadow: 0 12px 28px rgba(24, 24, 27, 0.16), 0 2px 6px rgba(24, 24, 27, 0.08);
+  padding: 3px;
 }
 
-.vnc-display-menu-item {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+.vnc-display-toggle {
+  display: inline-flex;
+  width: 36px;
+  min-width: 36px;
+  height: 34px;
+  min-height: 34px;
   align-items: center;
-  gap: 9px;
-  min-height: 38px;
+  justify-content: center;
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: var(--ink);
-  padding: 6px 8px;
+  color: var(--muted);
+  padding: 0 8px;
   font: inherit;
-  text-align: left;
   cursor: pointer;
 }
 
-.vnc-display-menu-item:hover,
-.vnc-display-menu-item:focus-visible {
+.vnc-display-toggle:hover,
+.vnc-display-toggle:focus-visible {
   background: var(--surface-subtle);
+  color: var(--ink);
   outline: 0;
 }
 
-.vnc-display-menu-item.active {
-  background: var(--surface-subtle);
-  font-weight: 650;
+.vnc-display-toggle.active {
+  background: var(--primary);
+  color: var(--primary-contrast);
 }
 
-.vnc-display-menu-item .button-icon {
-  width: 16px;
-  height: 16px;
+.vnc-display-toggle-mark {
+  position: relative;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
 }
 
-.vnc-display-menu-copy {
+.vnc-display-toggle-mark .button-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.vnc-display-toggle-number {
+  position: absolute;
+  top: 43%;
+  left: 50%;
   display: grid;
-  min-width: 0;
-}
-
-.vnc-display-menu-copy small {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 400;
+  min-width: 10px;
+  height: 9px;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 1;
+  transform: translate(-50%, -50%);
 }
 
 .server-monitoring-actions {
@@ -8142,6 +8150,14 @@ textarea:focus {
   cursor: grabbing;
 }
 
+.ftp-row[data-entry-type="directory"] {
+  cursor: pointer;
+}
+
+.ftp-row[data-entry-type="directory"]:active {
+  cursor: pointer;
+}
+
 .ftp-row.is-dragging {
   opacity: 0.48;
 }
@@ -9778,6 +9794,10 @@ canvas.rdp-canvas {
 
 .ssh-user-fields {
   gap: 12px;
+}
+
+.project-modal-card .ssh-user-fields .modal-secret {
+  margin-top: 0;
 }
 
 .template-manager {
@@ -13032,17 +13052,20 @@ html[data-theme="solarized-light"] .mcp-client-row[data-mcp-client-id="codex"] .
 
 .mcp-doc-summary::after {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 1px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
   color: var(--muted);
-  content: '+';
-  font-size: 22px;
-  font-weight: 400;
-  line-height: 20px;
+  content: '';
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(1px) rotate(45deg);
+  transition: transform 150ms ease, color 150ms ease;
 }
 
 .mcp-documentation-card[open] .mcp-doc-summary::after {
-  content: '-';
+  transform: translateY(4px) rotate(225deg);
 }
 
 .mcp-doc-heading {
@@ -13976,6 +13999,67 @@ html[data-theme="solarized-light"] .mcp-client-row[data-mcp-client-id="codex"] .
   height: 44px;
   margin-block: 0 8px;
   border-radius: 6px;
+}
+
+.sidebar-server-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 2px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  padding: 2px;
+}
+
+.sidebar-server-tab {
+  display: inline-flex;
+  min-width: 0;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sidebar-server-tab:hover {
+  color: var(--ink);
+}
+
+.sidebar-server-tab.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.sidebar-server-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.sidebar-server-tab-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-raised, var(--surface));
+  color: var(--muted);
+  padding-inline: 5px;
+  font-size: 10px;
+  line-height: 18px;
+}
+
+.sidebar-server-tab.active .sidebar-server-tab-count {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
 }
 
 .project-list {
@@ -16184,6 +16268,14 @@ html[data-theme="gruvbox-dark"] .button.plain {
   border-color: var(--line);
   background: var(--surface-subtle);
   color: var(--ink);
+}
+
+html[data-theme] .project-modal-card .secret-input .secret-toggle,
+html[data-theme] .project-modal-card .secret-input .secret-toggle:hover,
+html[data-theme] .project-modal-card .secret-input .secret-toggle:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 html[data-theme="termius-dark"] .project-card,

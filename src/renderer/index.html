@@ -190,6 +190,11 @@
         <rect x="10" y="8" width="12" height="10" rx="2" />
         <path d="M6 18h12" />
       </symbol>
+      <symbol id="icon-monitor" viewBox="0 0 24 24">
+        <rect x="2.5" y="3.5" width="19" height="14" rx="2" />
+        <path d="M8 21h8" />
+        <path d="M12 17.5V21" />
+      </symbol>
       <symbol id="icon-minimize" viewBox="0 0 24 24">
         <path d="M9 9H3V4" />
         <path d="m3 9 6-6" />
@@ -457,7 +462,11 @@
               </svg>
               <input id="serverSearch" type="search" placeholder="Search servers" autocomplete="off" />
             </label>
-            <div id="projectList" class="project-list"></div>
+            <div id="sidebarServerTabs" class="sidebar-server-tabs" role="tablist" aria-label="Server list">
+              <button id="sidebarAllServersTab" class="sidebar-server-tab active" type="button" role="tab" aria-selected="true" aria-controls="projectList" data-sidebar-server-filter="all">All</button>
+              <button id="sidebarConnectedServersTab" class="sidebar-server-tab" type="button" role="tab" aria-selected="false" aria-controls="projectList" data-sidebar-server-filter="connected">Connected <span id="sidebarConnectedServerCount" class="sidebar-server-tab-count" aria-label="0 connected servers">0</span></button>
+            </div>
+            <div id="projectList" class="project-list" role="tabpanel" aria-labelledby="sidebarAllServersTab"></div>
           </div>
         </nav>
 
@@ -1400,12 +1409,7 @@
               </div>
             </div>
             <div class="header-actions">
-              <div id="vncDisplaySelector" class="vnc-display-selector hidden">
-                <button id="vncDisplayButton" class="button outline icon-only project-action-button" type="button" aria-label="Choose VNC display" aria-haspopup="menu" aria-expanded="false" data-tooltip="Choose Display">
-                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-displays"></use></svg>
-                </button>
-                <div id="vncDisplayMenu" class="vnc-display-menu hidden" role="menu" aria-label="VNC displays"></div>
-              </div>
+              <div id="vncDisplaySelector" class="vnc-display-selector hidden" role="group" aria-label="VNC monitors"></div>
               <button id="rdpHeaderFullscreenButton" class="button outline icon-only project-action-button rdp-header-fullscreen-button" type="button" aria-label="Open full view" data-tooltip="Open full view">
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-maximize"></use></svg>
               </button>
@@ -2413,11 +2417,11 @@ tool_timeout_sec = 300</pre>
 
                     <details class="mcp-doc-section">
                       <summary>Protocol and security behavior</summary>
-                      <p>DeployerX serves stateless MCP over Streamable HTTP and requires bearer authentication before parsing a request. It listens only on <code>127.0.0.1</code>, limits request and tool payload sizes, redacts connection targets from transport errors, and resolves credentials internally from the selected server ID. SFTP is the SSH File Transfer Protocol; insecure plain FTP is intentionally not exposed.</p>
+                      <p>DeployerX serves stateless MCP over Streamable HTTP and requires bearer authentication before parsing a request. It listens only on <code>127.0.0.1</code>, limits request and tool payload sizes, redacts connection targets from transport errors, and resolves credentials internally from the selected server ID. SFTP is the SSH File Transfer Protocol; standard FTP is available only in the file browser and uses the server credentials stored in this app.</p>
+                    </details>
                     </details>
                   </div>
-                </div>
-              </section>
+                </section>
 
               <section id="settingsThemePanel" class="settings-panel" data-settings-panel="theme">
                 <div class="settings-panel-body">
@@ -2792,7 +2796,7 @@ tool_timeout_sec = 300</pre>
         <header class="modal-header">
           <div>
             <h2 id="projectModalTitle">Add Server</h2>
-            <p id="projectModalSubtitle">Add Server, proxy or VPN routing, SSH, and optional FTP details. Commands are managed inside the server.</p>
+            <p id="projectModalSubtitle">Add server details, then configure SSH and/or FTP access. Commands are managed inside the server.</p>
           </div>
           <button id="projectModalCloseButton" class="icon-button" type="button" aria-label="Close">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -2816,7 +2820,7 @@ tool_timeout_sec = 300</pre>
               <span class="server-wizard-step-number">2</span>
               <span class="server-wizard-step-copy">
                 <strong id="projectConnectionStepLabel">SSH</strong>
-                <small>Connection</small>
+                <small>Optional</small>
               </span>
             </button>
           </li>
@@ -3007,13 +3011,13 @@ tool_timeout_sec = 300</pre>
           <section id="projectStepPanelSsh" class="form-section server-wizard-panel hidden" data-project-step-panel="1" role="tabpanel" aria-labelledby="projectStepButtonSsh">
             <div id="modalSshFields">
               <div class="section-heading compact">
-              <h3>SSH Connection</h3>
-              <p>Enter the server endpoint, then add one or more SSH users.</p>
+              <h3>SSH Connection <small class="field-optional">Optional</small></h3>
+              <p>Configure SSH access and add one or more SSH users, or leave it blank to use FTP only.</p>
               </div>
               <div class="field-grid ssh-endpoint-grid">
               <label class="field">
                 <span>Host / IP</span>
-                <input id="modalSshHost" type="text" placeholder="192.168.1.10" required />
+                <input id="modalSshHost" type="text" placeholder="192.168.1.10" />
               </label>
               <label class="field">
                 <span>Port</span>
@@ -3055,7 +3059,7 @@ tool_timeout_sec = 300</pre>
                   <div class="field-grid modal-columns ssh-user-fields">
               <label class="field">
                 <span>Username</span>
-                <input id="modalSshUsername" type="text" placeholder="root" required />
+                <input id="modalSshUsername" type="text" placeholder="root" />
               </label>
               <div class="field">
                 <span>Authentication</span>
@@ -3177,60 +3181,67 @@ tool_timeout_sec = 300</pre>
           <section id="projectStepPanelFtp" class="form-section server-wizard-panel hidden" data-project-step-panel="3" role="tabpanel" aria-labelledby="projectStepButtonFtp">
             <div class="section-heading compact">
               <h3>FTP Connection</h3>
-              <p>Leave these optional fields blank to reuse the SSH connection.</p>
+              <p>Configure an FTP connection. When SSH is configured, empty FTP fields reuse its details.</p>
             </div>
-            <div class="field-grid modal-columns">
+            <div class="field-grid modal-columns ssh-endpoint-grid">
               <label class="field ssh-host-field">
                 <span>FTP host / IP</span>
-                <input id="modalFtpHost" type="text" placeholder="Use SSH host" />
+                <input id="modalFtpHost" type="text" placeholder="FTP host / IP" />
               </label>
               <label class="field">
                 <span>FTP port</span>
-                <input id="modalFtpPort" type="number" min="1" placeholder="Use SSH port" />
-              </label>
-              <label class="field">
-                <span>FTP username</span>
-                <input id="modalFtpUsername" type="text" placeholder="Use SSH username" />
-              </label>
-              <label class="field span-2">
-                <span>Authentication</span>
-                <select id="modalFtpAuthType">
-                  <option value="">Use SSH authentication</option>
-                  <option value="password">Password</option>
-                  <option value="key">SSH private key</option>
-                </select>
+                <input id="modalFtpPort" type="text" inputmode="numeric" value="21" placeholder="FTP port" autocomplete="off" />
               </label>
             </div>
 
-            <label id="modalFtpPasswordField" class="field modal-secret hidden">
-              <span>FTP password</span>
-              <div class="secret-input">
-                <input id="modalFtpPassword" type="password" autocomplete="off" />
-                <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="modalFtpPassword" data-show-label="Show FTP password" data-hide-label="Hide FTP password" aria-controls="modalFtpPassword">
+            <div class="ssh-users-panel">
+              <div class="ssh-users-toolbar">
+                <div>
+                  <strong>FTP users</strong>
+                  <small>Select a user to edit its credentials.</small>
+                </div>
+                <button id="modalAddFtpUserButton" class="button outline compact" type="button">
                   <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <use href="#icon-eye"></use>
+                    <use href="#icon-plus"></use>
                   </svg>
+                  Add user
                 </button>
               </div>
-            </label>
+              <div id="modalFtpUserTabs" class="ssh-user-tabs" role="tablist" aria-label="FTP users"></div>
 
-            <div id="modalFtpKeyFields" class="key-grid hidden">
-              <label class="field">
-                <span>FTP private key</span>
-                <textarea id="modalFtpPrivateKey" rows="5" placeholder="Paste FTP private key"></textarea>
-              </label>
-              <div class="key-actions">
-                <label class="field">
-                  <span>FTP passphrase</span>
-                  <div class="secret-input">
-                    <input id="modalFtpKeyPassphrase" type="password" autocomplete="off" />
-                    <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="modalFtpKeyPassphrase" data-show-label="Show FTP key passphrase" data-hide-label="Hide FTP key passphrase" aria-controls="modalFtpKeyPassphrase">
+              <div class="ssh-user-editor">
+                <div class="ssh-user-editor-heading">
+                  <div>
+                    <strong id="modalFtpUserEditorTitle">FTP credentials</strong>
+                    <small id="modalFtpUserEditorStatus">Default file-transfer user</small>
+                  </div>
+                  <div class="ssh-user-editor-actions">
+                    <button id="modalDefaultFtpUserButton" class="button outline compact" type="button">Use as default</button>
+                    <button id="modalRemoveFtpUserButton" class="button plain danger compact icon-only" type="button" aria-label="Remove FTP user" title="Remove FTP user">
                       <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <use href="#icon-eye"></use>
+                        <use href="#icon-trash"></use>
                       </svg>
                     </button>
                   </div>
-                </label>
+                </div>
+
+                <div class="field-grid modal-columns ssh-user-fields">
+                  <label class="field">
+                    <span>FTP username</span>
+                    <input id="modalFtpUsername" type="text" placeholder="FTP username" />
+                  </label>
+                  <label id="modalFtpPasswordField" class="field modal-secret">
+                    <span>FTP password</span>
+                    <div class="secret-input">
+                      <input id="modalFtpPassword" type="password" autocomplete="off" />
+                      <button class="button outline icon-only secret-toggle" type="button" data-secret-toggle data-secret-target="modalFtpPassword" data-show-label="Show FTP password" data-hide-label="Hide FTP password" aria-controls="modalFtpPassword">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <use href="#icon-eye"></use>
+                        </svg>
+                      </button>
+                    </div>
+                  </label>
+                </div>
               </div>
             </div>
           </section>

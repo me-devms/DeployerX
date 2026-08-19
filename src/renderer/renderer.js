@@ -145,7 +145,9 @@ const blankProject = () => ({
     authType: '',
     password: '',
     privateKey: '',
-    passphrase: ''
+    passphrase: '',
+    users: [],
+    defaultUserId: ''
   },
   commands: [],
   variables: {},
@@ -409,6 +411,7 @@ const state = {
     groups: [],
     projects: []
   },
+  sidebarServerFilter: 'all',
   serverGroupModal: {
     mode: 'create',
     originalName: '',
@@ -607,6 +610,8 @@ const state = {
   modalStep: 0,
   modalSshUsers: [],
   modalSelectedSshUserId: '',
+  modalFtpUsers: [],
+  modalSelectedFtpUserId: '',
   windowsVpnProfiles: [],
   windowsVpnProfilesLoaded: false,
   activeTemplateId: '',
@@ -2952,6 +2957,10 @@ const els = {
   projectGrid: document.getElementById('projectGrid'),
   projectList: document.getElementById('projectList'),
   serverSearch: document.getElementById('serverSearch'),
+  sidebarServerTabs: document.getElementById('sidebarServerTabs'),
+  sidebarAllServersTab: document.getElementById('sidebarAllServersTab'),
+  sidebarConnectedServersTab: document.getElementById('sidebarConnectedServersTab'),
+  sidebarConnectedServerCount: document.getElementById('sidebarConnectedServerCount'),
   topWorkspaceSwitcher: document.getElementById('topWorkspaceSwitcher'),
   topWorkspaceButton: document.getElementById('topWorkspaceButton'),
   topWorkspaceLabel: document.getElementById('topWorkspaceLabel'),
@@ -3222,8 +3231,6 @@ const els = {
   rdpCanvas: document.getElementById('rdpCanvas'),
   vncCanvas: document.getElementById('vncCanvas'),
   vncDisplaySelector: document.getElementById('vncDisplaySelector'),
-  vncDisplayButton: document.getElementById('vncDisplayButton'),
-  vncDisplayMenu: document.getElementById('vncDisplayMenu'),
   rdpToolbarLabel: document.getElementById('rdpToolbarLabel'),
   rdpToolbarStatus: document.getElementById('rdpToolbarStatus'),
   rdpConnectPanel: document.getElementById('rdpConnectPanel'),
@@ -3552,12 +3559,14 @@ const els = {
   modalFtpHost: document.getElementById('modalFtpHost'),
   modalFtpPort: document.getElementById('modalFtpPort'),
   modalFtpUsername: document.getElementById('modalFtpUsername'),
-  modalFtpAuthType: document.getElementById('modalFtpAuthType'),
   modalFtpPassword: document.getElementById('modalFtpPassword'),
-  modalFtpPrivateKey: document.getElementById('modalFtpPrivateKey'),
-  modalFtpKeyPassphrase: document.getElementById('modalFtpKeyPassphrase'),
   modalFtpPasswordField: document.getElementById('modalFtpPasswordField'),
-  modalFtpKeyFields: document.getElementById('modalFtpKeyFields'),
+  modalFtpUserTabs: document.getElementById('modalFtpUserTabs'),
+  modalAddFtpUserButton: document.getElementById('modalAddFtpUserButton'),
+  modalRemoveFtpUserButton: document.getElementById('modalRemoveFtpUserButton'),
+  modalDefaultFtpUserButton: document.getElementById('modalDefaultFtpUserButton'),
+  modalFtpUserEditorTitle: document.getElementById('modalFtpUserEditorTitle'),
+  modalFtpUserEditorStatus: document.getElementById('modalFtpUserEditorStatus'),
   templatePageForm: document.getElementById('templatePageForm'),
   templateEditorEmptyState: document.getElementById('templateEditorEmptyState'),
   templatePageCancelButton: document.getElementById('templatePageCancelButton'),
@@ -4187,6 +4196,48 @@ function normalizeSshConnection(ssh = {}, blankSsh = blankProject().ssh) {
   };
 }
 
+function normalizeFtpConnection(ftp = {}, blankFtp = blankProject().ftp) {
+  const sourceUsers = Array.isArray(ftp.users) && ftp.users.length
+    ? ftp.users
+    : [{
+        id: ftp.defaultUserId || 'ftp-user-1',
+        username: ftp.username || '',
+        authType: ftp.authType || '',
+        password: ftp.password || '',
+        privateKey: ftp.privateKey || '',
+        passphrase: ftp.passphrase || ''
+      }];
+  const usedIds = new Set();
+  const users = sourceUsers.map((user = {}, index) => {
+    let id = String(user.id || `ftp-user-${index + 1}`).trim() || `ftp-user-${index + 1}`;
+    while (usedIds.has(id)) id = `${id}-${index + 1}`;
+    usedIds.add(id);
+    return {
+      id,
+      username: String(user.username || '').trim(),
+      authType: user.authType === 'key' ? 'key' : user.authType === 'password' ? 'password' : user.privateKey ? 'key' : user.password ? 'password' : '',
+      password: String(user.password || ''),
+      privateKey: String(user.privateKey || ''),
+      passphrase: String(user.passphrase || '')
+    };
+  });
+  const requestedDefaultId = String(ftp.defaultUserId || '').trim();
+  const defaultUser = users.find((user) => user.id === requestedDefaultId) || users[0];
+  return {
+    ...blankFtp,
+    ...ftp,
+    host: String(ftp.host || '').trim(),
+    port: ftp.port === '' || ftp.port == null ? '' : Number(ftp.port || ''),
+    username: defaultUser.username,
+    authType: defaultUser.authType,
+    password: defaultUser.password,
+    privateKey: defaultUser.privateKey,
+    passphrase: defaultUser.passphrase,
+    users,
+    defaultUserId: defaultUser.id
+  };
+}
+
 function normalizeProjectProxy(proxy = {}, blankProxy = blankProject().proxy) {
   return {
     ...blankProxy,
@@ -4224,10 +4275,7 @@ function normalizeProject(project = {}) {
       ...vnc,
       port: Number(vnc.port || blank.vnc.port)
     },
-    ftp: {
-      ...blank.ftp,
-      ...(project.ftp || {})
-    },
+    ftp: normalizeFtpConnection(project.ftp || {}, blank.ftp),
     commands: Array.isArray(project.commands) ? project.commands : [],
     variables: normalizeVariables(project.variables),
     uptimeMonitors: Array.isArray(project.uptimeMonitors) ? project.uptimeMonitors.map(normalizeUptimeMonitor) : []
@@ -4760,7 +4808,9 @@ function serverTypeLabel(serverType) {
 }
 
 function serverHost(project) {
-  return isVncServerType(project?.serverType) ? windowsConnection(project).host || '' : project?.ssh?.host || '';
+  return isVncServerType(project?.serverType)
+    ? windowsConnection(project).host || ''
+    : project?.ssh?.host || project?.ftp?.host || '';
 }
 
 function formatDateTime(value) {
@@ -6608,7 +6658,6 @@ function renderRdpStatus(status, message, { hasSession = Boolean(state.rdpSessio
   if (!connected && resetDisplays) updateVncDisplaySelector([], 'all');
   else if (!connected) {
     els.vncDisplaySelector?.classList.add('hidden');
-    closeVncDisplayMenu();
   }
 }
 
@@ -6616,11 +6665,6 @@ function setRdpStatus(status, message) {
   state.rdpStatus = status;
   renderRdpStatus(status, message);
   renderProjects();
-}
-
-function closeVncDisplayMenu() {
-  els.vncDisplayMenu?.classList.add('hidden');
-  els.vncDisplayButton?.setAttribute('aria-expanded', 'false');
 }
 
 function updateVncDisplaySelector(displays = [], selectedDisplayId = 'all') {
@@ -6633,34 +6677,23 @@ function updateVncDisplaySelector(displays = [], selectedDisplayId = 'all') {
     && vncDisplays.length > 1;
   els.vncDisplaySelector?.classList.toggle('hidden', !visible);
   if (!visible) {
-    closeVncDisplayMenu();
-    if (els.vncDisplayMenu) els.vncDisplayMenu.replaceChildren();
+    if (els.vncDisplaySelector) els.vncDisplaySelector.replaceChildren();
     return;
   }
 
-  const options = [
-    { id: 'all', label: 'All Displays', detail: `${vncDisplays.length} displays` },
-    ...vncDisplays.map((display) => ({
-      id: display.id,
-      label: display.label,
-      detail: `${display.width} x ${display.height}`
-    }))
-  ];
-  els.vncDisplayMenu.replaceChildren(...options.map((option) => {
+  els.vncDisplaySelector.replaceChildren(...vncDisplays.map((display, index) => {
     const button = document.createElement('button');
+    const monitorNumber = index + 1;
+    const monitorLabel = 'Monitor ' + monitorNumber;
     button.type = 'button';
-    button.className = `vnc-display-menu-item${option.id === selectedVncDisplayId ? ' active' : ''}`;
-    button.dataset.vncDisplayId = option.id;
-    button.setAttribute('role', 'menuitemradio');
-    button.setAttribute('aria-checked', option.id === selectedVncDisplayId ? 'true' : 'false');
-    button.innerHTML = `<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-${option.id === 'all' ? 'displays' : 'sidebar-panel'}"></use></svg><span class="vnc-display-menu-copy"><span></span><small></small></span>`;
-    button.querySelector('.vnc-display-menu-copy > span').textContent = option.label;
-    button.querySelector('small').textContent = option.detail;
+    button.className = `vnc-display-toggle${display.id === selectedVncDisplayId ? ' active' : ''}`;
+    button.dataset.vncDisplayId = display.id;
+    button.setAttribute('aria-pressed', display.id === selectedVncDisplayId ? 'true' : 'false');
+    button.setAttribute('aria-label', monitorLabel);
+    button.title = monitorLabel;
+    button.innerHTML = '<span class="vnc-display-toggle-mark" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-monitor"></use></svg><span class="vnc-display-toggle-number">' + monitorNumber + '</span></span>';
     return button;
   }));
-  const selected = options.find((option) => option.id === selectedVncDisplayId) || options[0];
-  els.vncDisplayButton.setAttribute('aria-label', `VNC display: ${selected.label}`);
-  els.vncDisplayButton.dataset.tooltip = selected.label;
 }
 
 function stopRemoteSession(protocol, sessionId) {
@@ -10847,11 +10880,11 @@ async function disconnectAllServerMonitoring() {
 
 async function openSidebarProject(projectId) {
   await openProject(projectId);
-  if (!isVncServerType(state.activeProject?.serverType)) setProjectTab('ssh');
+  if (!isVncServerType(state.activeProject?.serverType)) setProjectTab(state.activeProject?.ssh?.host ? 'ssh' : 'ftp');
 }
 
 function openTopSshTerminal() {
-  const sshProjects = state.projects.filter((project) => !isVncServerType(project.serverType));
+  const sshProjects = state.projects.filter((project) => !isVncServerType(project.serverType) && project.ssh?.host);
   const activeProject = sshProjects.find((project) => String(project.id) === String(state.activeProject?.id));
   const project = activeProject
     || sshProjects.find((candidate) => getConnectedTerminalSession(candidate.id))
@@ -11053,6 +11086,18 @@ function isDatabaseManagerModal(modal) {
 function syncDatabaseManagerModalIsolation() {
   const appShell = document.querySelector('.app-shell');
   if (appShell) appShell.inert = databaseManagerModalEntries().some(([candidate]) => !candidate.classList.contains('hidden'));
+}
+
+function moveFocusBeforeHide(container, preferredTarget = null) {
+  if (!container?.contains(document.activeElement)) return;
+  const target = preferredTarget instanceof HTMLElement
+    && preferredTarget.isConnected
+    && !preferredTarget.hasAttribute('disabled')
+    && preferredTarget.offsetParent !== null
+    ? preferredTarget
+    : null;
+  if (target) target.focus({ preventScroll: true });
+  else document.activeElement?.blur?.();
 }
 
 function setModalVisible(visible, modal) {
@@ -19795,6 +19840,7 @@ function closeConfirmModal(confirmed, { restoreFocus = true } = {}) {
   const focusOrigin = confirmModalFocusOrigin;
   confirmModalResolve = null;
   confirmModalFocusOrigin = null;
+  moveFocusBeforeHide(els.confirmModal, restoreFocus ? focusOrigin : null);
   setModalVisible(false, els.confirmModal);
   els.confirmModal.setAttribute('aria-hidden', 'true');
   resolve(Boolean(confirmed));
@@ -19853,6 +19899,7 @@ function closeTerminalUserPrompt(result = null, { restoreFocus = true } = {}) {
   terminalUserPromptResolve = null;
   terminalUserPromptFocusOrigin = null;
   state.terminalUserPrompt = null;
+  moveFocusBeforeHide(els.terminalUserPromptModal, restoreFocus ? focusOrigin : null);
   setModalVisible(false, els.terminalUserPromptModal);
   els.terminalUserPromptList.replaceChildren();
   els.terminalUserPromptModal.setAttribute('aria-hidden', 'true');
@@ -19896,6 +19943,44 @@ function promptForTerminalUser(project, terminalSession) {
       <input type="radio" name="terminal-user" value="${escapeHtml(user.id)}" ${user.id === preferredId ? 'checked' : ''} required />
       <span class="terminal-user-option-copy">
         <strong>${escapeHtml(user.username || `User ${index + 1}`)}</strong>
+        <small>${escapeHtml(`${authLabel}${defaultLabel}`)}</small>
+      </span>`;
+    return option;
+  }));
+
+  terminalUserPromptFocusOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  setModalVisible(true, els.terminalUserPromptModal);
+  els.terminalUserPromptModal.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => els.terminalUserPromptList.querySelector('input:checked')?.focus());
+
+  return new Promise((resolve) => {
+    terminalUserPromptResolve = resolve;
+  });
+}
+
+function promptForFtpUser(project) {
+  const users = Array.isArray(project?.ftp?.users) ? project.ftp.users.filter((user) => user?.id) : [];
+  if (users.length <= 1) return Promise.resolve(users[0] || null);
+  if (terminalUserPromptResolve) closeTerminalUserPrompt(null, { restoreFocus: false });
+
+  const hasSsh = Boolean(String(project?.ssh?.host || '').trim());
+  const preferredId = project.ftp.defaultUserId || users[0].id;
+  state.terminalUserPrompt = { projectId: project.id, users: structuredClone(users) };
+  els.terminalUserPromptTitle.textContent = `Choose FTP user for ${project.name || 'this server'}`;
+  els.terminalUserPromptDetail.textContent = 'This server has multiple saved FTP users. Choose which account to use for this file-transfer session.';
+  els.terminalUserPromptList.replaceChildren(...users.map((user, index) => {
+    const option = document.createElement('label');
+    option.className = 'terminal-user-option';
+    const authLabel = user.authType === 'key'
+      ? 'Private key authentication'
+      : user.authType === 'password'
+        ? 'Password authentication'
+        : hasSsh ? 'Reuse SSH authentication' : 'No FTP authentication';
+    const defaultLabel = user.id === project.ftp.defaultUserId ? ' · Default' : '';
+    option.innerHTML = `
+      <input type="radio" name="terminal-user" value="${escapeHtml(user.id)}" ${user.id === preferredId ? 'checked' : ''} required />
+      <span class="terminal-user-option-copy">
+        <strong>${escapeHtml(user.username || (user.authType ? `FTP user ${index + 1}` : hasSsh ? 'Use SSH user' : `FTP user ${index + 1}`))}</strong>
         <small>${escapeHtml(`${authLabel}${defaultLabel}`)}</small>
       </span>`;
     return option;
@@ -20090,10 +20175,11 @@ function initializeSecretVisibilityToggles() {
 }
 
 function updateAuthFields() {
+  const sshRequired = !isRdpModal() && modalHasSshDetails();
   const usesKey = els.modalAuthType.value === 'key';
   toggleConnectionAuthFields(els.modalAuthType.value, els.modalPasswordField, els.modalKeyFields);
-  els.modalSshPassword.required = !usesKey;
-  els.modalPrivateKey.required = usesKey;
+  els.modalSshPassword.required = sshRequired && !usesKey;
+  els.modalPrivateKey.required = sshRequired && usesKey;
 }
 
 function closeModalAuthTypeMenu({ focusTrigger = false } = {}) {
@@ -20179,10 +20265,12 @@ function syncSidebarForView(view = state.currentView) {
 }
 
 function updateFtpAuthFields() {
-  const authType = els.modalFtpAuthType.value;
-  toggleConnectionAuthFields(authType, els.modalFtpPasswordField, els.modalFtpKeyFields);
-  els.modalFtpPassword.required = authType === 'password';
-  els.modalFtpPrivateKey.required = authType === 'key';
+  const ftpConfigured = !isRdpModal() && modalHasFtpDetails();
+  els.modalFtpPasswordField.classList.remove('hidden');
+  els.modalFtpHost.required = false;
+  els.modalFtpPort.required = false;
+  els.modalFtpUsername.required = false;
+  els.modalFtpPassword.required = ftpConfigured;
 }
 
 function updateUploadFields() {
@@ -22315,6 +22403,132 @@ function makeActiveModalSshUserDefault() {
   renderModalSshUsers();
 }
 
+function createModalFtpUser(authType = 'password') {
+  return {
+    id: `ftp-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    username: '',
+    authType,
+    password: '',
+    privateKey: '',
+    passphrase: ''
+  };
+}
+
+function activeModalFtpUser() {
+  return state.modalFtpUsers.find((user) => user.id === state.modalSelectedFtpUserId) || null;
+}
+
+function isBlankModalFtpUser(user = {}) {
+  return ![user.username, user.authType, user.password, user.privateKey, user.passphrase]
+    .some((value) => String(value || '').trim() !== '');
+}
+
+function modalFtpUserLabel(user, index, { hasSsh = modalHasSshDetails() } = {}) {
+  if (user.username) return user.username;
+  if (user.authType) return `FTP user ${index + 1}`;
+  return hasSsh ? 'Use SSH user' : `FTP user ${index + 1}`;
+}
+
+function clearModalFtpUserValidity() {
+  [els.modalFtpUsername, els.modalFtpPassword]
+    .forEach((field) => field?.setCustomValidity(''));
+}
+
+function saveActiveModalFtpUser() {
+  const user = activeModalFtpUser();
+  if (!user) return;
+  user.username = els.modalFtpUsername.value.trim();
+  user.authType = 'password';
+  user.password = els.modalFtpPassword.value;
+  user.privateKey = '';
+  user.passphrase = '';
+}
+
+function renderModalFtpUsers() {
+  const hasSsh = modalHasSshDetails();
+  els.modalFtpUserTabs.replaceChildren(...state.modalFtpUsers.map((user, index) => {
+    const button = document.createElement('button');
+    const selected = user.id === state.modalSelectedFtpUserId;
+    button.type = 'button';
+    button.className = `ssh-user-tab${selected ? ' active' : ''}`;
+    button.dataset.ftpUserId = user.id;
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    const label = document.createElement('span');
+    label.textContent = modalFtpUserLabel(user, index, { hasSsh });
+    button.appendChild(label);
+    if (user.id === state.modalDraft.ftp.defaultUserId) {
+      const badge = document.createElement('small');
+      badge.textContent = 'Default';
+      button.appendChild(badge);
+    }
+    return button;
+  }));
+
+  const selectedUser = activeModalFtpUser();
+  const isDefault = selectedUser?.id === state.modalDraft.ftp.defaultUserId;
+  els.modalFtpUserEditorTitle.textContent = selectedUser
+    ? modalFtpUserLabel(selectedUser, state.modalFtpUsers.indexOf(selectedUser), { hasSsh })
+    : 'FTP user';
+  els.modalFtpUserEditorStatus.textContent = isDefault ? 'Default file-transfer user' : 'Additional file-transfer user';
+  els.modalDefaultFtpUserButton.disabled = Boolean(isDefault);
+  els.modalDefaultFtpUserButton.textContent = isDefault ? 'Default user' : 'Use as default';
+  els.modalRemoveFtpUserButton.disabled = state.modalFtpUsers.length <= 1;
+}
+
+function loadActiveModalFtpUser() {
+  let user = activeModalFtpUser();
+  if (!user) {
+    user = state.modalFtpUsers[0] || createModalFtpUser('');
+    if (!state.modalFtpUsers.length) state.modalFtpUsers.push(user);
+    state.modalSelectedFtpUserId = user.id;
+  }
+  clearModalFtpUserValidity();
+  els.modalFtpUsername.value = user.username;
+  els.modalFtpPassword.value = user.password;
+  resetSecretVisibility(els.modalFtpUserTabs.closest('[data-project-step-panel]'));
+  updateFtpAuthFields();
+  renderModalFtpUsers();
+}
+
+function selectModalFtpUser(userId) {
+  if (!state.modalFtpUsers.some((user) => user.id === userId)) return;
+  saveActiveModalFtpUser();
+  state.modalSelectedFtpUserId = userId;
+  loadActiveModalFtpUser();
+}
+
+function addModalFtpUser() {
+  saveActiveModalFtpUser();
+  const user = createModalFtpUser();
+  const defaultUser = state.modalFtpUsers.find((candidate) => candidate.id === state.modalDraft.ftp.defaultUserId);
+  const defaultUserIsBlank = isBlankModalFtpUser(defaultUser);
+  state.modalFtpUsers.push(user);
+  if (defaultUserIsBlank) state.modalDraft.ftp.defaultUserId = user.id;
+  state.modalSelectedFtpUserId = user.id;
+  loadActiveModalFtpUser();
+  requestAnimationFrame(() => els.modalFtpUsername.focus());
+}
+
+function removeActiveModalFtpUser() {
+  if (state.modalFtpUsers.length <= 1) return;
+  const removedIndex = state.modalFtpUsers.findIndex((user) => user.id === state.modalSelectedFtpUserId);
+  if (removedIndex < 0) return;
+  const [removedUser] = state.modalFtpUsers.splice(removedIndex, 1);
+  if (state.modalDraft.ftp.defaultUserId === removedUser.id) state.modalDraft.ftp.defaultUserId = state.modalFtpUsers[0].id;
+  state.modalSelectedFtpUserId = state.modalFtpUsers[Math.min(removedIndex, state.modalFtpUsers.length - 1)].id;
+  loadActiveModalFtpUser();
+}
+
+function makeActiveModalFtpUserDefault() {
+  saveActiveModalFtpUser();
+  const user = activeModalFtpUser();
+  if (!user) return;
+  state.modalDraft.ftp.defaultUserId = user.id;
+  renderModalFtpUsers();
+}
+
 function validateModalSshUsers() {
   saveActiveModalSshUser();
   clearModalSshUserValidity();
@@ -22349,11 +22563,117 @@ function validateModalSshUsers() {
   return true;
 }
 
+function validateModalFtpUsers({ hasSsh = false } = {}) {
+  saveActiveModalFtpUser();
+  clearModalFtpUserValidity();
+  const usernames = new Set();
+  const allowsImplicitSshUser = hasSsh && state.modalFtpUsers.length === 1;
+  for (const user of state.modalFtpUsers) {
+    const username = String(user.username || '').trim();
+    const userHasDetails = [username, user.authType, user.password, user.privateKey, user.passphrase]
+      .some((value) => String(value || '').trim() !== '');
+    if (!userHasDetails && allowsImplicitSshUser) continue;
+
+    let field = null;
+    let message = '';
+    const normalizedUsername = username.toLowerCase();
+    if (!username) {
+      field = els.modalFtpUsername;
+      message = 'Enter a username for this FTP user.';
+    } else if (usernames.has(normalizedUsername)) {
+      field = els.modalFtpUsername;
+      message = 'Each FTP user must have a unique username.';
+    } else if (!user.password) {
+      field = els.modalFtpPassword;
+      message = `Enter a password for ${username}.`;
+    }
+    if (normalizedUsername) usernames.add(normalizedUsername);
+    if (!field) continue;
+    selectModalFtpUser(user.id);
+    field.setCustomValidity(message);
+    requestAnimationFrame(() => {
+      field.focus();
+      field.reportValidity();
+    });
+    return false;
+  }
+  return true;
+}
+
+function modalHasSshDetails() {
+  saveActiveModalSshUser();
+  if (els.modalSshHost.value.trim()) return true;
+  if (state.modalSshUsers.length > 1) return true;
+  return state.modalSshUsers.some((user) => (
+    String(user.password || '').length > 0
+    || String(user.privateKey || '').trim() !== ''
+    || String(user.passphrase || '').length > 0
+    || user.authType === 'key'
+    || !['', 'root'].includes(String(user.username || '').trim().toLowerCase())
+  ));
+}
+
+function modalHasFtpDetails() {
+  saveActiveModalFtpUser();
+  const endpointHasDetails = String(els.modalFtpHost.value || '').trim() !== '';
+  const usersHaveDetails = state.modalFtpUsers.some((user) => (
+    [user.username, user.password, user.privateKey, user.passphrase]
+      .some((value) => String(value || '').trim() !== '')
+  ));
+  return endpointHasDetails || usersHaveDetails || state.modalFtpUsers.length > 1;
+}
+
+function reportProjectConnectionValidity(step, field, message) {
+  setProjectModalStep(step, { focus: false });
+  field.setCustomValidity(message);
+  requestAnimationFrame(() => {
+    field.focus();
+    field.reportValidity();
+  });
+  return false;
+}
+
+function validateModalConnectionSettings() {
+  saveActiveModalSshUser();
+  clearModalSshUserValidity();
+  [els.modalSshHost, els.modalFtpHost, els.modalFtpUsername, els.modalFtpPassword]
+    .forEach((field) => field.setCustomValidity(''));
+
+  const hasSsh = modalHasSshDetails();
+  const hasFtp = modalHasFtpDetails();
+  if (!hasSsh && !hasFtp) {
+    return reportProjectConnectionValidity(3, els.modalFtpHost, 'Configure an FTP connection, or go back and configure SSH.');
+  }
+
+  if (hasSsh) {
+    if (!els.modalSshHost.value.trim()) {
+      return reportProjectConnectionValidity(1, els.modalSshHost, 'Enter the SSH host or remove the incomplete SSH details.');
+    }
+    const currentStep = state.modalStep;
+    setProjectModalStep(1, { focus: false });
+    if (!validateModalSshUsers()) return false;
+    setProjectModalStep(currentStep, { focus: false });
+  }
+
+  if (hasFtp && !hasSsh) {
+    if (!els.modalFtpHost.value.trim()) {
+      return reportProjectConnectionValidity(3, els.modalFtpHost, 'Enter the FTP host for this FTP-only server.');
+    }
+  }
+  if (hasFtp) {
+    const currentStep = state.modalStep;
+    setProjectModalStep(3, { focus: false });
+    if (!validateModalFtpUsers({ hasSsh })) return false;
+    setProjectModalStep(currentStep, { focus: false });
+  }
+  return true;
+}
+
 const projectModalStepDescriptions = [
   'Set the server name, group, and template.',
-  'Add SSH users and choose the default.',
+  'Optionally add SSH users and choose the default.',
   'Choose direct, VPN, or proxy access.',
-  'Configure FTP or reuse SSH.'
+  'Configure FTP independently or reuse SSH.'
 ];
 
 function isRdpModal() {
@@ -22526,8 +22846,8 @@ function updateModalConnectionMode() {
     .forEach((field) => { field.disabled = !rdp; });
   els.modalRdpHost.required = rdp;
   els.modalRdpPassword.required = rdp;
-  els.modalSshHost.required = !rdp;
-  els.modalSshUsername.required = !rdp;
+  els.modalSshHost.required = false;
+  els.modalSshUsername.required = false;
   renderWindowsProtocolFields();
   renderModalProxyFields();
   const ftpStepButton = els.projectModalStepButtons.find((button) => button.id === 'projectStepButtonFtp');
@@ -22620,7 +22940,12 @@ function validateProjectModalStep(step) {
       return false;
     }
   }
-  if (panel.id === 'projectStepPanelSsh' && !isRdpModal() && !validateModalSshUsers()) return false;
+  if (panel.id === 'projectStepPanelSsh' && !isRdpModal() && modalHasSshDetails()) {
+    const currentStep = state.modalStep;
+    setProjectModalStep(step, { focus: false });
+    if (!validateModalSshUsers()) return false;
+    setProjectModalStep(currentStep, { focus: false });
+  }
 
   const invalidField = Array.from(panel.querySelectorAll('input, select, textarea')).find(
     (field) => !field.checkValidity()
@@ -22684,12 +23009,13 @@ function fillModal(project) {
   els.modalRdpPassword.value = remoteConnection?.password || '';
   setModalWindowsProtocol(windowsProtocol);
   els.modalFtpHost.value = normalizedProject.ftp?.host || '';
-  els.modalFtpPort.value = normalizedProject.ftp?.port || '';
-  els.modalFtpUsername.value = normalizedProject.ftp?.username || '';
-  els.modalFtpAuthType.value = normalizedProject.ftp?.authType || (normalizedProject.ftp?.privateKey ? 'key' : normalizedProject.ftp?.password ? 'password' : '');
-  els.modalFtpPassword.value = normalizedProject.ftp?.password || '';
-  els.modalFtpPrivateKey.value = normalizedProject.ftp?.privateKey || '';
-  els.modalFtpKeyPassphrase.value = normalizedProject.ftp?.passphrase || '';
+  els.modalFtpPort.value = normalizedProject.ftp?.port || (modalHasSshDetails() ? '' : 21);
+  state.modalFtpUsers = structuredClone(normalizedProject.ftp.users);
+  state.modalSelectedFtpUserId = normalizedProject.ftp.defaultUserId;
+  if (!modalHasSshDetails() && state.modalFtpUsers.length === 1 && isBlankModalFtpUser(state.modalFtpUsers[0])) {
+    state.modalFtpUsers[0].authType = 'password';
+  }
+  loadActiveModalFtpUser();
   updateAuthFields();
   updateFtpAuthFields();
   updateModalConnectionMode();
@@ -22698,8 +23024,8 @@ function fillModal(project) {
 
 function readModalProject() {
   saveActiveModalSshUser();
+  saveActiveModalFtpUser();
   const selectedTemplate = state.templates.find((template) => template.id === els.modalTemplateSelect.value);
-  const ftpAuthType = els.modalFtpAuthType.value;
   const rdp = isRdpModal();
   const windowsProtocol = selectedWindowsProtocol();
   const emptyProject = blankProject();
@@ -22738,15 +23064,12 @@ function readModalProject() {
       domain: els.modalRdpDomain.value.trim(),
       password: els.modalRdpPassword.value
     } : emptyProject.rdp,
-    ftp: rdp ? emptyProject.ftp : {
+    ftp: rdp ? emptyProject.ftp : normalizeFtpConnection({
       host: els.modalFtpHost.value.trim(),
       port: els.modalFtpPort.value ? Number(els.modalFtpPort.value) : '',
-      username: els.modalFtpUsername.value.trim(),
-      authType: ftpAuthType,
-      password: ftpAuthType === 'password' ? els.modalFtpPassword.value : '',
-      privateKey: ftpAuthType === 'key' ? els.modalFtpPrivateKey.value : '',
-      passphrase: ftpAuthType === 'key' ? els.modalFtpKeyPassphrase.value : ''
-    }
+      users: structuredClone(state.modalFtpUsers),
+      defaultUserId: state.modalDraft.ftp.defaultUserId
+    }, emptyProject.ftp)
   };
 
   project.commands = rdp ? [] : selectedTemplate ? selectedTemplate.commands || [] : state.modalDraft.commands || [];
@@ -23142,7 +23465,10 @@ function renderProjects() {
   if (els.dashboardRecentActivity) els.dashboardRecentActivity.innerHTML = '';
   renderDashboardOperations();
   const sidebarQuery = els.serverSearch?.value.trim().toLowerCase() || '';
+  const connectedSidebarCount = state.projects.filter(serverPrimaryConnectionActive).length;
+  const sidebarFilter = state.sidebarServerFilter === 'connected' ? 'connected' : 'all';
   const sidebarProjects = state.projects.filter((project) => {
+    if (sidebarFilter === 'connected' && !serverPrimaryConnectionActive(project)) return false;
     if (!sidebarQuery) return true;
     return [project.name, project.group, serverTypeLabel(project.serverType), serverHost(project), project.ssh?.username, project.vnc?.username, project.rdp?.username]
       .filter(Boolean)
@@ -23150,6 +23476,15 @@ function renderProjects() {
       .toLowerCase()
       .includes(sidebarQuery);
   });
+  els.sidebarConnectedServerCount.textContent = String(connectedSidebarCount);
+  els.sidebarConnectedServerCount.setAttribute('aria-label', `${connectedSidebarCount} connected server${connectedSidebarCount === 1 ? '' : 's'}`);
+  for (const tab of [els.sidebarAllServersTab, els.sidebarConnectedServersTab]) {
+    const active = tab.dataset.sidebarServerFilter === sidebarFilter;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+  }
+  els.projectList.setAttribute('aria-labelledby', sidebarFilter === 'connected' ? 'sidebarConnectedServersTab' : 'sidebarAllServersTab');
   const sidebarProjectIds = new Set(sidebarProjects.map((project) => project.id));
   syncServerFilterOptions();
   const serverFilters = serverFilterCriteria();
@@ -23216,7 +23551,7 @@ function renderProjects() {
     const remoteConnection = windowsConnection(project);
     const connected = isRdp ? connection.vnc : connection.ssh || connection.ftp;
     const projectName = project.name || 'Untitled Server';
-    const endpointUser = isRdp ? remoteConnection.username : project.ssh?.username;
+    const endpointUser = isRdp ? remoteConnection.username : project.ssh?.username || project.ftp?.username;
     const services = isRdp
       ? [{ label: remoteProtocol, port: remoteConnection.port || (remoteProtocol === 'RDP' ? 3389 : 5900), active: connection.vnc }]
       : [
@@ -23472,7 +23807,7 @@ function renderProjects() {
     for (const project of state.projects) {
       const connection = projectConnectionState(project.id);
       if (connection.ssh) activity.push({ icon: 'play', label: `SSH connected to ${project.name || 'server'}`, meta: project.ssh?.host || '', tone: 'success' });
-      if (connection.ftp) activity.push({ icon: 'folder-open', label: `FTP connected to ${project.name || 'server'}`, meta: project.ssh?.host || '', tone: 'info' });
+       if (connection.ftp) activity.push({ icon: 'folder-open', label: `FTP connected to ${project.name || 'server'}`, meta: serverHost(project), tone: 'info' });
     }
     for (const item of state.backupHistory.slice(-4).reverse()) {
       activity.push({ icon: 'save', label: item.label, meta: item.time, tone: 'backup' });
@@ -23551,7 +23886,7 @@ function renderProjects() {
     sidebarGroup.className = 'sidebar-server-group';
     sidebarGroup.dataset.sidebarGroup = group.name;
     sidebarGroup.innerHTML = `
-      <div class="sidebar-server-group-header${sidebarQuery ? '' : ' is-reorderable'}"${sidebarQuery ? '' : ` draggable="true" data-sidebar-group-drag="${escapeHtml(group.name)}" title="Drag to reorder group"`}>
+      <div class="sidebar-server-group-header${sidebarQuery || sidebarFilter !== 'all' ? '' : ' is-reorderable'}"${sidebarQuery || sidebarFilter !== 'all' ? '' : ` draggable="true" data-sidebar-group-drag="${escapeHtml(group.name)}" title="Drag to reorder group"`}>
         <div class="sidebar-server-group-title">
           <strong>${escapeHtml(group.name)}</strong>
         </div>
@@ -23572,7 +23907,7 @@ function renderProjects() {
     const dashboardGrid = dashboardSection.querySelector('.server-group-grid');
 
     for (const project of sidebarItems) {
-      sidebarGroup.appendChild(renderSidebarProjectItem(project, { reorderable: !sidebarQuery }));
+      sidebarGroup.appendChild(renderSidebarProjectItem(project, { reorderable: !sidebarQuery && sidebarFilter === 'all' }));
     }
     for (const project of group.items) {
       dashboardGrid.appendChild(renderServerCard(project));
@@ -23616,11 +23951,19 @@ function renderProjects() {
     els.projectGrid.appendChild(emptyFilters);
   }
 
-  if (sidebarQuery && !sidebarProjects.length) {
+  if (!sidebarProjects.length && (sidebarQuery || sidebarFilter === 'connected')) {
     const emptySearch = document.createElement('div');
     emptySearch.className = 'empty-project';
-    emptySearch.textContent = 'No matching servers';
+    emptySearch.textContent = sidebarQuery ? 'No matching servers' : 'No connected servers';
     els.projectList.appendChild(emptySearch);
+  }
+}
+
+function setSidebarServerFilter(filter, { focus = false } = {}) {
+  state.sidebarServerFilter = filter === 'connected' ? 'connected' : 'all';
+  renderProjects();
+  if (focus) {
+    (state.sidebarServerFilter === 'connected' ? els.sidebarConnectedServersTab : els.sidebarAllServersTab).focus();
   }
 }
 
@@ -23670,7 +24013,7 @@ function reorderSidebarProject(sourceId, targetId, groupName, placeAfter) {
 }
 
 function beginSidebarDrag(event) {
-  if (!(event.target instanceof Element) || els.serverSearch.value.trim()) return;
+  if (!(event.target instanceof Element) || els.serverSearch.value.trim() || state.sidebarServerFilter !== 'all') return;
   const groupHandle = event.target.closest('[data-sidebar-group-drag]');
   const projectHandle = event.target.closest('[data-sidebar-project-drag]');
   if (!groupHandle && !projectHandle) return;
@@ -23909,9 +24252,12 @@ function renderDetailsSummary(project) {
       .join('');
     return;
   }
+  const connectionHost = project.ssh?.host || project.ftp?.host || '';
+  const connectionUser = project.ssh?.username || project.ftp?.username || '';
+  const connectionPort = project.ssh?.host ? project.ssh?.port || 22 : project.ftp?.port || 22;
   const rows = [
     ['Server', `${serverGroupName(project)} - ${project.serverType || '-'}`],
-    ['Host', `${project.ssh?.username || '-'}@${project.ssh?.host || '-'}:${project.ssh?.port || '22'}`],
+    ['Host', `${connectionUser || '-'}@${connectionHost || '-'}:${connectionPort}`],
     ['Route', route]
   ];
 
@@ -24221,13 +24567,27 @@ async function refreshFtpList(pathOverride = state.ftpCurrentPath, options = {})
 
 async function connectFtp() {
   if (!state.activeProject || state.ftpSessionId || pendingActions.has('ftp:connect')) return;
+  const ftpUsers = Array.isArray(state.activeProject.ftp?.users) ? state.activeProject.ftp.users.filter((user) => user?.id) : [];
+  const selectedUser = await promptForFtpUser(state.activeProject);
+  if (ftpUsers.length > 1 && !selectedUser) return;
+  const connectionProject = selectedUser ? {
+    ...state.activeProject,
+    ftp: {
+      ...state.activeProject.ftp,
+      username: selectedUser.username,
+      authType: selectedUser.authType,
+      password: selectedUser.password,
+      privateKey: selectedUser.privateKey,
+      passphrase: selectedUser.passphrase
+    }
+  } : state.activeProject;
   try {
     updateFtpStatus('Connecting...', false);
     const sessionId = `${Date.now()}`;
     const response = await withButtonLoading('ftp:connect', els.connectFtpButton, () =>
       window.deployerx.ftpConnect({
         sessionId,
-        project: state.activeProject
+        project: connectionProject
       })
     );
     if (!response) return;
@@ -24323,6 +24683,7 @@ async function goFtpHistory(direction) {
 
 function hideFtpContextMenu() {
   if (!els.ftpContextMenu) return;
+  moveFocusBeforeHide(els.ftpContextMenu);
   els.ftpContextMenu.classList.add('hidden');
   els.ftpContextMenu.setAttribute('aria-hidden', 'true');
 }
@@ -24800,8 +25161,11 @@ function populateProjectView(project) {
     setSshEditorValue('');
     setSshRailView('directory');
   }
-  state.activeProject = structuredClone(normalizedProject);
   const windowsServer = isRdpProject(normalizedProject);
+  state.activeProject = structuredClone(normalizedProject);
+  if (!windowsServer) {
+    state.activeProjectTab = normalizedProject.ftp?.host && !normalizedProject.ssh?.host ? 'ftp' : 'ssh';
+  }
   const remoteProtocol = windowsConnectionProtocol(normalizedProject);
   const remoteConnection = windowsConnection(normalizedProject);
   const remoteLabel = remoteProtocol.toUpperCase();
@@ -24868,6 +25232,10 @@ function populateProjectView(project) {
     ensureActiveProjectLocalFtpReady(normalizedProject.id).catch((error) => showAlert(error.message || 'Could not load local files.'));
   }
   requestAnimationFrame(() => {
+    if (state.activeProjectTab === 'ftp') {
+      if (!state.ftpSessionId) els.connectFtpButton.focus();
+      return;
+    }
     fitTerminal();
     if (!state.activeTerminalSessionId) els.connectTerminalButton.focus();
   });
@@ -25312,6 +25680,7 @@ async function commitModalProject(event) {
   for (let step = 0; step <= lastStepToValidate; step += 1) {
     if (!validateProjectModalStep(step)) return;
   }
+  if (!isRdpModal() && !validateModalConnectionSettings()) return;
 
   let project = readModalProject();
 
@@ -27910,21 +28279,9 @@ els.terminalTabs.addEventListener('keydown', (event) => {
   requestAnimationFrame(() => els.terminalTabs.querySelector(`[data-terminal-tab-select="${CSS.escape(nextTabId)}"]`)?.focus());
 });
 els.connectRdpButton.addEventListener('click', connectRdp);
-els.vncDisplayButton?.addEventListener('click', (event) => {
-  event.stopPropagation();
-  if (els.vncDisplaySelector.classList.contains('hidden')) return;
-  const opening = els.vncDisplayMenu.classList.contains('hidden');
-  els.vncDisplayMenu.classList.toggle('hidden', !opening);
-  els.vncDisplayButton.setAttribute('aria-expanded', opening ? 'true' : 'false');
-  if (opening) els.vncDisplayMenu.querySelector('.active')?.focus();
-});
-els.vncDisplayMenu?.addEventListener('click', (event) => {
+els.vncDisplaySelector?.addEventListener('click', (event) => {
   const option = event.target.closest('[data-vnc-display-id]');
   if (!option || !activeRdpClient?.selectDisplay(option.dataset.vncDisplayId)) return;
-  closeVncDisplayMenu();
-});
-document.addEventListener('click', (event) => {
-  if (!els.vncDisplaySelector?.contains(event.target)) closeVncDisplayMenu();
 });
 els.rdpHeaderFullscreenButton.addEventListener('click', () => toggleRdpFullscreen().catch((error) => showAlert(error.message || 'Could not change full view.')));
 els.rdpFullscreenButton.addEventListener('click', () => toggleRdpFullscreen().catch((error) => showAlert(error.message || 'Could not change full view.')));
@@ -28160,6 +28517,16 @@ document.addEventListener('click', (event) => {
   if (!els.topNotificationsDropdown.contains(event.target)) closeTopNotificationsMenu();
 });
 els.serverSearch.addEventListener('input', renderProjects);
+els.sidebarServerTabs.addEventListener('click', (event) => {
+  const tab = event.target.closest('[data-sidebar-server-filter]');
+  if (tab) setSidebarServerFilter(tab.dataset.sidebarServerFilter);
+});
+els.sidebarServerTabs.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const nextFilter = event.key === 'ArrowLeft' || event.key === 'Home' ? 'all' : 'connected';
+  setSidebarServerFilter(nextFilter, { focus: true });
+});
 els.projectList.addEventListener('dragstart', beginSidebarDrag);
 els.projectList.addEventListener('dragover', updateSidebarDragTarget);
 els.projectList.addEventListener('drop', finishSidebarDrop);
@@ -28579,6 +28946,35 @@ els.modalSshUsername.addEventListener('input', () => {
 });
 els.modalSshPassword.addEventListener('input', () => els.modalSshPassword.setCustomValidity(''));
 els.modalPrivateKey.addEventListener('input', () => els.modalPrivateKey.setCustomValidity(''));
+els.modalFtpUserTabs.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-ftp-user-id]');
+  if (button) selectModalFtpUser(button.dataset.ftpUserId);
+});
+els.modalFtpUserTabs.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const buttons = Array.from(els.modalFtpUserTabs.querySelectorAll('[data-ftp-user-id]'));
+  const currentIndex = buttons.indexOf(document.activeElement);
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % buttons.length;
+  if (event.key === 'Home') nextIndex = 0;
+  if (event.key === 'End') nextIndex = buttons.length - 1;
+  event.preventDefault();
+  buttons[nextIndex]?.click();
+  requestAnimationFrame(() => els.modalFtpUserTabs.querySelector('[tabindex="0"]')?.focus());
+});
+els.modalAddFtpUserButton.addEventListener('click', addModalFtpUser);
+els.modalRemoveFtpUserButton.addEventListener('click', removeActiveModalFtpUser);
+els.modalDefaultFtpUserButton.addEventListener('click', makeActiveModalFtpUserDefault);
+els.modalFtpUsername.addEventListener('input', () => {
+  els.modalFtpUsername.setCustomValidity('');
+  saveActiveModalFtpUser();
+  renderModalFtpUsers();
+});
+els.modalFtpPassword.addEventListener('input', () => {
+  els.modalFtpPassword.setCustomValidity('');
+  saveActiveModalFtpUser();
+});
 els.modalAuthTypeButton.addEventListener('click', () => {
   if (els.modalAuthTypeButton.getAttribute('aria-expanded') === 'true') closeModalAuthTypeMenu();
   else openModalAuthTypeMenu();
@@ -28624,7 +29020,6 @@ els.modalAuthType.addEventListener('change', () => {
   updateAuthFields();
   saveActiveModalSshUser();
 });
-els.modalFtpAuthType.addEventListener('change', updateFtpAuthFields);
 els.templateCommands.addEventListener('input', () => renderTemplateVariableSummary(els.templateCommands.value));
 els.runNeedsUpload.addEventListener('change', updateUploadFields);
 els.modalSelectKeyButton.addEventListener('click', async () => {

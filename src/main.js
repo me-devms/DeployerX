@@ -14,6 +14,7 @@ const { promisify } = require('util');
 const { autoUpdater } = require('electron-updater');
 const nodemailer = require('nodemailer');
 const { Client } = require('ssh2');
+const { Client: FtpClient } = require('basic-ftp');
 const { assertFirebaseConfig, sanitizeFirebaseConfigForRuntime, validateFirebaseConfig } = require('./firebase-config');
 const { ServerMonitoringSessionManager } = require('./server-monitoring/session-manager');
 const { DeployerXMcpServer } = require('./mcp-server');
@@ -187,6 +188,7 @@ const { migrateLegacyUptime } = require('./uptime-monitor/legacy-migration');
 const { buildUptimeReport, reportToCsv, uptimeReportHtml } = require('./uptime-monitor/reporting');
 const { ScheduledUptimeWorkerService, executeUptimeMonitorCheck } = require('./uptime-monitor/scheduled-worker');
 const { evaluateWorkerHeartbeat, workerHealthEvent } = require('./uptime-monitor/worker-health');
+const { selectDeployerXProcesses } = require('./process-lifecycle');
 const {
   buildLinuxAutostartEntry,
   buildLoginItemSettings,
@@ -258,7 +260,9 @@ const SESSION_DATA_PATH = path.join(os.tmpdir(), `DeployerX-session-${process.pi
 app.setPath('userData', APP_USER_DATA_PATH);
 app.setPath('sessionData', SESSION_DATA_PATH);
 if (process.platform === 'win32') app.setAppUserModelId('com.everythingx.deployerx');
-const requiresSingleInstanceLock = !isWorkerMode() && !isDatabaseManagerPackagedSmokeMode();
+// Development launches should create a fresh window for the current source tree.
+// Packaged app instances still retain their single-instance behavior.
+const requiresSingleInstanceLock = app.isPackaged && !isWorkerMode() && !isDatabaseManagerPackagedSmokeMode();
 const hasSingleInstanceLock = !requiresSingleInstanceLock || app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 if (requiresSingleInstanceLock && hasSingleInstanceLock) {
@@ -302,6 +306,9 @@ let uptimeWorkerLockOwnerId = '';
 let uptimeWorkerLockRenewTimer = null;
 let uptimeWorkerLaunchPromise = null;
 let uptimeWorkerLaunchError = '';
+let detachedUptimeWorkerPid = 0;
+let updateInstallRequested = false;
+let startupFailureHandled = false;
 let backupSecretStore = null;
 let backupAuditStore = null;
 let backupLogStore = null;
@@ -843,6 +850,148 @@ function syncUpdateState(nextState = {}, notify = true) {
 
 function isPortableWindowsBuild() {
   return process.platform === 'win32' && Boolean(process.env.PORTABLE_EXECUTABLE_FILE || process.env.PORTABLE_EXECUTABLE_DIR);
+}
+
+function parseWindowsProcessList(output) {
+  const raw = String(output || '').trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return (Array.isArray(parsed) ? parsed : [parsed]).map((record) => ({
+      pid: Number(record?.pid ?? record?.ProcessId ?? 0),
+      parentPid: Number(record?.parentPid ?? record?.ParentProcessId ?? 0),
+      name: String(record?.name ?? record?.Name ?? '').trim(),
+      executablePath: String(record?.executablePath ?? record?.ExecutablePath ?? '').trim(),
+      commandLine: String(record?.commandLine ?? record?.CommandLine ?? '').trim()
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function listWindowsDeployerXProcesses() {
+  if (process.platform !== 'win32') return [];
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$records = Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("DeployerX.exe", "electron.exe") } | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine',
+    '$records | ConvertTo-Json -Compress'
+  ].join('; ');
+  try {
+    const { stdout } = await execFileAsync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script
+    ], { windowsHide: true, timeout: 8000, maxBuffer: 4 * 1024 * 1024 });
+    return parseWindowsProcessList(stdout);
+  } catch (error) {
+    console.warn(`[process-lifecycle] Could not inspect running DeployerX processes: ${String(error?.message || error)}`);
+    return [];
+  }
+}
+
+async function terminateWindowsProcessTreeElevated(pid) {
+  const processId = Number(pid || 0);
+  const script = [
+    `$result = Start-Process -FilePath "$env:SystemRoot\\System32\\taskkill.exe" -ArgumentList @('/PID','${processId}','/T','/F') -Verb RunAs -WindowStyle Hidden -Wait -PassThru`,
+    'exit $result.ExitCode'
+  ].join('; ');
+  await execFileAsync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    script
+  ], { windowsHide: true, timeout: 60000, maxBuffer: 1024 * 1024 });
+  return true;
+}
+
+async function terminateProcessTree(pid, { allowElevation = false } = {}) {
+  const processId = Number(pid || 0);
+  if (!Number.isInteger(processId) || processId <= 0 || processId === process.pid) return false;
+  if (process.platform === 'win32') {
+    try {
+      await execFileAsync('taskkill.exe', ['/PID', String(processId), '/T', '/F'], {
+        windowsHide: true,
+        timeout: 8000,
+        maxBuffer: 1024 * 1024
+      });
+      return true;
+    } catch (error) {
+      const failure = String(error?.stderr || error?.message || error);
+      // A process may have exited between inspection and taskkill. Treat that
+      // race as successful cleanup so a stale PID cannot block startup.
+      if (/not found|no running instance|does not exist|cannot find/i.test(failure)) return true;
+      if (allowElevation && /access is denied/i.test(failure)) {
+        try {
+          return await terminateWindowsProcessTreeElevated(processId);
+        } catch (elevatedError) {
+          console.warn(`[process-lifecycle] Administrator cleanup was declined or failed for process ${processId}: ${String(elevatedError?.message || elevatedError)}`);
+          return false;
+        }
+      }
+      console.warn(`[process-lifecycle] Could not stop process ${processId}: ${String(error?.message || error)}`);
+      return false;
+    }
+  }
+  try {
+    process.kill(processId, 'SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cleanupDeployerXProcesses({ includeCurrentExecutable = false, allowElevation = false } = {}) {
+  const records = await listWindowsDeployerXProcesses();
+  const stale = selectDeployerXProcesses(records, {
+    currentPid: process.pid,
+    currentExecutablePath: process.execPath,
+    includeCurrentExecutable
+  });
+  const stopped = [];
+  for (const record of stale) {
+    if (await terminateProcessTree(record.pid, { allowElevation })) stopped.push(record.pid);
+  }
+  if (stopped.length) console.info(`[process-lifecycle] Stopped ${stopped.length} stale DeployerX process(es).`);
+  return stopped;
+}
+
+async function stopDetachedUptimeWorker({ force = false } = {}) {
+  if (isWorkerMode()) return [];
+  const workerPids = new Set();
+  if (detachedUptimeWorkerPid) workerPids.add(Number(detachedUptimeWorkerPid));
+  if (force) {
+    const runtimePid = Number(uptimeRuntimeCache?.worker?.pid || 0);
+    if (runtimePid) workerPids.add(runtimePid);
+  }
+  const stopped = [];
+  for (const pid of workerPids) {
+    if (await terminateProcessTree(pid)) stopped.push(pid);
+  }
+  detachedUptimeWorkerPid = 0;
+  uptimeWorkerLaunchPromise = null;
+  uptimeWorkerLaunchError = '';
+  return stopped;
+}
+
+async function prepareForUpdateInstall() {
+  updateInstallRequested = true;
+  await stopDetachedUptimeWorker({ force: true }).catch(() => {});
+  await cleanupDeployerXProcesses({ includeCurrentExecutable: true, allowElevation: true }).catch(() => {});
+}
+
+async function handleApplicationStartupFailure(error) {
+  if (startupFailureHandled) return;
+  startupFailureHandled = true;
+  isAppQuitting = true;
+  console.error(`[startup] DeployerX could not start: ${String(error?.stack || error?.message || error)}`);
+  await stopDetachedUptimeWorker({ force: true }).catch(() => {});
+  await cleanupDeployerXProcesses({ includeCurrentExecutable: true, allowElevation: true }).catch(() => {});
+  if (app.isReady()) app.quit();
 }
 
 function markUpdaterUnavailable(status, message) {
@@ -1510,7 +1659,11 @@ async function initializeBackupControlDatabase() {
         const store = await readCurrentStore();
         return (store.projects || []).find((project) => String(project.id) === String(projectId)) || null;
       },
-      sshConfigResolver: (project) => toConnectionConfig(project)
+      sshConfigResolver: (project) => {
+        const validationError = validateConnectionProject(project, { requireSsh: true });
+        if (validationError) throw new Error(validationError);
+        return toConnectionConfig(project);
+      }
     });
     databaseConnectionService = new DatabaseConnectionService({
       profileService: databaseProfileService,
@@ -5747,7 +5900,7 @@ function decryptMcpToken(tokenEncrypted) {
 function mcpTokenErrorMessage(error) {
   const message = String(error?.message || error || '');
   if (/decrypt|string.*ciphertext|ciphertext.*decrypt/i.test(message)) {
-    return 'The saved MCP credential is no longer available on this device. It will be refreshed automatically when you connect an agent.';
+    return 'The saved MCP credential could not be unlocked on this device. Rotate the token to create a new credential.';
   }
   return message || 'The MCP credential could not be read.';
 }
@@ -5801,13 +5954,8 @@ async function readPersistedMcpToken(config = {}) {
 }
 
 async function readOrCreatePersistedMcpToken(config = {}) {
-  try {
-    const persisted = await readPersistedMcpToken(config);
-    if (persisted.token) return { ...persisted, recovered: false };
-  } catch (error) {
-    if (!/decrypt|string.*ciphertext|ciphertext.*decrypt/i.test(String(error?.message || error || ''))) throw error;
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this device.');
-  }
+  const persisted = await readPersistedMcpToken(config);
+  if (persisted.token) return { ...persisted, recovered: false };
   const token = createMcpToken();
   const tokenEncrypted = await persistMcpToken(token);
   await writeMcpIntegrationSettings(normalizeMcpIntegration({
@@ -6583,12 +6731,12 @@ async function disconnectMcpIntegration() {
   const next = normalizeMcpIntegration({
     ...current,
     enabled: false,
-    tokenEncrypted: '',
+    // Keep the credential so disconnect/reconnect does not invalidate clients.
+    tokenEncrypted: current.tokenEncrypted,
     lastError: '',
     updatedAt: nowIso()
   });
   await writeMcpIntegrationSettings(next);
-  await fs.rm(getMcpTokenPath(), { force: true });
   await setMcpAutostartEnabled(false).catch(() => {});
   mcpClientRendererCache = null;
   return { ...await publicMcpIntegration(next), disconnected };
@@ -7398,7 +7546,11 @@ async function maybeStartDetachedUptimeWorker() {
         stdio: 'ignore'
       });
       child.once('error', reject);
+      child.once('exit', () => {
+        if (detachedUptimeWorkerPid === Number(child.pid || 0)) detachedUptimeWorkerPid = 0;
+      });
       child.once('spawn', () => {
+        detachedUptimeWorkerPid = Number(child.pid || 0);
         child.unref();
         resolve({ started: true, processId: child.pid });
       });
@@ -8046,10 +8198,24 @@ function createWindow(options = {}) {
       Promise.resolve(options.onReady(mainWindow)).catch(() => options.onFailure?.('DATABASE_MANAGER_PACKAGED_SMOKE_EXECUTION_FAILED'));
     }
   });
-  if (typeof options.onFailure === 'function') {
-    mainWindow.webContents.once('did-fail-load', () => options.onFailure('DATABASE_MANAGER_PACKAGED_SMOKE_LOAD_FAILED'));
-  }
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3 || isAppQuitting) return;
+    const failureCode = options.onFailure ? 'DATABASE_MANAGER_PACKAGED_SMOKE_LOAD_FAILED' : 'RENDERER_LOAD_FAILED';
+    options.onFailure?.(failureCode);
+    if (!options.onFailure) {
+      handleApplicationStartupFailure(new Error(
+        `The DeployerX window could not load (${errorCode}): ${errorDescription || validatedURL || 'unknown renderer error'}`
+      ));
+    }
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details = {}) => {
+    if (isAppQuitting) return;
+    const reason = String(details.reason || 'unknown renderer failure');
+    handleApplicationStartupFailure(new Error(`The DeployerX renderer stopped unexpectedly: ${reason}.`));
+  });
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html')).catch((error) => {
+    handleApplicationStartupFailure(error);
+  });
 }
 
 function toConnectionConfig(project) {
@@ -8420,7 +8586,7 @@ function normalizedConnectionPort(value, fallback = 0) {
 
 function isPlainFtpPort(value) {
   const port = normalizedConnectionPort(value, 0);
-  return port === 21 || port === 990;
+  return port === 21;
 }
 
 function toFtpConnectionConfig(project) {
@@ -8435,27 +8601,37 @@ function toFtpConnectionConfig(project) {
   const hasSshPassword = String(ssh.password || '').trim() !== '';
   let authType = ssh.authType || 'password';
 
-  if (!plainFtpEndpoint) {
-    if (ftp.authType === 'key') authType = hasFtpKey || hasSshKey ? 'key' : hasSshPassword ? 'password' : 'key';
-    else if (ftp.authType === 'password') authType = hasFtpPassword || hasSshPassword ? 'password' : hasSshKey ? 'key' : 'password';
-    else if (hasFtpKey) authType = 'key';
-    else if (hasFtpPassword) authType = 'password';
+  if (plainFtpEndpoint) {
+    return {
+      protocol: 'ftp',
+      host: String(ftp.host || '').trim(),
+      port: ftpPort || 21,
+      user: String(ftp.username || '').trim(),
+      password: String(ftp.password || ''),
+      secure: false
+    };
   }
 
+  if (ftp.authType === 'key') authType = hasFtpKey || hasSshKey ? 'key' : hasSshPassword ? 'password' : 'key';
+  else if (ftp.authType === 'password') authType = hasFtpPassword || hasSshPassword ? 'password' : hasSshKey ? 'key' : 'password';
+  else if (hasFtpKey) authType = 'key';
+  else if (hasFtpPassword) authType = 'password';
+
   const config = {
-    host: plainFtpEndpoint ? ssh.host : (ftp.host || ssh.host),
-    port: plainFtpEndpoint ? sshPort : (ftpPort || sshPort || 22),
-    username: plainFtpEndpoint ? ssh.username : (ftp.username || ssh.username),
+    protocol: 'sftp',
+    host: ftp.host || ssh.host,
+    port: ftpPort || sshPort || 22,
+    username: ftp.username || ssh.username,
     readyTimeout: Number(ssh.timeout || 20000)
   };
 
   if (authType === 'key') {
-    config.privateKey = plainFtpEndpoint ? ssh.privateKey : (ftp.privateKey || ssh.privateKey);
-    if (plainFtpEndpoint ? ssh.passphrase : (ftp.passphrase || ssh.passphrase)) {
-      config.passphrase = plainFtpEndpoint ? ssh.passphrase : (ftp.passphrase || ssh.passphrase);
+    config.privateKey = ftp.privateKey || ssh.privateKey;
+    if (ftp.passphrase || ssh.passphrase) {
+      config.passphrase = ftp.passphrase || ssh.passphrase;
     }
   } else {
-    config.password = plainFtpEndpoint ? ssh.password : (ftp.password || ssh.password);
+    config.password = ftp.password || ssh.password;
   }
 
   return config;
@@ -8464,28 +8640,18 @@ function toFtpConnectionConfig(project) {
 function normalizeFtpConnectionError(error, project, config = {}) {
   const message = String(error?.message || '').trim();
   const handshakeTimeout = error?.level === 'client-timeout' || /timed out while waiting for handshake/i.test(message);
-  const configuredPlainFtpPort = isPlainFtpPort(project?.ftp?.port);
-  if (!handshakeTimeout && !configuredPlainFtpPort) return error;
+  if (!handshakeTimeout) return error;
 
   const host = String(config.host || project?.ssh?.host || project?.ftp?.host || '').trim();
   const port = normalizedConnectionPort(config.port, 22) || 22;
-  if (configuredPlainFtpPort) {
-    return Object.assign(
-      new Error(`DeployerX file browsing uses SFTP over SSH, not plain FTP. Connect to the SSH/SFTP service at ${host || 'your server'}:${port} or clear the FTP host/port to reuse the SSH settings.`),
-      { code: 'FTP_REQUIRES_SFTP', cause: error }
-    );
-  }
-  if (handshakeTimeout) {
-    return Object.assign(
-      new Error(`Could not reach the SSH/SFTP service at ${host || 'the saved server'}:${port}. Check that SSH is reachable and that the saved file-transfer endpoint is an SFTP server.`),
-      { code: 'SFTP_CONNECTION_TIMEOUT', cause: error }
-    );
-  }
-  return error;
+  return Object.assign(
+    new Error(`Could not reach the SSH/SFTP service at ${host || 'the saved server'}:${port}. Check that SSH is reachable and that the saved file-transfer endpoint is an SFTP server.`),
+    { code: 'SFTP_CONNECTION_TIMEOUT', cause: error }
+  );
 }
 
 function validateProject(project) {
-  const connectionError = validateConnectionProject(project);
+  const connectionError = validateConnectionProject(project, { requireSsh: true });
   if (connectionError) return connectionError;
   if (!Array.isArray(project.commands) || project.commands.length === 0) {
     return 'At least one command is required.';
@@ -8493,7 +8659,28 @@ function validateProject(project) {
   return null;
 }
 
-function validateConnectionProject(project) {
+function projectHasSshDetails(project = {}) {
+  const ssh = project.ssh || {};
+  const users = Array.isArray(ssh.users) ? ssh.users : [];
+  return Boolean(
+    String(ssh.host || '').trim()
+    || String(ssh.password || '').length
+    || String(ssh.privateKey || '').trim()
+    || String(ssh.passphrase || '').length
+    || ssh.authType === 'key'
+    || users.length > 1
+    || !['', 'root'].includes(String(ssh.username || '').trim().toLowerCase())
+  );
+}
+
+function projectHasFtpDetails(project = {}) {
+  const ftp = project.ftp || {};
+  return ['host', 'username', 'authType', 'password', 'privateKey', 'passphrase'].some(
+    (field) => String(ftp[field] || '').trim() !== ''
+  );
+}
+
+function validateConnectionProject(project, { requireSsh = false } = {}) {
   const proxyError = projectProxyValidationError(project);
   if (proxyError) return proxyError;
   if (['vnc', 'rdp'].includes(project?.serverType)) {
@@ -8506,11 +8693,29 @@ function validateConnectionProject(project) {
     return null;
   }
   const ssh = project.ssh || {};
+  const ftp = project.ftp || {};
+  const hasSsh = projectHasSshDetails(project);
+  const hasFtp = projectHasFtpDetails(project);
   if (!project.name) return 'Server Name is required.';
+  if (requireSsh && !hasSsh) return 'This feature requires an SSH connection for the server.';
+  if (!hasSsh && !hasFtp) return 'Configure an SSH or FTP connection for the server.';
+  if (!hasSsh) {
+    if (!ftp.host) return 'FTP host is required for an FTP-only server.';
+    if (!ftp.username) return 'FTP username is required for an FTP-only server.';
+    const ftpAuthType = ftp.authType === 'key' ? 'key' : ftp.authType === 'password' ? 'password' : ftp.privateKey ? 'key' : ftp.password ? 'password' : '';
+    if (!ftpAuthType) return 'FTP authentication is required for an FTP-only server.';
+    if (isPlainFtpPort(ftp.port) && ftpAuthType !== 'password') return 'Plain FTP requires password authentication.';
+    if (ftpAuthType === 'key' && !ftp.privateKey) return 'FTP private key is required.';
+    if (ftpAuthType !== 'key' && !ftp.password) return 'FTP password is required.';
+    return null;
+  }
   if (!ssh.host) return 'Server host is required.';
   if (!ssh.username) return 'SSH username is required.';
   if (ssh.authType === 'key' && !ssh.privateKey) return 'SSH private key is required.';
   if (ssh.authType !== 'key' && !ssh.password) return 'SSH password is required.';
+  if (hasFtp && ftp.authType === 'key' && !ftp.privateKey) return 'FTP private key is required.';
+  if (hasFtp && isPlainFtpPort(ftp.port) && ftp.authType !== 'password') return 'Plain FTP requires password authentication.';
+  if (hasFtp && ftp.authType === 'password' && !ftp.password) return 'FTP password is required.';
   return null;
 }
 
@@ -8564,6 +8769,46 @@ function normalizeProjectSsh(ssh = {}) {
   };
 }
 
+function normalizeProjectFtp(ftp = {}) {
+  const sourceUsers = Array.isArray(ftp.users) && ftp.users.length
+    ? ftp.users
+    : [{
+        id: ftp.defaultUserId || 'ftp-user-1',
+        username: ftp.username || '',
+        authType: ftp.authType || '',
+        password: ftp.password || '',
+        privateKey: ftp.privateKey || '',
+        passphrase: ftp.passphrase || ''
+      }];
+  const usedIds = new Set();
+  const users = sourceUsers.map((user = {}, index) => {
+    let id = String(user.id || `ftp-user-${index + 1}`).trim() || `ftp-user-${index + 1}`;
+    while (usedIds.has(id)) id = `${id}-${index + 1}`;
+    usedIds.add(id);
+    return {
+      id,
+      username: String(user.username || '').trim(),
+      authType: user.authType === 'key' ? 'key' : user.authType === 'password' ? 'password' : user.privateKey ? 'key' : user.password ? 'password' : '',
+      password: String(user.password || ''),
+      privateKey: String(user.privateKey || ''),
+      passphrase: String(user.passphrase || '')
+    };
+  });
+  const requestedDefaultId = String(ftp.defaultUserId || '').trim();
+  const defaultUser = users.find((user) => user.id === requestedDefaultId) || users[0];
+  return {
+    host: String(ftp.host || '').trim(),
+    port: ftp.port === '' || ftp.port == null ? '' : Number(ftp.port || 22),
+    username: defaultUser.username,
+    authType: defaultUser.authType,
+    password: defaultUser.password,
+    privateKey: defaultUser.privateKey,
+    passphrase: defaultUser.passphrase,
+    users,
+    defaultUserId: defaultUser.id
+  };
+}
+
 function normalizeProjectImport(project) {
   const commands = Array.isArray(project?.commands)
     ? project.commands.map((command) => String(command)).filter((command) => command.trim())
@@ -8604,15 +8849,7 @@ function normalizeProjectImport(project) {
       username: vnc.username || '',
       password: vnc.password || ''
     },
-    ftp: {
-      host: ftp.host || '',
-      port: ftp.port === '' || ftp.port == null ? '' : Number(ftp.port || 22),
-      username: ftp.username || '',
-      authType: ftp.authType || '',
-      password: ftp.password || '',
-      privateKey: ftp.privateKey || '',
-      passphrase: ftp.passphrase || ''
-    },
+    ftp: normalizeProjectFtp(ftp),
     updatedAt: new Date().toISOString()
   };
 }
@@ -8926,7 +9163,7 @@ function appendMcpCommandOutput(chunks, data, currentBytes) {
 }
 
 async function executeManagedMcpSshCommand(project, command, timeoutMs, { onOutput } = {}) {
-  const validationError = validateConnectionProject(project);
+  const validationError = validateConnectionProject(project, { requireSsh: true });
   if (validationError) throw new Error(validationError);
   const { connection, reused, terminalSessionId } = await managedMcpSshConnection(project);
   const sessionId = `mcp-${Date.now()}-${crypto.randomUUID()}`;
@@ -9001,7 +9238,7 @@ function quoteTerminalShellPath(remotePath) {
 }
 
 async function startTerminal(project, sessionId, size = {}) {
-  const validationError = validateConnectionProject(project);
+  const validationError = validateConnectionProject(project, { requireSsh: true });
   if (validationError) throw new Error(validationError);
 
   const connection = new Client();
@@ -9489,11 +9726,27 @@ async function deleteRemotePath(sftp, remotePath, entryType) {
 
 function ftpSessionOrThrow(sessionId) {
   const session = activeFtpSessions.get(sessionId);
-  if (!session || !session.sftp) throw new Error('FTP session is not connected.');
+  if (!session || (!session.sftp && !session.ftp)) throw new Error('FTP session is not connected.');
   return session;
 }
 
-function connectFtp(project, sessionId) {
+async function connectPlainFtp(project, sessionId) {
+  const validationError = validateConnectionProject(project);
+  if (validationError) throw new Error(validationError);
+  const ftp = new FtpClient(20000);
+  const config = toFtpConnectionConfig(project);
+  activeFtpSessions.set(sessionId, { ftp, sftp: null, connection: null, networkAccess: null });
+  try {
+    await ftp.access(config);
+    return { sessionId, path: '/' };
+  } catch (error) {
+    ftp.close();
+    activeFtpSessions.delete(sessionId);
+    throw error;
+  }
+}
+
+function connectSftp(project, sessionId) {
   const validationError = validateConnectionProject(project);
   if (validationError) throw new Error(validationError);
 
@@ -9538,9 +9791,34 @@ function connectFtp(project, sessionId) {
   })();
 }
 
+function connectFtp(project, sessionId) {
+  return isPlainFtpPort(project?.ftp?.port)
+    ? connectPlainFtp(project, sessionId)
+    : connectSftp(project, sessionId);
+}
+
 async function listFtpDirectory(sessionId, remotePath = '/') {
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
   const normalizedPath = normalizeRemotePath(remotePath);
+  if (session.ftp) {
+    const items = await session.ftp.list(normalizedPath);
+    return {
+      path: normalizedPath,
+      parentPath: parentRemotePath(normalizedPath),
+      items: items.map((item) => ({
+        name: item.name,
+        path: joinRemotePath(normalizedPath, item.name),
+        type: item.isDirectory ? 'directory' : 'file',
+        size: Number(item.size || 0),
+        modifiedAt: item.modifiedAt instanceof Date ? item.modifiedAt.toISOString() : '',
+        mode: ''
+      })).sort((left, right) => {
+        if (left.type !== right.type) return left.type === 'directory' ? -1 : 1;
+        return left.name.localeCompare(right.name);
+      })
+    };
+  }
+  const { sftp } = session;
   const items = await sftpReaddir(sftp, normalizedPath);
   return {
     path: normalizedPath,
@@ -9566,9 +9844,17 @@ async function listFtpDirectory(sessionId, remotePath = '/') {
 }
 
 async function uploadFtpFile(sessionId, localPath, remoteDirectory) {
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
   const fileName = path.basename(localPath || '');
   if (!fileName) throw new Error('Choose a local file to upload.');
+  if (session.ftp) {
+    const remotePath = joinRemotePath(remoteDirectory || '.', fileName);
+    const stats = await fs.stat(localPath);
+    if (stats.isDirectory()) await session.ftp.uploadFromDir(localPath, remotePath);
+    else await session.ftp.uploadFrom(localPath, remotePath);
+    return { remotePath };
+  }
+  const { sftp } = session;
   const remotePath = await uploadLocalPath(sftp, localPath, remoteDirectory || '.');
   return { remotePath };
 }
@@ -9799,14 +10085,26 @@ function cancelTerminalUpload(sessionId) {
 }
 
 async function downloadFtpFile(sessionId, remotePath, localPath) {
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
+  if (session.ftp) {
+    await session.ftp.downloadTo(localPath, normalizeRemotePath(remotePath));
+    return { localPath };
+  }
+  const { sftp } = session;
   await sftpFastGet(sftp, normalizeRemotePath(remotePath), localPath);
   return { localPath };
 }
 
 async function downloadFtpEntryToDirectory(sessionId, entry, localDirectory) {
   if (!entry?.path) throw new Error('Choose a server item to download.');
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
+  if (session.ftp) {
+    const target = path.join(normalizeLocalPath(localDirectory), remoteBaseName(entry.path) || 'download');
+    if (entry.type === 'directory') await session.ftp.downloadToDir(target, normalizeRemotePath(entry.path));
+    else await session.ftp.downloadTo(target, normalizeRemotePath(entry.path));
+    return { localPath: target };
+  }
+  const { sftp } = session;
   const localPath = await downloadRemotePath(sftp, normalizeRemotePath(entry.path), entry.type, localDirectory);
   return { localPath };
 }
@@ -9814,26 +10112,45 @@ async function downloadFtpEntryToDirectory(sessionId, entry, localDirectory) {
 async function makeFtpDirectory(sessionId, remoteDirectory, folderName) {
   const name = assertPlainFileName(folderName, 'Enter a folder name.');
   const remotePath = joinRemotePath(remoteDirectory || '.', name);
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
+  if (session.ftp) {
+    await session.ftp.ensureDir(remotePath);
+    return { remotePath };
+  }
+  const { sftp } = session;
   await sftpMkdir(sftp, remotePath);
   return { remotePath };
 }
 
 async function renameFtpEntry(sessionId, entry, nextName) {
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
   const remotePath = normalizeRemotePath(entry?.path);
   if (!remotePath || remotePath === '.' || remotePath === '/') throw new Error('Choose a file or folder to rename.');
   const name = assertPlainFileName(nextName);
   const nextPath = joinRemotePath(parentRemotePath(remotePath), name);
+  if (session.ftp) {
+    await session.ftp.rename(remotePath, nextPath);
+    return { remotePath: nextPath };
+  }
+  const { sftp } = session;
   await sftpRename(sftp, remotePath, nextPath);
   return { remotePath: nextPath };
 }
 
 async function openFtpEntry(sessionId, entry) {
   if (!entry?.path) throw new Error('Choose a server item to open.');
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
   const tempRoot = path.join(app.getPath('temp'), 'DeployerX', 'ftp-open', String(sessionId));
   await fs.mkdir(tempRoot, { recursive: true });
+  if (session.ftp) {
+    const localPath = path.join(tempRoot, remoteBaseName(entry.path) || 'download');
+    if (entry.type === 'directory') await session.ftp.downloadToDir(localPath, normalizeRemotePath(entry.path));
+    else await session.ftp.downloadTo(localPath, normalizeRemotePath(entry.path));
+    const result = await shell.openPath(localPath);
+    if (result) throw new Error(result);
+    return { localPath };
+  }
+  const { sftp } = session;
   const localPath = await downloadRemotePath(sftp, normalizeRemotePath(entry.path), entry.type, tempRoot);
   const result = await shell.openPath(localPath);
   if (result) throw new Error(result);
@@ -9842,9 +10159,23 @@ async function openFtpEntry(sessionId, entry) {
 
 async function openFtpEntryWith(sessionId, entry) {
   if (!entry?.path) throw new Error('Choose a server item to open.');
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
   const tempRoot = path.join(app.getPath('temp'), 'DeployerX', 'ftp-open', String(sessionId));
   await fs.mkdir(tempRoot, { recursive: true });
+  if (session.ftp) {
+    const localPath = path.join(tempRoot, remoteBaseName(entry.path) || 'download');
+    if (entry.type === 'directory') await session.ftp.downloadToDir(localPath, normalizeRemotePath(entry.path));
+    else await session.ftp.downloadTo(localPath, normalizeRemotePath(entry.path));
+    if (process.platform === 'win32') {
+      const child = execFile('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', localPath], { detached: true, windowsHide: false });
+      child.unref();
+      return { localPath };
+    }
+    const result = await shell.openPath(localPath);
+    if (result) throw new Error(result);
+    return { localPath };
+  }
+  const { sftp } = session;
   const localPath = await downloadRemotePath(sftp, normalizeRemotePath(entry.path), entry.type, tempRoot);
   if (process.platform === 'win32') {
     const child = execFile('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', localPath], {
@@ -9860,9 +10191,15 @@ async function openFtpEntryWith(sessionId, entry) {
 }
 
 async function deleteFtpEntry(sessionId, entry) {
-  const { sftp } = ftpSessionOrThrow(sessionId);
+  const session = ftpSessionOrThrow(sessionId);
   const remotePath = normalizeRemotePath(entry?.path);
   if (!remotePath || remotePath === '.' || remotePath === '/') throw new Error('Choose a file or folder to delete.');
+  if (session.ftp) {
+    if (entry?.type === 'directory') await session.ftp.removeDir(remotePath);
+    else await session.ftp.remove(remotePath);
+    return true;
+  }
+  const { sftp } = session;
   await deleteRemotePath(sftp, remotePath, entry?.type);
   return true;
 }
@@ -9870,7 +10207,8 @@ async function deleteFtpEntry(sessionId, entry) {
 function disconnectFtp(sessionId) {
   const session = activeFtpSessions.get(sessionId);
   if (!session) return false;
-  session.connection.end();
+  if (session.ftp) session.ftp.close();
+  else session.connection?.end();
   activeFtpSessions.delete(sessionId);
   session.networkAccess?.release().catch(() => {});
   return true;
@@ -9919,6 +10257,7 @@ function emergencyStop() {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
+  await cleanupDeployerXProcesses({ allowElevation: true }).catch(() => {});
   listMcpClientsForRenderer().catch(() => {});
   await ensureStore();
   await ensureUptimeRoot();
@@ -9973,7 +10312,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     showMainWindow();
   });
-});
+}).catch(handleApplicationStartupFailure);
 
 app.on('window-all-closed', () => {
   // The tray owns the application lifetime. Quit is explicit from its menu.
@@ -9981,6 +10320,10 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isAppQuitting = true;
+  if (updateInstallRequested || startupFailureHandled || updateState.status === 'downloaded') {
+    stopDetachedUptimeWorker({ force: true }).catch(() => {});
+    cleanupDeployerXProcesses({ includeCurrentExecutable: true }).catch(() => {});
+  }
   serverMonitoringSessionManager.stopAll();
   rdpSessionManager?.closeAll().catch(() => {});
   vncSessionManager?.closeAll().catch(() => {});
@@ -13149,7 +13492,11 @@ ipcMain.handle('app:update-install', async () => {
   if (updateState.status !== 'downloaded') {
     throw new Error('There is no downloaded update ready to install yet.');
   }
-  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  setImmediate(() => {
+    prepareForUpdateInstall()
+      .then(() => autoUpdater.quitAndInstall(false, true))
+      .catch(handleApplicationStartupFailure);
+  });
   return true;
 });
 
@@ -13933,7 +14280,7 @@ ipcMain.handle('terminal:start', async (_event, payload) => {
 ipcMain.handle('server-monitoring:start', async (_event, payload = {}) => {
   const project = payload.project || {};
   if (['vnc', 'rdp'].includes(project.serverType)) throw new Error('Real-time monitoring currently requires an SSH-capable server.');
-  const validationError = validateConnectionProject(project);
+  const validationError = validateConnectionProject(project, { requireSsh: true });
   if (validationError) throw new Error(validationError);
   const sessionId = String(payload.sessionId || `${Date.now()}-${crypto.randomUUID()}`);
   return serverMonitoringSessionManager.start({

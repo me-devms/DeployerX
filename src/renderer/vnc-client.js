@@ -34,12 +34,16 @@ class VncClient {
     this.connectionTimer = null;
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handlePaste = this.handlePaste.bind(this);
+    this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.lastClipboardText = '';
+    this.hasSyncedLocalClipboard = false;
   }
 
   async connect({ proxyUrl, username = '', password = '' }) {
     this.disconnect();
     this.manualDisconnect = false;
     this.failureMessage = '';
+    this.hasSyncedLocalClipboard = false;
     this.target.replaceChildren();
     const rfb = new RFB(this.target, proxyUrl, {
       credentials: { username, password },
@@ -55,7 +59,10 @@ class VncClient {
     rfb.addEventListener('credentialsrequired', () => rfb.sendCredentials({ username, password }));
     rfb.addEventListener('clipboard', (event) => {
       try {
-        this.writeClipboard?.(event.detail?.text || '');
+        const text = event.detail?.text || '';
+        this.lastClipboardText = text;
+        this.hasSyncedLocalClipboard = true;
+        this.writeClipboard?.(text);
       } catch {}
     });
     rfb.addEventListener('securityfailure', (event) => {
@@ -77,6 +84,7 @@ class VncClient {
     rfb.addEventListener('connect', () => {
       if (this.rfb !== rfb) return;
       this.clearConnectionTimer();
+      this.syncLocalClipboard();
       this.onConnected?.();
     });
     rfb.addEventListener('disconnect', (event) => {
@@ -93,6 +101,7 @@ class VncClient {
     });
     window.addEventListener('keydown', this.handleKeyDown, true);
     this.target.addEventListener('paste', this.handlePaste);
+    this.target.addEventListener('mousedown', this.handleMouseDown, true);
     this.connectionTimer = setTimeout(() => {
       this.fail('The VNC handshake timed out. Verify this port is running TightVNC Server and that its authentication mode is enabled.');
     }, VNC_HANDSHAKE_TIMEOUT_MS);
@@ -100,14 +109,35 @@ class VncClient {
   }
 
   handleKeyDown(event) {
+    const remoteFocused = this.target === document.activeElement || this.target.contains(document.activeElement);
+    if (remoteFocused && (event.ctrlKey || event.metaKey) && event.code === 'KeyV') this.syncLocalClipboard();
     if (event.key !== 'Escape' || !this.onEscape?.()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }
 
+  syncLocalClipboard() {
+    if (!this.rfb || typeof this.readClipboard !== 'function') return;
+    let text;
+    try { text = this.readClipboard(); } catch { return; }
+    if (typeof text !== 'string') return;
+    if (this.hasSyncedLocalClipboard && text === this.lastClipboardText) return;
+    this.lastClipboardText = text;
+    this.hasSyncedLocalClipboard = true;
+    this.rfb.clipboardPasteFrom(text);
+  }
+
   handlePaste(event) {
     const text = event.clipboardData?.getData('text/plain') || '';
-    if (text && this.rfb) this.rfb.clipboardPasteFrom(text);
+    if (!text || !this.rfb) return;
+    if (this.hasSyncedLocalClipboard && text === this.lastClipboardText) return;
+    this.lastClipboardText = text;
+    this.hasSyncedLocalClipboard = true;
+    this.rfb.clipboardPasteFrom(text);
+  }
+
+  handleMouseDown(event) {
+    if (event.button === 2) this.syncLocalClipboard();
   }
 
   resize() {
@@ -124,7 +154,9 @@ class VncClient {
     const { width, height } = this.framebufferSize;
     const nextDisplays = resolveVncDisplays(this.screenLayout, width, height);
     const selectedStillExists = nextDisplays.some((display) => display.id === this.selectedDisplayId);
-    if (this.selectedDisplayId !== 'all' && !selectedStillExists) this.selectedDisplayId = 'all';
+    if (nextDisplays.length && (!selectedStillExists || this.selectedDisplayId === 'all')) {
+      this.selectedDisplayId = nextDisplays[0].id;
+    }
     this.displays = nextDisplays;
     this.applyDisplaySelection();
     this.onDisplaysChanged?.(this.displays.map((display) => ({ ...display })), this.selectedDisplayId);
@@ -162,6 +194,7 @@ class VncClient {
   removeInputListeners() {
     window.removeEventListener('keydown', this.handleKeyDown, true);
     this.target.removeEventListener('paste', this.handlePaste);
+    this.target.removeEventListener('mousedown', this.handleMouseDown, true);
   }
 
   clearConnectionTimer() {

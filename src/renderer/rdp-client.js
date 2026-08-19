@@ -233,14 +233,27 @@ class IronRdpCanvasClient {
     this.session.applyInputs(transaction);
   }
 
-  async syncLocalClipboard() {
+  sendPasteShortcut() {
     if (!this.session) return;
+    const transaction = new InputTransaction();
+    transaction.addEvent(DeviceEvent.keyPressed(SCANCODES.ControlLeft));
+    transaction.addEvent(DeviceEvent.keyPressed(SCANCODES.KeyV));
+    transaction.addEvent(DeviceEvent.keyReleased(SCANCODES.KeyV));
+    transaction.addEvent(DeviceEvent.keyReleased(SCANCODES.ControlLeft));
+    this.session.applyInputs(transaction);
+  }
+
+  async syncLocalClipboard() {
+    if (!this.session) return false;
     try {
-      const text = await this.readClipboard();
+      const text = this.readClipboard();
       const clipboard = new ClipboardData();
       if (text) clipboard.addText('text/plain', text);
       await this.session.onClipboardPaste(clipboard);
-    } catch {}
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   attachInput() {
@@ -273,7 +286,12 @@ class IronRdpCanvasClient {
       }
       event.preventDefault();
       event.stopPropagation();
-      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') this.syncLocalClipboard();
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') {
+        // RDP reads clipboard data asynchronously; queue the paste key until the
+        // server has received it, otherwise Windows can paste stale clipboard data.
+        this.syncLocalClipboard().then(() => this.sendPasteShortcut());
+        return;
+      }
       const scancode = SCANCODES[event.code];
       if (scancode !== undefined) this.sendInput(DeviceEvent.keyPressed(scancode));
     });
@@ -300,6 +318,7 @@ class IronRdpCanvasClient {
     listen('mousedown', (event) => {
       event.preventDefault();
       canvas.focus();
+      if (event.button === 2) this.syncLocalClipboard();
       flushMouseMove();
       this.sendInput(DeviceEvent.mouseButtonPressed(event.button));
     });

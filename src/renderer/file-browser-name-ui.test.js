@@ -10,5 +10,6 @@ test('preserves exact file and folder name casing in browser rows', () => {
   assert.match(renderer, /<span class="ftp-name">[\s\S]*?<strong>\$\{escapeHtml\(entry\.name\)\}<\/strong>/);
   assert.match(renderer, /<span class="ssh-directory-name">[\s\S]*?<strong>\$\{escapeHtml\(entry\.name\)\}<\/strong>/);
   assert.match(styles, /\.ftp-row\s*\{[\s\S]*?text-transform: none;/);
+  assert.match(styles, /\.ftp-row\[data-entry-type="directory"\]\s*\{[\s\S]*?cursor: pointer;/);
   assert.match(styles, /\.ssh-directory-row\s*\{[\s\S]*?text-transform: none;/);
 });

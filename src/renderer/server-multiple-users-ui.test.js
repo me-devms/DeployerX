@@ -43,7 +43,33 @@ test('normalizes legacy and multiple SSH users while mirroring the default user'
   assert.equal(multiple.privateKey, 'private-key');
 });
 
-test('reuses SSH endpoint details when the file browser is pointed at a plain FTP port', async () => {
+test('normalizes legacy and multiple FTP users while mirroring the default user', async () => {
+  const main = await fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const source = readFunction(main, 'normalizeProjectFtp');
+  const normalizeProjectFtp = vm.runInNewContext(`(${source})`);
+
+  const legacy = normalizeProjectFtp({ host: 'files.example.test', username: 'deploy', password: 'secret' });
+  assert.equal(legacy.users.length, 1);
+  assert.equal(legacy.users[0].username, 'deploy');
+  assert.equal(legacy.defaultUserId, legacy.users[0].id);
+  assert.equal(legacy.password, 'secret');
+
+  const multiple = normalizeProjectFtp({
+    host: 'files.example.test',
+    users: [
+      { id: 'deploy-user', username: 'deploy', authType: 'password', password: 'deploy-secret' },
+      { id: 'release-user', username: 'release', authType: 'key', privateKey: 'private-key' }
+    ],
+    defaultUserId: 'release-user'
+  });
+  assert.equal(multiple.users.length, 2);
+  assert.equal(multiple.defaultUserId, 'release-user');
+  assert.equal(multiple.username, 'release');
+  assert.equal(multiple.authType, 'key');
+  assert.equal(multiple.privateKey, 'private-key');
+});
+
+test('uses direct FTP credentials for port 21 and SSH credentials for SFTP', async () => {
   const main = await fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
   const source = `${readFunction(main, 'normalizedConnectionPort')}\n${readFunction(main, 'isPlainFtpPort')}\n${readFunction(main, 'toFtpConnectionConfig')}\nthis.toFtpConnectionConfig = toFtpConnectionConfig;`;
   const context = {};
@@ -68,10 +94,50 @@ test('reuses SSH endpoint details when the file browser is pointed at a plain FT
     }
   });
 
-  assert.equal(config.host, 'ssh.example.test');
-  assert.equal(config.port, 22);
-  assert.equal(config.username, 'root');
-  assert.equal(config.password, 'ssh-secret');
+  assert.equal(config.protocol, 'ftp');
+  assert.equal(config.host, 'ftp.example.test');
+  assert.equal(config.port, 21);
+  assert.equal(config.user, 'ftp-user');
+  assert.equal(config.password, 'ftp-secret');
+
+  const ftpOnlyConfig = toFtpConnectionConfig({
+    ssh: {},
+    ftp: {
+      host: 'files.example.test',
+      port: 22,
+      username: 'ftp-only-user',
+      authType: 'password',
+      password: 'ftp-only-secret'
+    }
+  });
+  assert.equal(ftpOnlyConfig.host, 'files.example.test');
+  assert.equal(ftpOnlyConfig.protocol, 'sftp');
+  assert.equal(ftpOnlyConfig.port, 22);
+  assert.equal(ftpOnlyConfig.username, 'ftp-only-user');
+  assert.equal(ftpOnlyConfig.password, 'ftp-only-secret');
+});
+
+test('accepts FTP-only connections while keeping SSH operations gated', async () => {
+  const main = await fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const source = [
+    readFunction(main, 'normalizedConnectionPort'),
+    readFunction(main, 'isPlainFtpPort'),
+    readFunction(main, 'projectHasSshDetails'),
+    readFunction(main, 'projectHasFtpDetails'),
+    readFunction(main, 'validateConnectionProject'),
+    'this.validateConnectionProject = validateConnectionProject;'
+  ].join('\n');
+  const context = { projectProxyValidationError: () => null };
+  vm.runInNewContext(source, context);
+
+  const ftpOnly = {
+    name: 'FTP-only server',
+    ssh: {},
+    ftp: { host: 'files.example.test', username: 'ftp-user', authType: 'password', password: 'secret' }
+  };
+  assert.equal(context.validateConnectionProject(ftpOnly), null);
+  assert.match(context.validateConnectionProject(ftpOnly, { requireSsh: true }), /requires an SSH connection/);
+  assert.match(context.validateConnectionProject({ name: 'Empty server', ssh: {}, ftp: {} }), /SSH or FTP connection/);
 });
 
 test('wires the responsive SSH user editor and validation controls', async () => {
@@ -113,20 +179,21 @@ test('keeps the Add Server command template menu inside the modal', async () => 
   assert.match(renderer, /function dropdownVerticalSpace\(trigger[\s\S]*trigger\.closest\('\.modal-body'\)[\s\S]*spaceBelow[\s\S]*spaceAbove/);
   assert.match(renderer, /function openModalTemplateMenu\(\)[\s\S]*dropdownVerticalSpace\(els\.modalTemplateButton\)[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
   assert.match(renderer, /function openModalServerTypeMenu\(\)[\s\S]*dropdownVerticalSpace\(els\.modalServerTypeButton\)[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
-  assert.match(renderer, /function openModalProjectGroupMenu\(\)[\s\S]*desiredMenuHeight[\s\S]*dropdownVerticalSpace\(els\.modalProjectGroupButton\)[\s\S]*spaceBelow < desiredMenuHeight && spaceAbove > spaceBelow[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
+  assert.match(renderer, /function positionModalProjectGroupMenu\(\)[\s\S]*desiredMenuHeight[\s\S]*spaceBelow < desiredMenuHeight && spaceAbove > spaceBelow[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
   assert.match(renderer, /function openUptimeMonitorTypeMenu\(\)[\s\S]*dropdownVerticalSpace\(els\.uptimeMonitorTypeButton\)[\s\S]*classList\.toggle\('opens-up', opensUp\)/);
   assert.match(renderer, /--template-menu-space/);
   assert.match(styles, /\.modal-template-switcher \.workspace-switcher-menu\.opens-up\s*\{[\s\S]*bottom: calc\(100% \+ 6px\)/);
   assert.match(styles, /\.group-switcher \.workspace-switcher-menu\.opens-up\s*\{[\s\S]*bottom: calc\(100% \+ 6px\)/);
-  assert.match(styles, /max-height: min\(210px, var\(--group-menu-space, 210px\)\)/);
+  assert.match(styles, /\.group-switcher \.group-option-list\s*\{[\s\S]*max-height: 102px;[\s\S]*overflow-y: auto;/);
   assert.match(styles, /max-height: min\(280px, var\(--template-menu-space, 280px\)\)/);
 });
 
 test('keeps optional Proxy and FTP steps after SSH and allows saving from SSH', async () => {
-  const [html, renderer, styles] = await Promise.all([
+  const [html, renderer, styles, main] = await Promise.all([
     fs.readFile(path.join(__dirname, 'index.html'), 'utf8'),
     fs.readFile(path.join(__dirname, 'renderer.js'), 'utf8'),
-    fs.readFile(path.join(__dirname, 'styles.css'), 'utf8')
+    fs.readFile(path.join(__dirname, 'styles.css'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8')
   ]);
 
   const serverStep = html.indexOf('id="projectStepButtonServer"');
@@ -138,6 +205,36 @@ test('keeps optional Proxy and FTP steps after SSH and allows saving from SSH', 
   assert.match(html, /projectStepButtonProxy[^>]+data-project-step-button="2"/);
   assert.match(html, /<strong>Proxy<\/strong>\s*<small>Optional<\/small>/);
   assert.match(html, /<strong>FTP<\/strong>\s*<small>Optional<\/small>/);
+  assert.match(html, /<h3>SSH Connection <small class="field-optional">Optional<\/small><\/h3>/);
+  assert.doesNotMatch(html, /id="modalSshHost"[^>]+required/);
+  assert.doesNotMatch(html, /id="modalSshUsername"[^>]+required/);
+  for (const id of ['modalFtpUserTabs', 'modalAddFtpUserButton', 'modalRemoveFtpUserButton', 'modalDefaultFtpUserButton']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+    assert.match(renderer, new RegExp(`${id}: document\\.getElementById`));
+  }
+  assert.match(renderer, /function validateModalConnectionSettings\(\)/);
+  assert.match(renderer, /Configure an FTP connection, or go back and configure SSH/);
+  assert.match(renderer, /function validateModalFtpUsers\(/);
+  assert.match(renderer, /Each FTP user must have a unique username/);
+  assert.match(renderer, /const allowsImplicitSshUser = hasSsh && state\.modalFtpUsers\.length === 1/);
+  assert.match(renderer, /function modalFtpUserLabel\(user, index, \{ hasSsh = modalHasSshDetails\(\) \} = \{\}\)/);
+  assert.match(renderer, /return hasSsh \? 'Use SSH user' : `FTP user \$\{index \+ 1\}`/);
+  assert.match(html, /placeholder="FTP host \/ IP"/);
+  assert.match(html, /id="modalFtpPort"[^>]+value="21"/);
+  assert.match(html, /placeholder="FTP username"/);
+  assert.doesNotMatch(html, /id="modalFtpAuthType"/);
+  assert.doesNotMatch(html, /id="modalFtpKeyFields"/);
+  assert.match(html, /id="modalFtpPort"[^>]+type="text"[^>]+inputmode="numeric"/);
+  assert.match(html, /id="modalFtpUsername"[\s\S]*?id="modalFtpPassword"/);
+  assert.match(renderer, /function saveActiveModalFtpUser\(\)[\s\S]*?user\.authType = 'password';[\s\S]*?user\.privateKey = '';[\s\S]*?user\.passphrase = '';/);
+  assert.match(renderer, /function validateModalFtpUsers[\s\S]*?else if \(!user\.password\)/);
+  assert.match(renderer, /function promptForFtpUser\(project\)/);
+  assert.match(renderer, /const hasSsh = Boolean\(String\(project\?\.ssh\?\.host \|\| ''\)\.trim\(\)\);/);
+  assert.match(renderer, /hasSsh \? 'Use SSH user' : `FTP user \$\{index \+ 1\}`/);
+  assert.match(renderer, /state\.activeProjectTab = normalizedProject\.ftp\?\.host && !normalizedProject\.ssh\?\.host \? 'ftp' : 'ssh'/);
+  assert.match(renderer, /if \(state\.activeProjectTab === 'ftp'\)[\s\S]*els\.connectFtpButton\.focus\(\)/);
+  assert.match(main, /validateConnectionProject\(project, \{ requireSsh: true \}\)/);
+  assert.match(main, /if \(!hasSsh && !hasFtp\) return 'Configure an SSH or FTP connection for the server\.'/);
   assert.match(html, />\s*Save Server\s*</);
   assert.match(html, /<div class="server-modal-top">[\s\S]*?<header class="modal-header">[\s\S]*?<ol class="server-wizard-progress"[\s\S]*?<\/div>/);
   assert.match(html, /class="field-grid windows-credentials-grid"[\s\S]*?id="modalRdpUsername"[\s\S]*?id="modalRdpPassword"[\s\S]*?<\/div>\s*<\/div>/);
@@ -155,6 +252,8 @@ test('keeps optional Proxy and FTP steps after SSH and allows saving from SSH', 
   assert.match(styles, /\.server-modal-card \.project-modal-body\s*\{\s*min-height: 0/);
   assert.match(styles, /\.project-modal-card \.secret-input\s*\{[\s\S]*?position: relative;[\s\S]*?display: block/);
   assert.match(styles, /\.project-modal-card \.secret-input \.secret-toggle\s*\{[\s\S]*?position: absolute;[\s\S]*?right: 4px/);
+  assert.match(styles, /html\[data-theme\] \.project-modal-card \.secret-input \.secret-toggle[\s\S]*?background: transparent;[\s\S]*?box-shadow: none;/);
+  assert.match(styles, /\.project-modal-card \.ssh-user-fields \.modal-secret\s*\{\s*margin-top: 0/);
   assert.match(styles, /\.project-modal-card \.windows-credentials-grid\s*\{\s*grid-template-columns: repeat\(auto-fit, minmax\(190px, 1fr\)\)/);
   assert.match(styles, /@media \(max-width: 560px\)[\s\S]*?\.project-modal-card \.windows-endpoint-grid,[\s\S]*?\.project-modal-card \.windows-credentials-grid\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(styles, /\.project-modal-card \.ssh-endpoint-grid,[\s\S]*?grid-template-columns: minmax\(280px, 520px\) 140px/);

@@ -240,9 +240,25 @@ test('desktop integration keeps MCP always on and exposes no stop control', () =
 test('desktop restart preserves the MCP token and retries the listener handoff', () => {
   const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
   const restore = main.match(/async function restoreMcpIntegrationAttempt\(\) \{[\s\S]*?\n\}/)?.[0] || '';
+  const disconnect = main.match(/async function disconnectMcpIntegration\(\) \{[\s\S]*?\n\}/)?.[0] || '';
+  const tokenLoader = main.match(/async function readOrCreatePersistedMcpToken\(config = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
 
   assert.match(restore, /readOrCreatePersistedMcpToken\(current\)/);
   assert.match(restore, /catch \(error\) \{[\s\S]*writeMcpIntegrationSettings\(failed\)[\s\S]*scheduleMcpRestoreRetry\(\)[\s\S]*return publicMcpIntegration\(failed\)/);
   assert.doesNotMatch(restore, /catch[^}]*tokenEncrypted = ''/);
   assert.match(restore, /startMcpServerWithPortFallback\(config\.port, token\)/);
+  assert.match(disconnect, /tokenEncrypted: current\.tokenEncrypted/);
+  assert.doesNotMatch(disconnect, /fs\.rm\(getMcpTokenPath/);
+  assert.doesNotMatch(tokenLoader, /catch \(error\)[\s\S]*createMcpToken/);
+});
+
+test('MCP documentation uses a directional disclosure chevron', () => {
+  const styles = fs.readFileSync(path.join(__dirname, 'renderer', 'styles.css'), 'utf8');
+  const marker = styles.match(/\.mcp-doc-summary::after \{[\s\S]*?\n\}/)?.[0] || '';
+  const openMarker = styles.match(/\.mcp-documentation-card\[open\] \.mcp-doc-summary::after \{[\s\S]*?\n\}/)?.[0] || '';
+
+  assert.match(marker, /border-right:[^;]+;[\s\S]*border-bottom:/);
+  assert.match(marker, /rotate\(45deg\)/);
+  assert.match(openMarker, /rotate\(225deg\)/);
+  assert.doesNotMatch(marker, /content:\s*['"][+-]['"]/);
 });

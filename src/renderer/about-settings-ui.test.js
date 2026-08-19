@@ -63,3 +63,27 @@ test('renders responsive product and company information in Settings', async (co
     assert.equal(result.documentOverflowX, false, `${result.name} horizontal overflow`);
   }
 });
+
+test('keeps Theme and About panels inside the live Settings content region', async (context) => {
+  const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'deployerx-settings-runtime-'));
+  context.after(async () => { await fs.rm(outputDirectory, { recursive: true, force: true }); });
+  const fixturePath = path.join(__dirname, 'settings-runtime-fixture.js');
+  const { stdout } = await execFileAsync(require('electron'), [fixturePath, outputDirectory], { windowsHide: true, timeout: 30000 });
+  const { result, consoleMessages } = JSON.parse(stdout.trim().split(/\r?\n/).at(-1));
+
+  assert.deepEqual(consoleMessages, []);
+  assert.deepEqual(result.contentChildren.slice(-2), ['settingsThemePanel', 'settingsAboutPanel']);
+  for (const panel of [result.theme, result.about]) {
+    assert.equal(panel.teamHidden, false);
+    assert.equal(panel.activeNav, 1);
+    assert.equal(panel.activePanels, 1);
+    assert.equal(panel.display, 'block');
+    assert.equal(panel.visibility, 'visible');
+    assert.ok(panel.textLength > 0);
+    assert.ok(panel.rect.x > 0);
+    assert.ok(panel.rect.y >= 0);
+    assert.ok(panel.rect.width > 0);
+    assert.ok(panel.rect.height > 0);
+    assert.equal(panel.parentChain[1], 'div#.settings-content');
+  }
+});

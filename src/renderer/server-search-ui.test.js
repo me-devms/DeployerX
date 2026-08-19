@@ -35,6 +35,22 @@ test('aligns the Add Server action with the server toolbar controls', async () =
   assert.match(styles, /#dashboardCreateButton\s*\{[\s\S]*?min-width: 128px;[\s\S]*?padding-inline: 14px;/);
 });
 
+test('provides a live connected-server tab in the sidebar', async () => {
+  const [html, renderer, styles] = await Promise.all([
+    fs.readFile(path.join(__dirname, 'index.html'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, 'styles.css'), 'utf8')
+  ]);
+
+  assert.match(html, /id="sidebarServerTabs"[\s\S]*?role="tablist"[\s\S]*?data-sidebar-server-filter="all"[\s\S]*?data-sidebar-server-filter="connected"/);
+  assert.match(html, /id="sidebarConnectedServerCount"/);
+  assert.match(renderer, /const connectedSidebarCount = state\.projects\.filter\(serverPrimaryConnectionActive\)\.length;/);
+  assert.match(renderer, /sidebarFilter === 'connected' && !serverPrimaryConnectionActive\(project\)/);
+  assert.match(renderer, /function setSidebarServerFilter\(filter,[\s\S]*?renderProjects\(\);/);
+  assert.match(styles, /\.sidebar-server-tabs\s*\{[\s\S]*?grid-template-columns:/);
+  assert.match(styles, /\.sidebar-server-tab\.active\s*\{/);
+});
+
 test('keeps server toolbar actions out of scrolling inventory rows', async () => {
   const styles = await fs.readFile(path.join(__dirname, 'styles.css'), 'utf8');
 
