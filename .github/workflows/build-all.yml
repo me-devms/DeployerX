@@ -83,7 +83,7 @@ jobs:
         with:
           node-version: 22
       - name: Install RPM packaging tools
-        run: sudo apt-get update && sudo apt-get install --yes rpm
+        run: sudo apt-get install --yes --no-install-recommends rpm
       - name: Prepare release authentication configuration
         env:
           FIREBASE_CONFIG_JSON_BASE64: ${{ secrets.FIREBASE_CONFIG_JSON_BASE64 }}
