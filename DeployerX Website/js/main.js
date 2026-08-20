@@ -31,46 +31,39 @@
   ];
 
   const releaseFallback = {
-    tag: 'v0.2.4',
-    releaseName: 'DeployerX 0.2.4',
-    releaseDate: '2026-08-19',
-    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.4',
-    body: `## What's new in v0.2.4\n\n- Adds direct FTP browsing, multiple FTP users, remote clipboard synchronization, and one-click VNC monitor selection.\n- Improves server search/filtering, optional SSH/FTP setup, accessibility focus handling, and startup/update process cleanup.\n- Publishes the current desktop renderer, website source, local assets, and cache-busted download links.`,
+    tag: 'v0.2.5',
+    releaseName: 'DeployerX 0.2.5',
+    releaseDate: '2026-08-20',
+    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.5',
+    body: `## What's new in v0.2.5\n\n- Publishes the current DeployerX desktop and website build with synchronized release metadata for every supported platform.\n- Keeps Windows, Linux, Intel macOS, and Apple Silicon macOS downloads pointed at the same verified GitHub release.\n- Refreshes website cache-busting and release fallback data so visitors do not receive an older application copy.`,
     assets: {
       'windows-portable': {
-        name: 'DeployerX-0.2.4-Portable-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.4/DeployerX-0.2.4-Portable-x64.exe',
-        size: 127866933
+        name: 'DeployerX-0.2.5-Portable-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-Portable-x64.exe'
       },
       'windows-setup': {
-        name: 'DeployerX-0.2.4-Setup-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.4/DeployerX-0.2.4-Setup-x64.exe',
-        size: 128102794
+        name: 'DeployerX-0.2.5-Setup-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-Setup-x64.exe'
       },
       'mac-arm64': {
-        name: 'DeployerX-0.2.4-arm64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.4/DeployerX-0.2.4-arm64.dmg',
-        size: 156937121
+        name: 'DeployerX-0.2.5-arm64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-arm64.dmg'
       },
       'mac-x64': {
-        name: 'DeployerX-0.2.4-x64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.4/DeployerX-0.2.4-x64.dmg',
-        size: 159011370
+        name: 'DeployerX-0.2.5-x64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-x64.dmg'
       },
       'linux-appimage': {
-        name: 'DeployerX-0.2.4-x86_64.AppImage',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.4/DeployerX-0.2.4-x86_64.AppImage',
-        size: 166230912
+        name: 'DeployerX-0.2.5-x86_64.AppImage',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-x86_64.AppImage'
       },
       'linux-deb': {
-        name: 'DeployerX-0.2.4-amd64.deb',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.4/DeployerX-0.2.4-amd64.deb',
-        size: 103563542
+        name: 'DeployerX-0.2.5-amd64.deb',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-amd64.deb'
       },
       'linux-rpm': {
-        name: 'DeployerX-0.2.4-x86_64.rpm',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.4/DeployerX-0.2.4-x86_64.rpm',
-        size: 104713613
+        name: 'DeployerX-0.2.5-x86_64.rpm',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-x86_64.rpm'
       }
     }
   };
