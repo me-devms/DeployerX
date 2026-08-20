@@ -68,6 +68,30 @@ test('keeps terminal tab numbers contiguous and identifies multi-user sessions',
   assert.match(styles, /\.terminal-tab \{[\s\S]*?width: 190px;[\s\S]*?min-width: 190px;/, 'tabs reserve enough width for usernames');
 });
 
+test('persists custom terminal tab names and edits them inline', async () => {
+  const [source, html, mainSource] = await Promise.all([
+    fs.readFile(path.join(rendererDirectory, 'renderer.js'), 'utf8'),
+    fs.readFile(path.join(rendererDirectory, 'index.html'), 'utf8'),
+    fs.readFile(path.join(rendererDirectory, '..', 'main.js'), 'utf8')
+  ]);
+
+  assert.equal(source.includes("TERMINAL_TAB_NAMES_STORAGE_KEY = 'deployerx.terminal-tab-names.v1'"), true, 'terminal names use a stable storage key');
+  assert.match(source, /function saveTerminalTabNames\([\s\S]*?localStorage\.setItem\(TERMINAL_TAB_NAMES_STORAGE_KEY/, 'custom names are written to local storage');
+  assert.match(source, /function startTerminalTabRename\([\s\S]*?state\.terminalTabRename = \{ projectId, tabId \}/, 'renaming opens an inline edit state');
+  assert.match(source, /function finishTerminalTabRename\([\s\S]*?saveTerminalTabNames\(projectId\)/, 'inline rename saves custom names');
+  assert.equal(source.includes("window.prompt('Rename terminal'"), false, 'terminal renaming does not use Electron-unsupported native prompts');
+  assert.equal(html.includes('id="terminalRenameModal"'), false, 'terminal rename modal is not rendered');
+  assert.match(source, /data-terminal-tab-rename/, 'terminal labels expose a rename target');
+  assert.match(source, /contenteditable="plaintext-only"/, 'edited labels become editable text instead of an input field');
+  assert.match(source, /terminal-tab-status[\s\S]*?contenteditable="plaintext-only"/, 'rename keeps the tab status indicator and active button');
+  assert.match(source, /range\.selectNodeContents\(renameLabel\);\s+selection\?\.removeAllRanges/, 'double-click selects the full label text');
+  assert.match(source, /if \(state\.activeTerminalTabIds\[projectId\] === session\.tabId\) return;/, 'selecting the active tab does not interrupt a double-click gesture');
+  assert.match(source, /els\.terminalTabs\.addEventListener\('dblclick'[\s\S]*?data-terminal-tab-select[\s\S]*?startTerminalTabRename\(/, 'double-clicking a terminal title opens inline editing');
+  assert.match(source, /event\.key === 'Enter' \|\| event\.key === 'Escape'/, 'Enter saves and Escape cancels inline editing');
+  assert.match(mainSource, /function isTerminalChannelClosedError[\s\S]*?unable to exec[\s\S]*?no response from server/, 'expected SSH close errors are recognized');
+  assert.match(mainSource, /async function listTerminalDirectory[\s\S]*?isTerminalChannelClosedError\(error\)[\s\S]*?closed: true/, 'directory refresh closes quietly with a closed SSH channel');
+});
+
 test('keeps the terminal shell fixed while xterm owns output scrolling', async () => {
   const styles = await fs.readFile(path.join(rendererDirectory, 'styles.css'), 'utf8');
 

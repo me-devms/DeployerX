@@ -18,7 +18,7 @@ const { Client: FtpClient } = require('basic-ftp');
 const { assertFirebaseConfig, sanitizeFirebaseConfigForRuntime, validateFirebaseConfig } = require('./firebase-config');
 const { ServerMonitoringSessionManager } = require('./server-monitoring/session-manager');
 const { DeployerXMcpServer } = require('./mcp-server');
-const { listMcpClients, connectMcpClient, disconnectMcpClient } = require('./mcp-clients');
+const { listMcpClients, connectMcpClient, disconnectMcpClient, readMcpClientToken } = require('./mcp-clients');
 
 const CODEX_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFSUlEQVR4nM2Ze4hVVRTG7x3TsqzUzIIym4wkdSytQDBnpmjSAqs/svorigR7KNlLykykZEroZSUjWT4qIiJEo6AosCgoreglvaR0pJE0x9IsJpvpFyvXdtasu8+558y9NH0wDOy91jrfOXvttb69b6FQAYDDgQuAm4D7gLnA1cCIwv8JwGjgGeB34vgb+Ai4Bij2JdF+wHzgANmxCajtC7KHAS8ZIl3AWuBaYBxwAjASuAR4EthnbH8GFgNvAtt1rk1X4RGgoeorAaxwX21sGfthwIYcK7ERaKwW2StN4NeAI8rYHwcsAzodqW/Vf43+/97Nd+nmLVaaCls04NfAoDK2c4B2R2IVMDHBZyywUu0CHq+E8BUm0OUpdk3AZvfF3gUmZHxOg3vRmb0l/KwGaIstFTAKWOeIbgNm9OJZZ5tS+YukVh7nqVoVOjTA6sjyN5t5wX5gATAwIeaxWkWGpDz3ZhNvSRaitcDblOJ+Z3eXaxTPAyel1O8bgd1qvweYLS8dse0P/GBWKnkDAudrzbREAm53ti3GpqFMbn5GHF9Ia4/4PGhsxhVSduuvxnA9MCUD4b0J8aSJvOwItmtL3+XGxe4U4ytpE3BZLPgA4CtjNF/HT8xLGDgSWAT8YXz/Ap4AhqrNYOBR1+Jlsy2U/AfGm/FZMcLzjMFSM56LMHAV0Oq+3nZgTIqIet3Zb1W9EnBDIbLbfzRJPjAvYeAs4B2S8V5S49BY09wKW1zsjS80k7e5uSyEu1wL3q3dTv5CVQh2TwPHJ5CW6nCrVhCLyd5Q8i3g1F4QDvhTldehGgsM0TGZwzQEEfr9U3SItHKbUidbAxEi0d2eg/ArwOkxAgKZUxsLSYGphQToSwV8CNSECdG0gh0Rp9xVIg0czHeP9Ukvaz6m4LowuFwHJA8HpBCeV0XCW7SNB3Ros+ihBIGjgZ1qI92vKIP3GsceohwYbuZEu06pEuEWaePazm03/fzQ0nf7PGTmz5WB88xAc+Qhn5p5Cf6ibIJKCRe6xyYB35hnjHQ+dWbuHhkoGrHxU2RZjgEedjt9vxH1FREWALeY2KcVSq8SgrhfHgavNw5rrINxPCPSlapFeFYSYZ3foXNrw0CNHgID5qY89FK3hL0pay05Cf9Wosk1L6VIB6xOUvzale5w6i5r48hFWE80AQs9kcn0xB5tl0ldabge/7sytOZOY5eHsHyYgMbYsSgG6UrTYqTV7xzgfZKxQQVSrhxWqRnUX2vJCUWknHFc7FIE3XSjE0iPidhvlTsNY5OX8NIkYRYM5NwVUGfEuL30O6Die7D6DFVxLiLdlj1pSD0uXPIQdg3ty2hayr2DMWoy4yP0BG270i497rTnOIzuzUC4SfWF3UdnxuIV3NFkUWReznifEIeUxUnRwIV/fRvNC6cRth9lZ1rM0PVazUaridhIzZ5pREmb3mBGj+Mc1AzPOSJ3Opu7Ix/gDd+mk0gvKZF0cbujgHrJ84R52eELIqqs2e92oxg7VKtcVJaoK/YhL+Uety6zc3eM6UafBLyVlIvGdkXeZ4UAsuQBsvT1Gf0m6AWgxWa7gRNafcD0XhHWQI+5LrUy5bg+MXJlKqs0J3YdZfwGmdOyXOX2q4RwUWuhJYEuX7iUlkbynZvv1Mvs1JtHqdHAq1mucvMSl1L2AdkhbXhYmZjjgY+Nz7KqkHUPqVchv1EvXvZpK5by84C7RJS5pzQ/a/VsWKe6e51btRcqSoUKXqjWaepy6NArspJa/1+SLuqPiZtco8BAxLjU3VF9RjQGPRDMUD0tvwxJ+5W06nGVkBf/APLOOieCuT2TAAAAAElFTkSuQmCC';
 const { RdpSessionManager } = require('./rdp-session');
@@ -5954,16 +5954,25 @@ async function readPersistedMcpToken(config = {}) {
 }
 
 async function readOrCreatePersistedMcpToken(config = {}) {
-  const persisted = await readPersistedMcpToken(config);
-  if (persisted.token) return { ...persisted, recovered: false };
+  try {
+    const persisted = await readPersistedMcpToken(config);
+    if (persisted.token) return { ...persisted, recovered: false };
+  } catch (error) {
+    const recoveredToken = await readMcpClientToken().catch(() => '');
+    if (recoveredToken) {
+      const tokenEncrypted = await persistMcpToken(recoveredToken);
+      await writeMcpIntegrationSettings(normalizeMcpIntegration({ ...config, tokenEncrypted, lastError: '', updatedAt: nowIso() }));
+      return { token: recoveredToken, tokenEncrypted, recovered: true };
+    }
+    throw error;
+  }
+  return createAndPersistMcpToken(config);
+}
+
+async function createAndPersistMcpToken(config = {}) {
   const token = createMcpToken();
   const tokenEncrypted = await persistMcpToken(token);
-  await writeMcpIntegrationSettings(normalizeMcpIntegration({
-    ...config,
-    tokenEncrypted,
-    lastError: '',
-    updatedAt: nowIso()
-  }));
+  await writeMcpIntegrationSettings(normalizeMcpIntegration({ ...config, tokenEncrypted, lastError: '', updatedAt: nowIso() }));
   return { token, tokenEncrypted, recovered: true };
 }
 
@@ -9590,6 +9599,11 @@ function isSftpSubsystemUnavailableError(error) {
     || /channel open failure:\s*open failed/i.test(message);
 }
 
+function isTerminalChannelClosedError(error) {
+  const message = String(error?.message || error || '');
+  return /unable to exec|no response from server|channel.*(?:closed|close)|ssh session is not connected/i.test(message);
+}
+
 function unavailableTerminalDirectory(remotePath) {
   const normalizedPath = normalizeRemotePath(remotePath);
   return {
@@ -9861,7 +9875,13 @@ async function uploadFtpFile(sessionId, localPath, remoteDirectory) {
 
 async function readTerminalHomeDirectory(sessionId) {
   const { connection } = terminalSessionOrThrow(sessionId);
-  const result = await execOnTerminalConnection(connection, 'pwd');
+  let result;
+  try {
+    result = await execOnTerminalConnection(connection, 'pwd');
+  } catch (error) {
+    if (isTerminalChannelClosedError(error)) return { path: '' };
+    throw error;
+  }
   const currentPath = String(result.stdout || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -9903,6 +9923,14 @@ async function listTerminalDirectory(sessionId, remotePath = '.') {
       };
     });
   } catch (error) {
+    if (isTerminalChannelClosedError(error)) {
+      return {
+        path: normalizedPath,
+        parentPath: parentRemotePath(normalizedPath),
+        items: [],
+        closed: true
+      };
+    }
     if (!isSftpSubsystemUnavailableError(error)) throw error;
     terminal.sftpUnavailable = true;
     return unavailableTerminalDirectory(normalizedPath);

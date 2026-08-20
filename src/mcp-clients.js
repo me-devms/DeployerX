@@ -220,6 +220,37 @@ async function listMcpClients() {
   return clients.filter((client) => client.installed);
 }
 
+function tokenFromAuthorization(value) {
+  const match = String(value || '').match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+}
+
+async function readCodexEnvironmentToken() {
+  if (process.env.DEPLOYERX_MCP_TOKEN) return String(process.env.DEPLOYERX_MCP_TOKEN).trim();
+  if (process.platform !== 'win32') return '';
+  try {
+    const { stdout } = await execFileAsync('reg.exe', ['query', 'HKCU\\Environment', '/v', 'DEPLOYERX_MCP_TOKEN'], { windowsHide: true, timeout: 5000 });
+    return String(stdout).match(/DEPLOYERX_MCP_TOKEN\s+REG_SZ\s+(.+)/i)?.[1]?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+async function readMcpClientToken() {
+  const codexToken = await readCodexEnvironmentToken();
+  if (codexToken) return codexToken;
+  for (const definition of CLIENT_DEFINITIONS) {
+    if (definition.format === 'toml') continue;
+    let current;
+    try { current = JSON.parse(await fs.readFile(definitionPath(definition), 'utf8')); } catch { continue; }
+    const containerKey = definition.format === 'json-mcp' ? 'mcp' : definition.format === 'json-servers' ? 'servers' : 'mcpServers';
+    const server = current?.[containerKey]?.deployerx;
+    const token = tokenFromAuthorization(server?.headers?.Authorization || server?.headers?.authorization);
+    if (token) return token;
+  }
+  return '';
+}
+
 async function connectMcpClient(clientId, { url, token }) {
   const definition = CLIENT_DEFINITIONS.find((item) => item.id === String(clientId));
   if (!definition) throw new Error('Unknown MCP client.');
@@ -257,4 +288,4 @@ async function disconnectMcpClient(clientId) {
   return { id: definition.id, name: definition.name, disconnected };
 }
 
-module.exports = { listMcpClients, connectMcpClient, disconnectMcpClient, CLIENT_DEFINITIONS };
+module.exports = { listMcpClients, connectMcpClient, disconnectMcpClient, readMcpClientToken, CLIENT_DEFINITIONS };

@@ -7146,6 +7146,25 @@ textarea:focus {
   font: inherit;
 }
 
+.terminal-tab-rename-label {
+  display: block;
+  overflow: hidden;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  caret-color: currentColor;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
 .terminal-tab-label {
   overflow: hidden;
   font-size: 12px;

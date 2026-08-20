@@ -47,6 +47,8 @@ test('provides a live connected-server tab in the sidebar', async () => {
   assert.match(renderer, /const connectedSidebarCount = state\.projects\.filter\(serverPrimaryConnectionActive\)\.length;/);
   assert.match(renderer, /sidebarFilter === 'connected' && !serverPrimaryConnectionActive\(project\)/);
   assert.match(renderer, /function setSidebarServerFilter\(filter,[\s\S]*?renderProjects\(\);/);
+  assert.match(renderer, /if \(sidebarFilter === 'connected'\) \{[\s\S]*?sidebarProjects[\s\S]*?renderSidebarProjectItem\(project\)/);
+  assert.match(renderer, /const activeMissingProjects = state\.projects\.filter\(\(project\) => \([\s\S]*?serverPrimaryConnectionActive\(project\)/);
   assert.match(styles, /\.sidebar-server-tabs\s*\{[\s\S]*?grid-template-columns:/);
   assert.match(styles, /\.sidebar-server-tab\.active\s*\{/);
 });

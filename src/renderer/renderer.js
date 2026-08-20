@@ -9,6 +9,7 @@ const SERVER_SIDEBAR_ORDER_STORAGE_KEY = 'deployerx.server-sidebar-order.v1';
 const SERVER_MONITORING_ORDER_STORAGE_KEY = 'deployerx.server-monitoring-order.v1';
 const NOTIFICATIONS_READ_STORAGE_KEY = 'deployerx.notifications.read.v1';
 const DATABASE_QUERY_TABS_STORAGE_KEY = 'deployerx.database-query-tabs.v1';
+const TERMINAL_TAB_NAMES_STORAGE_KEY = 'deployerx.terminal-tab-names.v1';
 const BACKUP_DATABASE_ADAPTER_ID_BY_CONNECTION_KIND = Object.freeze({
   mysql: 'deployerx.database.mysql.logical',
   mariadb: 'deployerx.database.mariadb.logical',
@@ -563,6 +564,7 @@ const state = {
   terminalSessionProjectIds: {},
   activeTerminalTabIds: {},
   terminalTabCounters: {},
+  terminalTabNames: {},
   ftpSessions: {},
   activeTerminalSessionId: null,
   terminalConnected: false,
@@ -667,6 +669,7 @@ function blankTerminalSession(projectId = '', { tabId = '', label = '', startupD
     projectId,
     tabId: tabId || `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     label: label || 'Terminal 1',
+    customLabel: false,
     startupDirectory,
     sshUserId: '',
     sshUsername: '',
@@ -724,19 +727,79 @@ function blankFtpSession(projectId = '') {
 function createTerminalTabSession(projectId, { startupDirectory = '/' } = {}) {
   const nextNumber = Number(state.terminalTabCounters[projectId] || 0) + 1;
   const inheritedDirectory = String(startupDirectory || '').trim();
+  const savedLabel = terminalTabNamesForProject(projectId)[nextNumber - 1];
   state.terminalTabCounters[projectId] = nextNumber;
-  return blankTerminalSession(projectId, {
-    label: `Terminal ${nextNumber}`,
+  const session = blankTerminalSession(projectId, {
+    label: savedLabel || `Terminal ${nextNumber}`,
     startupDirectory: inheritedDirectory ? normalizeRemoteShellPath(inheritedDirectory) : ''
   });
+  session.customLabel = Boolean(savedLabel);
+  return session;
 }
 
 function renumberTerminalTabs(projectId, tabs = state.terminalSessions[projectId]) {
   if (!projectId || !Array.isArray(tabs)) return;
   tabs.forEach((session, index) => {
-    session.label = `Terminal ${index + 1}`;
+    if (!session.customLabel || !String(session.label || '').trim()) {
+      session.label = `Terminal ${index + 1}`;
+      session.customLabel = false;
+    }
   });
   state.terminalTabCounters[projectId] = tabs.length;
+  saveTerminalTabNames(projectId, tabs);
+}
+
+function terminalTabNamesForProject(projectId) {
+  if (!projectId) return [];
+  if (!Array.isArray(state.terminalTabNames[projectId])) {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(TERMINAL_TAB_NAMES_STORAGE_KEY) || '{}');
+      state.terminalTabNames = stored && typeof stored === 'object' ? stored : {};
+    } catch {
+      state.terminalTabNames = {};
+    }
+  }
+  return Array.isArray(state.terminalTabNames[projectId]) ? state.terminalTabNames[projectId] : [];
+}
+
+function saveTerminalTabNames(projectId, tabs = state.terminalSessions[projectId]) {
+  if (!projectId || !Array.isArray(tabs)) return;
+  const names = tabs.map((session) => session.customLabel ? String(session.label || '').trim() : '');
+  while (names.length && !names[names.length - 1]) names.pop();
+  terminalTabNamesForProject(projectId);
+  if (names.length) state.terminalTabNames[projectId] = names;
+  else delete state.terminalTabNames[projectId];
+  try {
+    window.localStorage.setItem(TERMINAL_TAB_NAMES_STORAGE_KEY, JSON.stringify(state.terminalTabNames));
+  } catch {}
+}
+
+function startTerminalTabRename(tabId) {
+  const projectId = state.activeProject?.id;
+  const session = getTerminalTabs(projectId)?.find((item) => item.tabId === tabId);
+  if (!session || session.readOnly) return;
+  state.terminalTabRename = { projectId, tabId };
+  renderTerminalTabs(projectId);
+}
+
+function finishTerminalTabRename(tabId, nextLabel, { save = true } = {}) {
+  const projectId = state.activeProject?.id;
+  const renameState = state.terminalTabRename;
+  if (!renameState || renameState.projectId !== projectId || renameState.tabId !== tabId) return;
+  state.terminalTabRename = null;
+
+  const session = getTerminalTabs(projectId)?.find((item) => item.tabId === tabId);
+  if (!session || session.readOnly || !save) {
+    renderTerminalTabs(projectId);
+    return;
+  }
+
+  const trimmed = String(nextLabel || '').trim();
+  session.customLabel = Boolean(trimmed);
+  session.label = trimmed || `Terminal ${Math.max(1, (getTerminalTabs(projectId) || []).indexOf(session) + 1)}`;
+  saveTerminalTabNames(projectId);
+  renderTerminalTabs(projectId);
+  renderProjects();
 }
 
 function terminalTabDisplayLabel(session, project = state.activeProject) {
@@ -754,6 +817,7 @@ function getTerminalTabs(projectId = state.activeProject?.id, create = false) {
   if (stored && !Array.isArray(stored)) {
     stored.tabId ||= `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     stored.label ||= 'Terminal 1';
+    stored.customLabel = Boolean(stored.customLabel);
     stored.startupDirectory ||= '';
     state.terminalSessions[projectId] = [stored];
     state.terminalTabCounters[projectId] = Math.max(1, Number(state.terminalTabCounters[projectId] || 0));
@@ -1010,6 +1074,7 @@ async function refreshSshDirectory(session = getTerminalSession(), pathOverride 
   try {
     const result = await window.deployerx.listTerminalDirectory({ sessionId: session.sessionId, path: remotePath });
     if (session.directoryRequestId !== requestId) return;
+    if (result.closed) return;
     if (result.unavailable) {
       session.directoryUnavailable = true;
       session.directoryPath = normalizeRemoteShellPath(result.path || remotePath);
@@ -1025,6 +1090,10 @@ async function refreshSshDirectory(session = getTerminalSession(), pathOverride 
     if (!session.directoryEntries.some((entry) => entry.path === session.directorySelectedPath)) session.directorySelectedPath = '';
   } catch (error) {
     if (session.directoryRequestId !== requestId) return;
+    if (!session.connected || /no response from server|channel.*(?:closed|close)|ssh session is not connected/i.test(String(error?.message || error))) {
+      session.directoryError = '';
+      return;
+    }
     session.directoryError = error.message || 'Could not load this directory.';
   } finally {
     if (session.directoryRequestId === requestId) session.directoryLoading = false;
@@ -1461,7 +1530,13 @@ function consumeTerminalDirectoryMarkers(rawText, session) {
 async function ensureTerminalHomeDirectory(sessionId = state.activeTerminalSessionId) {
   const terminalSession = getTerminalSessionById(sessionId) || getTerminalSession();
   if (!terminalSession?.sessionId || terminalSession.homeDirectory) return terminalSession?.homeDirectory || '';
-  const response = await window.deployerx.getTerminalHomeDirectory(terminalSession.sessionId);
+  let response;
+  try {
+    response = await window.deployerx.getTerminalHomeDirectory(terminalSession.sessionId);
+  } catch (error) {
+    if (!terminalSession.connected || /unable to exec|no response from server|channel.*(?:closed|close)/i.test(String(error?.message || error))) return '';
+    throw error;
+  }
   const homeDirectory = normalizeRemoteShellPath(response?.path || '');
   if (!homeDirectory) return '';
   setTerminalSessionDirectory(terminalSession, homeDirectory, { setHome: true });
@@ -1498,10 +1573,11 @@ function renderTerminalTabs(projectId = state.activeProject?.id) {
     const displayLabel = terminalTabDisplayLabel(session);
     tab.className = `terminal-tab${isActive ? ' active' : ''}${session.connected ? ' connected' : ''}${isConnecting ? ' connecting' : ''}`;
     tab.dataset.terminalTabId = session.tabId;
+    const isRenaming = state.terminalTabRename?.projectId === projectId && state.terminalTabRename.tabId === session.tabId;
     tab.innerHTML = `
       <button class="terminal-tab-select" type="button" role="tab" aria-controls="terminal" aria-selected="${isActive}" tabindex="${isActive ? '0' : '-1'}" title="${escapeHtml(displayLabel)}" data-terminal-tab-select="${escapeHtml(session.tabId)}">
         <span class="terminal-tab-status" aria-hidden="true"></span>
-        <span class="terminal-tab-label">${escapeHtml(displayLabel)}</span>
+        <span class="terminal-tab-label${isRenaming ? ' terminal-tab-rename-label' : ''}"${isRenaming ? ` contenteditable="plaintext-only" role="textbox" aria-label="Terminal name" data-terminal-tab-rename-input="${escapeHtml(session.tabId)}"` : ` data-terminal-tab-rename="${escapeHtml(session.tabId)}"`}>${escapeHtml(isRenaming ? session.label || '' : displayLabel)}</span>
       </button>
       <button class="terminal-tab-close" type="button" aria-label="Close ${escapeHtml(displayLabel)}" title="Close terminal" data-terminal-tab-close="${escapeHtml(session.tabId)}">
         ${icon('x')}
@@ -1511,12 +1587,22 @@ function renderTerminalTabs(projectId = state.activeProject?.id) {
 
   els.terminalNewTabButton.disabled = !projectId || isRdpProject();
   els.terminalTabs.querySelector('.terminal-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const renameLabel = els.terminalTabs.querySelector('[data-terminal-tab-rename-input]');
+  if (renameLabel) requestAnimationFrame(() => {
+    renameLabel.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(renameLabel);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
 }
 
 function activateTerminalTab(tabId, { focus = true } = {}) {
   const projectId = state.activeProject?.id;
   const session = getTerminalTabs(projectId)?.find((item) => item.tabId === tabId);
   if (!session) return;
+  if (state.activeTerminalTabIds[projectId] === session.tabId) return;
   state.activeTerminalTabIds[projectId] = session.tabId;
   applyTerminalSessionToState(projectId);
   renderVisibleTerminalSession(session);
@@ -11169,7 +11255,7 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
-function showToast(message, { tone = 'default' } = {}) {
+function showToast(message, { tone = 'default', duration = 2600 } = {}) {
   if (!els.toast) return;
   window.clearTimeout(toastTimer);
   els.toast.textContent = message;
@@ -11179,7 +11265,7 @@ function showToast(message, { tone = 'default' } = {}) {
   els.toast.classList.add('visible');
   toastTimer = window.setTimeout(() => {
     els.toast.classList.remove('visible');
-  }, 2600);
+  }, duration);
 }
 
 function showAlert(message) {
@@ -21104,7 +21190,7 @@ async function connectMcpClient(clientId, button) {
   setButtonLoading(button, true);
   try {
     const result = await window.deployerx.connectMcpClient(clientId);
-    showToast(`${result.name} connected to DeployerX MCP`);
+    showToast(`${result.name} is connected. Restart ${result.name} to show DeployerX in its MCP tools.`, { duration: 7000 });
     await loadMcpIntegration();
   } catch (error) {
     showAlert(error.message || 'Could not add MCP to this agent.');
@@ -21131,7 +21217,7 @@ async function connectAllMcpClients() {
   try {
     const results = await window.deployerx.connectAllMcpClients();
     const connected = results.filter((item) => item.connected).length;
-    showToast(`Added DeployerX MCP to ${connected} local agent${connected === 1 ? '' : 's'}`);
+    showToast(`Added DeployerX MCP to ${connected} local agent${connected === 1 ? '' : 's'}. Restart the connected agent${connected === 1 ? '' : 's'} to load its MCP tools.`, { duration: 7000 });
     await loadMcpIntegration();
   } catch (error) {
     showAlert(error.message || 'Could not add MCP to local agents.');
@@ -21671,6 +21757,7 @@ function resetWorkspaceData() {
   state.terminalSessionProjectIds = {};
   state.activeTerminalTabIds = {};
   state.terminalTabCounters = {};
+  state.terminalTabNames = {};
   state.ftpSessions = {};
   state.activeTerminalSessionId = null;
   state.terminalConnected = false;
@@ -23940,6 +24027,18 @@ function renderProjects() {
     ))
     .forEach(({ element }) => els.projectList.appendChild(element));
 
+  // The Connected tab is a live, cross-group view. Keep it completely flat so
+  // a server's saved group never adds a heading or separates connected rows.
+  if (sidebarFilter === 'connected') {
+    els.projectList.innerHTML = '';
+    sidebarProjects
+      .sort((first, second) => (
+        Number(serverPrimaryConnectionActive(second)) - Number(serverPrimaryConnectionActive(first))
+        || (first.name || '').localeCompare(second.name || '')
+      ))
+      .forEach((project) => els.projectList.appendChild(renderSidebarProjectItem(project)));
+  }
+
   if (!visibleServerProjects.length) {
     const emptyFilters = document.createElement('div');
     emptyFilters.className = 'server-filter-empty';
@@ -25251,7 +25350,15 @@ async function refreshProjectsAndTemplates() {
 
   clearCloudProjectsRetry();
   const activeProjectId = state.activeProject?.id || '';
-  state.projects = (data.projects || []).map(normalizeProject);
+  const nextProjects = (data.projects || []).map(normalizeProject);
+  // A transient cloud response must not make an actively connected server
+  // disappear from the workspace. Explicit deletes disconnect the project
+  // first, so preserving only active connections does not resurrect deletes.
+  const nextProjectIds = new Set(nextProjects.map((project) => String(project.id)));
+  const activeMissingProjects = state.projects.filter((project) => (
+    !nextProjectIds.has(String(project.id)) && serverPrimaryConnectionActive(project)
+  ));
+  state.projects = [...nextProjects, ...activeMissingProjects];
   state.serverGroups = readStoredServerGroups();
   rememberServerGroups(...state.projects.map((project) => project.group));
   state.sidebarOrder = readStoredSidebarOrder();
@@ -26299,6 +26406,7 @@ async function emergencyStop() {
   state.terminalSessionProjectIds = {};
   state.activeTerminalTabIds = {};
   state.terminalTabCounters = {};
+  state.terminalTabNames = {};
   state.ftpSessions = {};
   state.activeTerminalSessionId = null;
   state.terminalConnected = false;
@@ -28259,10 +28367,25 @@ els.terminalTabs.addEventListener('click', (event) => {
     closeTerminalTab(closeButton.dataset.terminalTabClose).catch((error) => showAlert(error.message || 'Could not close the terminal.'));
     return;
   }
+  if (event.target.closest('[data-terminal-tab-rename]')) return;
   const tabButton = event.target.closest('[data-terminal-tab-select]');
   if (tabButton) activateTerminalTab(tabButton.dataset.terminalTabSelect);
 });
+els.terminalTabs.addEventListener('dblclick', (event) => {
+  const renameTarget = event.target.closest('[data-terminal-tab-rename], [data-terminal-tab-select]');
+  if (!renameTarget) return;
+  event.preventDefault();
+  event.stopPropagation();
+  startTerminalTabRename(renameTarget.dataset.terminalTabRename || renameTarget.dataset.terminalTabSelect);
+});
 els.terminalTabs.addEventListener('keydown', (event) => {
+  if (event.target.matches('[data-terminal-tab-rename-input]')) {
+    if (event.key === 'Enter' || event.key === 'Escape') {
+      event.preventDefault();
+      finishTerminalTabRename(event.target.dataset.terminalTabRenameInput, event.target.textContent, { save: event.key === 'Enter' });
+    }
+    return;
+  }
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
   const tabs = Array.from(els.terminalTabs.querySelectorAll('[data-terminal-tab-select]'));
   const currentTab = event.target.closest('.terminal-tab')?.querySelector('[data-terminal-tab-select]');
@@ -28277,6 +28400,10 @@ els.terminalTabs.addEventListener('keydown', (event) => {
   event.preventDefault();
   activateTerminalTab(nextTabId, { focus: false });
   requestAnimationFrame(() => els.terminalTabs.querySelector(`[data-terminal-tab-select="${CSS.escape(nextTabId)}"]`)?.focus());
+});
+els.terminalTabs.addEventListener('focusout', (event) => {
+  const renameLabel = event.target.closest('[data-terminal-tab-rename-input]');
+  if (renameLabel) finishTerminalTabRename(renameLabel.dataset.terminalTabRenameInput, renameLabel.textContent);
 });
 els.connectRdpButton.addEventListener('click', connectRdp);
 els.vncDisplaySelector?.addEventListener('click', (event) => {
