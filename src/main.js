@@ -946,6 +946,9 @@ async function terminateProcessTree(pid, { allowElevation = false } = {}) {
 }
 
 async function cleanupDeployerXProcesses({ includeCurrentExecutable = false, allowElevation = false } = {}) {
+  // The detached worker is a child of the desktop process. It must never
+  // perform stale-root cleanup because its parent is the live GUI instance.
+  if (isWorkerMode()) return [];
   const records = await listWindowsDeployerXProcesses();
   const stale = selectDeployerXProcesses(records, {
     currentPid: process.pid,

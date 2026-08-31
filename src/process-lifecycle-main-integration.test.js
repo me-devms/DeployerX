@@ -7,6 +7,7 @@ const mainSource = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
 
 test('cleans stale desktop instances during startup and update installation', () => {
   assert.match(mainSource, /app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*await cleanupDeployerXProcesses\(\{ allowElevation: true \}\)/);
+  assert.match(mainSource, /async function cleanupDeployerXProcesses\(\{[\s\S]*?\}\s*=\s*\{\}\) \{[\s\S]*?if \(isWorkerMode\(\)\) return \[\];/);
   assert.match(mainSource, /async function prepareForUpdateInstall\(\)[\s\S]*stopDetachedUptimeWorker\(\{ force: true \}\)[\s\S]*cleanupDeployerXProcesses\(\{ includeCurrentExecutable: true, allowElevation: true \}\)/);
   assert.match(mainSource, /prepareForUpdateInstall\(\)[\s\S]*autoUpdater\.quitAndInstall\(false, true\)/);
 });

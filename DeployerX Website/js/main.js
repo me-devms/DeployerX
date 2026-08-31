@@ -31,39 +31,39 @@
   ];
 
   const releaseFallback = {
-    tag: 'v0.2.5',
-    releaseName: 'DeployerX 0.2.5',
-    releaseDate: '2026-08-20',
-    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.5',
-    body: `## What's new in v0.2.5\n\n- Publishes the current DeployerX desktop and website build with synchronized release metadata for every supported platform.\n- Keeps Windows, Linux, Intel macOS, and Apple Silicon macOS downloads pointed at the same verified GitHub release.\n- Refreshes website cache-busting and release fallback data so visitors do not receive an older application copy.`,
+    tag: 'v0.2.6',
+    releaseName: 'DeployerX 0.2.6',
+    releaseDate: '2026-08-31',
+    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.6',
+    body: `## What's new in v0.2.6\n\n- Prevents detached worker processes from cleaning up the live DeployerX desktop instance.\n- Publishes the current desktop and website build with synchronized release metadata for every supported platform.\n- Refreshes website cache-busting and download links so visitors receive the current release.`,
     assets: {
       'windows-portable': {
-        name: 'DeployerX-0.2.5-Portable-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-Portable-x64.exe'
+        name: 'DeployerX-0.2.6-Portable-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.6/DeployerX-0.2.6-Portable-x64.exe'
       },
       'windows-setup': {
-        name: 'DeployerX-0.2.5-Setup-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-Setup-x64.exe'
+        name: 'DeployerX-0.2.6-Setup-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.6/DeployerX-0.2.6-Setup-x64.exe'
       },
       'mac-arm64': {
-        name: 'DeployerX-0.2.5-arm64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-arm64.dmg'
+        name: 'DeployerX-0.2.6-arm64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.6/DeployerX-0.2.6-arm64.dmg'
       },
       'mac-x64': {
-        name: 'DeployerX-0.2.5-x64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-x64.dmg'
+        name: 'DeployerX-0.2.6-x64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.6/DeployerX-0.2.6-x64.dmg'
       },
       'linux-appimage': {
-        name: 'DeployerX-0.2.5-x86_64.AppImage',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-x86_64.AppImage'
+        name: 'DeployerX-0.2.6-x86_64.AppImage',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.6/DeployerX-0.2.6-x86_64.AppImage'
       },
       'linux-deb': {
-        name: 'DeployerX-0.2.5-amd64.deb',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-amd64.deb'
+        name: 'DeployerX-0.2.6-amd64.deb',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.6/DeployerX-0.2.6-amd64.deb'
       },
       'linux-rpm': {
-        name: 'DeployerX-0.2.5-x86_64.rpm',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.5/DeployerX-0.2.5-x86_64.rpm'
+        name: 'DeployerX-0.2.6-x86_64.rpm',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.6/DeployerX-0.2.6-x86_64.rpm'
       }
     }
   };
