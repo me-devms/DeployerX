@@ -1036,6 +1036,19 @@ class ControlTransaction {
     const expectedRevision = Number(options.expectedRevision ?? current.revision);
     const deletedAt = this.clock();
     const actorId = requiredText(options.actorId || 'system', 'Actor ID', 200);
+    // Connection removal from the Backup Manager UI explicitly includes its
+    // source profiles. Perform that cascade inside the same transaction so
+    // every caller observes the same reference checks and atomic rollback.
+    if (type === 'connection' && options.cascadeSources === true) {
+      const sources = this.list('source', workspaceId, { limit: 1000 })
+        .filter((source) => source.connectionId === current.id);
+      for (const source of sources) {
+        this.softDelete('source', workspaceId, source.id, {
+          expectedRevision: source.revision,
+          actorId
+        });
+      }
+    }
     this.#assertSoftDeleteAllowed(type, current);
     const record = { ...current, revision: current.revision + 1, updatedAt: deletedAt, updatedBy: actorId, deletedAt };
     const result = this.database.run(`UPDATE ${spec.table} SET revision = ?, updated_at = ?, updated_by = ?, deleted_at = ?, data_json = ? WHERE workspace_id = ? AND id = ? AND revision = ? AND deleted_at IS NULL`, [record.revision, record.updatedAt, record.updatedBy, record.deletedAt, JSON.stringify(record), current.workspaceId, current.id, expectedRevision]);

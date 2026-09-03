@@ -217,12 +217,19 @@ test('persists device-scoped local repositories with generated encryption Secret
   await assert.rejects(otherDevice.open('workspace-a', repository.id), /another device/);
 });
 
-test('removes repository configuration while retaining backup data and its recovery key', async (context) => {
+test('removes repository configuration without decrypting its retained recovery key', async (context) => {
   const fixture = await serviceFixture(context);
   const repository = await fixture.service.create('workspace-a', 'tester', { name: 'Retained archive', rootPath: fixture.repositoryPath });
   const markerPath = path.join(fixture.repositoryPath, STORE_DIRECTORY, 'objects', 'repository', 'format.json');
   assert.equal((await fs.stat(markerPath)).isFile(), true);
-  const removed = await fixture.service.remove('workspace-a', 'tester', repository.id, repository.revision);
+  const originalResolve = fixture.secretStore.resolve;
+  fixture.secretStore.resolve = async () => { throw new Error('Secret could not be decrypted on this device.'); };
+  let removed;
+  try {
+    removed = await fixture.service.remove('workspace-a', 'tester', repository.id, repository.revision);
+  } finally {
+    fixture.secretStore.resolve = originalResolve;
+  }
   assert.equal(removed.dataRetainedAt, fixture.repositoryPath);
   assert.deepEqual(await fixture.service.list('workspace-a'), []);
   assert.equal((await fs.stat(markerPath)).isFile(), true);

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
-const { DeployerXMcpServer } = require('./mcp-server');
+const { DeployerXMcpServer, MCP_PROTOCOL_VERSION } = require('./mcp-server');
 
 async function availablePort() {
   const probe = net.createServer();
@@ -164,6 +164,28 @@ test('MCP accepts an authenticated Streamable HTTP ping', async () => {
     });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { jsonrpc: '2.0', id: 3, result: {} });
+  } finally {
+    await server.stop();
+  }
+});
+
+test('MCP prefers JSON when a client advertises JSON and SSE together', async () => {
+  const server = new DeployerXMcpServer({ getProjects: async () => [] });
+  const port = await availablePort();
+  try {
+    const status = await server.start({ port, token: 'negotiation-token' });
+    const response = await fetch(status.url, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer negotiation-token',
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'initialize', params: { protocolVersion: MCP_PROTOCOL_VERSION } })
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8');
+    assert.equal((await response.json()).result.protocolVersion, MCP_PROTOCOL_VERSION);
   } finally {
     await server.stop();
   }

@@ -143,7 +143,7 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     const jobPickerPath = path.join(captureRoot, 'backup-job-source-picker.png');
     await fs.writeFile(jobPickerPath, (await window.webContents.capturePage()).toPNG());
-    const jobPickerAction = await window.webContents.executeJavaScript(`(() => {
+    const jobPickerAction = await window.webContents.executeJavaScript(`(async () => {
       document.getElementById('backupAddMysqlConnectionButton').click();
       const result = {
         menuClosed: document.getElementById('backupSourceAddMenu').classList.contains('hidden'),
@@ -192,7 +192,9 @@ app.whenReady().then(async () => {
       const sourceSectionBounds = replaceButton.closest('.backup-job-resource-section').getBoundingClientRect();
       result.replaceActionVisible = !replaceButton.classList.contains('hidden');
       result.replaceActionFits = replaceBounds.left >= sourceSectionBounds.left && replaceBounds.right <= sourceSectionBounds.right;
-      replaceButton.click();
+      const originalDeployerx = window.deployerx;
+      Object.defineProperty(window, 'deployerx', { configurable: true, value: { ...originalDeployerx, getBackupJobReadiness: async () => ({ sources: [oldSource, savedSource], repositories: [] }) } });
+      await openBackupJobSourceTypes({ trigger: replaceButton, replacing: true });
       result.replacePickerOpen = !document.getElementById('backupJobSourcePicker').classList.contains('hidden')
         && document.getElementById('backupJobSourcePickerTitle').textContent.trim() === 'Replace Backup Source';
       result.savedSourcesVisible = document.querySelectorAll('[data-backup-job-saved-source]').length === 2;
@@ -200,7 +202,7 @@ app.whenReady().then(async () => {
       result.savedSourceSelected = state.backupJobWizard.sourceId === savedSource.id
         && document.getElementById('backupJobSourcePicker').classList.contains('hidden')
         && document.querySelector('[data-backup-job-source]')?.dataset.backupJobSource === savedSource.id;
-      replaceButton.click();
+      await openBackupJobSourceTypes({ trigger: replaceButton, replacing: true });
       document.getElementById('backupAddMysqlConnectionButton').click();
       document.getElementById('backupMysqlModal').classList.add('hidden');
       const replacement = { id: 'source_replacement', name: 'Replacement Source', sourceType: 'database', connectionName: 'Replacement MySQL', adapterId: 'deployerx.database.mysql.native', selection: { allDatabases: true }, readiness: { ready: true, message: 'Ready' } };
@@ -210,6 +212,7 @@ app.whenReady().then(async () => {
       renderBackupJobChoices();
       result.replacementSelected = state.backupJobWizard.sourceId === replacement.id
         && document.querySelector('[data-backup-job-source]')?.dataset.backupJobSource === replacement.id;
+      Object.defineProperty(window, 'deployerx', { configurable: true, value: originalDeployerx });
       state.backupJobWizard = blankBackupJobWizard();
       return result;
     })()`);
@@ -314,7 +317,7 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     const mysqlPath = path.join(captureRoot, 'mysql-modal-mobile.png');
     await fs.writeFile(mysqlPath, (await window.webContents.capturePage()).toPNG());
-    const expectedSourceOptions = ['This Computer', 'Linux Server', 'MySQL', 'MariaDB', 'PostgreSQL / Supabase', 'MongoDB', 'ClickHouse', 'Redis', 'SQLite'];
+    const expectedSourceOptions = ['This computer', 'Linux server', 'MySQL', 'MariaDB', 'PostgreSQL / Supabase', 'MongoDB', 'ClickHouse', 'Redis', 'SQLite'];
     const valid = [desktop, mobile].every((result) => result.visibleText && result.menuOpen && !result.toastVisible && !result.horizontalOverflow
       && result.menu.left >= 0 && result.menu.right <= result.viewport.width + 1 && result.menu.bottom <= result.viewport.height + 1
       && result.trigger.left >= result.panel.left && result.trigger.right <= result.panel.right + 1

@@ -7,6 +7,9 @@ app.disableHardwareAcceleration();
 
 const readiness = {
   checkedAt: '2026-08-03T12:00:00.000Z',
+  sourceConnections: [
+    { id: 'conn_existing', name: 'ERPONE', connectionKind: 'mysql', currentDevice: true }
+  ],
   sources: [
     { id: 'src_ready', name: 'Production application', revision: 3, sourceType: 'files', adapterId: 'deployerx.files.ssh', connectionName: 'Production server', rootCount: 3, readiness: { ready: true, message: 'Ready' } },
     { id: 'src_blocked', name: 'Retired server files', revision: 1, sourceType: 'files', adapterId: 'deployerx.files.ssh', connectionName: 'Retired server', rootCount: 1, readiness: { ready: false, message: 'Test the source connection successfully before creating a job.' } }
@@ -26,6 +29,8 @@ async function prepare(window) {
     document.querySelector('.app-shell')?.classList.remove('hidden');
     document.querySelector('.app-shell')?.style.setProperty('display', 'grid', 'important');
     document.getElementById('setupModal')?.classList.add('hidden');
+    window.__backupReadiness = JSON.parse(atob('${readinessEncoded}'));
+    window.__originalBackupReadiness = structuredClone(window.__backupReadiness);
     window.__createdBackupJobPayload = null;
     window.__backupJobRows = [];
     window.__backupRuns = [];
@@ -33,7 +38,7 @@ async function prepare(window) {
     window.__runLifecycleCalls = [];
     window.__backupWorkerStatus = { online: true, state: 'online', heartbeatAt: '2026-08-03T12:00:00.000Z', nextRunAt: '2026-08-04T01:30:00.000Z' };
     Object.defineProperty(window, 'deployerx', { configurable: true, value: {
-      getBackupJobReadiness: async () => JSON.parse(atob('${readinessEncoded}')),
+      getBackupJobReadiness: async () => structuredClone(window.__backupReadiness),
       listBackupJobs: async () => window.__backupJobRows,
       listBackupRuns: async () => window.__backupRuns,
       getBackupWorkerStatus: async () => window.__backupWorkerStatus,
@@ -277,6 +282,31 @@ app.whenReady().then(async () => {
     const emptyDesktopPath = path.join(captureRoot, 'backup-jobs-empty-desktop.png');
     await fs.writeFile(emptyDesktopPath, (await window.webContents.capturePage()).toPNG());
     const review = await completeToProtection(window);
+    const sourcePicker = await window.webContents.executeJavaScript(`(async () => {
+      window.__backupReadiness.sources = [{
+        id: 'src_new', name: 'Newly created source', revision: 1, sourceType: 'files', adapterId: 'deployerx.files.ssh', connectionName: 'New server', rootCount: 1,
+        readiness: { ready: true, message: 'Ready' }
+      }];
+      openBackupJobSourceTypes({ trigger: els.backupJobReplaceSourceButton, replacing: true });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const oldSource = document.querySelector('[data-backup-job-saved-source="src_ready"]');
+      const newSource = document.querySelector('[data-backup-job-saved-source="src_new"]');
+      const pickerBody = document.getElementById('backupJobSourcePickerBody');
+      const bodyStyle = getComputedStyle(pickerBody);
+      const card = document.querySelector('.backup-job-source-picker-card').getBoundingClientRect();
+      newSource?.click();
+      return {
+        oldSourceVisible: Boolean(oldSource),
+        newSourceVisible: Boolean(newSource),
+        existingConnectionVisible: Boolean(document.querySelector('[data-backup-job-existing-connection="conn_existing"]')),
+        newSourceSelectable: Boolean(newSource && !newSource.disabled),
+        selectedSourceId: state.backupJobWizard.sourceId,
+        pickerBodyScrollbar: bodyStyle.scrollbarWidth,
+        pickerCardHeight: card.height
+      };
+    })()`);
+    await window.webContents.executeJavaScript(`window.__backupReadiness = structuredClone(window.__originalBackupReadiness); state.backupJobWizard.readiness = structuredClone(window.__backupReadiness); state.backupJobWizard.sourceId = 'src_ready';`);
+    await window.webContents.executeJavaScript(`renderBackupJobChoices(); renderBackupJobForm();`);
     window.setSize(1279, 800);
     window.setSize(1280, 800);
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -435,6 +465,9 @@ app.whenReady().then(async () => {
       && review.protectionText.includes('Backup Mode') && review.protectionText.includes('Calendar Retention')
       && review.protectionText.includes('Automatic Retries') && review.protectionText.includes('Transfer Bandwidth')
       && review.protectionText.includes('Schedule')
+      && !sourcePicker.oldSourceVisible && sourcePicker.newSourceVisible && sourcePicker.newSourceSelectable
+      && sourcePicker.existingConnectionVisible
+      && sourcePicker.selectedSourceId === 'src_new' && sourcePicker.pickerBodyScrollbar === 'none' && sourcePicker.pickerCardHeight <= 520
       && review.destinationText.includes('Primary local archive') && review.destinationText.includes('Offsite object archive')
       && review.scheduleTypeCount === 7 && review.weeklyVisible
       && review.timezoneCount > 100 && review.dstVisible && review.maintenanceVisible && review.blackoutVisible && review.bandwidthVisible

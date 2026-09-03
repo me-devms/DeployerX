@@ -33,6 +33,7 @@ app.whenReady().then(async () => {
       document.querySelector('.app-shell')?.style.setProperty('display', 'grid', 'important');
       document.getElementById('setupModal')?.classList.add('hidden');
       window.__mongoConnections = JSON.parse(atob('${encodedConnections}'));
+      window.__mongoCreatedPayload = null;
       window.__mongoSourcePayload = null;
       window.__mongoRestorePayload = null;
       window.__mongoCanceled = null;
@@ -50,6 +51,7 @@ app.whenReady().then(async () => {
         listBackupMariadbConnections: empty, listBackupPostgresqlConnections: empty, listBackupSqlServerConnections: empty, listBackupOracleConnections: empty,
         listBackupMongoDbConnections: async () => structuredClone(window.__mongoConnections),
         createBackupMongoDbConnection: async (payload) => {
+          window.__mongoCreatedPayload = structuredClone(payload);
           const created = { ...structuredClone(window.__mongoConnections[0]), id: 'connection-mongodb-created', name: payload.name, endpoint: { ...structuredClone(window.__mongoConnections[0].endpoint), ...payload }, lastTest: null, trust: { mode: 'verify-identity', fingerprint: null } };
           window.__mongoConnections.push(created);
           return structuredClone(created);
@@ -75,7 +77,8 @@ app.whenReady().then(async () => {
     const source = await window.webContents.executeJavaScript(`(async () => {
       openBackupMysqlModal(null, 'mongodb');
       els.backupMysqlName.value = 'MongoDB reporting';
-      els.backupMysqlHost.value = 'reporting.example.com';
+      els.backupMysqlHost.value = 'mongodb://reporting.example.com:27018';
+      els.backupMysqlPort.value = '27017';
       els.backupMysqlUsername.value = 'backup';
       els.backupMysqlPassword.value = 'secret';
       els.backupMongoDbAuthSource.value = 'admin';
@@ -93,7 +96,7 @@ app.whenReady().then(async () => {
         help: els.backupMysqlSelectionHelp.innerText
       };
       await saveBackupMysqlSource(new Event('submit', { cancelable: true }));
-      return { beforeSave, payload: window.__mongoSourcePayload };
+      return { beforeSave, payload: window.__mongoSourcePayload, createdPayload: window.__mongoCreatedPayload };
     })()`);
 
     const job = await window.webContents.executeJavaScript(`(() => {
@@ -178,6 +181,8 @@ app.whenReady().then(async () => {
       && source.beforeSave.objectControlsHidden && source.beforeSave.saveEnabled && source.beforeSave.help.includes('All user databases')
       && source.payload?.selector?.allDatabases === true && source.payload?.consistency?.method === 'mongodb-oplog-dump'
       && source.payload?.consistency?.backupMethod === 'logical' && source.payload?.consistency?.captureCoordinates === true && !source.payload?.physicalExecution
+      && source.payload?.connectionId === 'connection-mongodb-created'
+      && source.createdPayload?.host === 'reporting.example.com' && source.createdPayload?.port === 27018
       && !job.incrementalDisabled && job.differentialDisabled && job.incrementalLabel.includes('Continuous oplog') && job.fullLabel.includes('Full logical anchor') && job.sourceDetail.includes('whole replica set')
       && recovery.summary.includes('MongoDB oplog') && recovery.summary.includes('300:2') && recovery.mongoStopVisible && recovery.mysqlStopHidden && recovery.newDatabaseHidden && recovery.coordinateFieldsVisible
       && recovery.startedPayload?.mode === 'alternate' && recovery.startedPayload?.targetConnectionId === 'connection-mongodb-alternate' && recovery.startedPayload?.conflictPolicy === 'fail'

@@ -270,7 +270,7 @@ function blankBackupBrowser(connection = null) {
 function blankBackupJobWizard() {
   return {
     step: 0,
-    readiness: { sources: [], repositories: [] },
+    readiness: { sources: [], sourceConnections: [], repositories: [] },
     sourceId: '',
     repositoryIds: [],
     repositoryIdsBeforeDependency: null,
@@ -361,6 +361,7 @@ const state = {
   backupDatabaseAdapterIds: new Set(Object.values(BACKUP_DATABASE_ADAPTER_ID_BY_CONNECTION_KIND)),
   backupDatabaseEngine: 'mysql',
   backupMysqlConnectionId: '',
+  backupMysqlEditMode: false,
   backupSqliteConnectionId: '',
   backupSqliteDiscovery: null,
   backupRedisConnectionId: '',
@@ -412,7 +413,6 @@ const state = {
     groups: [],
     projects: []
   },
-  sidebarServerFilter: 'all',
   serverGroupModal: {
     mode: 'create',
     originalName: '',
@@ -664,7 +664,7 @@ function blankTerminalUploadState() {
   };
 }
 
-function blankTerminalSession(projectId = '', { tabId = '', label = '', startupDirectory = '/' } = {}) {
+function blankTerminalSession(projectId = '', { tabId = '', label = '', startupDirectory = '' } = {}) {
   return {
     projectId,
     tabId: tabId || `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -724,7 +724,7 @@ function blankFtpSession(projectId = '') {
   };
 }
 
-function createTerminalTabSession(projectId, { startupDirectory = '/' } = {}) {
+function createTerminalTabSession(projectId, { startupDirectory = '' } = {}) {
   const nextNumber = Number(state.terminalTabCounters[projectId] || 0) + 1;
   const inheritedDirectory = String(startupDirectory || '').trim();
   const savedLabel = terminalTabNamesForProject(projectId)[nextNumber - 1];
@@ -818,9 +818,15 @@ function getTerminalTabs(projectId = state.activeProject?.id, create = false) {
     stored.tabId ||= `terminal-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     stored.label ||= 'Terminal 1';
     stored.customLabel = Boolean(stored.customLabel);
-    stored.startupDirectory ||= '';
+    stored.startupDirectory = String(stored.startupDirectory || '').trim() === '/' ? '' : (stored.startupDirectory || '');
     state.terminalSessions[projectId] = [stored];
     state.terminalTabCounters[projectId] = Math.max(1, Number(state.terminalTabCounters[projectId] || 0));
+  } else if (Array.isArray(stored)) {
+    // Older sessions used '/' as the implicit startup path. Let the SSH
+    // server choose the authenticated user's home directory instead.
+    stored.forEach((session) => {
+      if (session && String(session.startupDirectory || '').trim() === '/') session.startupDirectory = '';
+    });
   }
   if (!state.terminalSessions[projectId] && create) {
     const session = createTerminalTabSession(projectId);
@@ -1606,6 +1612,7 @@ function activateTerminalTab(tabId, { focus = true } = {}) {
   state.activeTerminalTabIds[projectId] = session.tabId;
   applyTerminalSessionToState(projectId);
   renderVisibleTerminalSession(session);
+  renderDetailsSummary(state.activeProject, session);
   updateTerminalStatus(session.status || (session.connected ? 'Connected' : 'Not connected'), session.connected);
   if (session.connected && session.sessionId) {
     if (!session.homeDirectory) ensureTerminalHomeDirectory(session.sessionId).catch(() => {});
@@ -2769,6 +2776,11 @@ const els = {
   backupMysqlForm: document.getElementById('backupMysqlForm'),
   backupMysqlCloseButton: document.getElementById('backupMysqlCloseButton'),
   backupMysqlCancelButton: document.getElementById('backupMysqlCancelButton'),
+  backupMysqlExistingConnectionSummary: document.getElementById('backupMysqlExistingConnectionSummary'),
+  backupMysqlExistingConnectionName: document.getElementById('backupMysqlExistingConnectionName'),
+  backupMysqlExistingConnectionEndpoint: document.getElementById('backupMysqlExistingConnectionEndpoint'),
+  backupMysqlDiscoveryStatus: document.getElementById('backupMysqlDiscoveryStatus'),
+  backupMysqlNewConnectionStatus: document.getElementById('backupMysqlNewConnectionStatus'),
   backupMysqlConnectionFields: document.getElementById('backupMysqlConnectionFields'),
   backupMysqlName: document.getElementById('backupMysqlName'),
   backupMysqlHost: document.getElementById('backupMysqlHost'),
@@ -2869,6 +2881,11 @@ const els = {
   backupNativeToolMessage: document.getElementById('backupNativeToolMessage'),
   backupNativeToolPackage: document.getElementById('backupNativeToolPackage'),
   backupNativeToolSize: document.getElementById('backupNativeToolSize'),
+  backupNativeToolProgressGroup: document.getElementById('backupNativeToolProgressGroup'),
+  backupNativeToolProgress: document.getElementById('backupNativeToolProgress'),
+  backupNativeToolProgressFill: document.getElementById('backupNativeToolProgressFill'),
+  backupNativeToolProgressPercent: document.getElementById('backupNativeToolProgressPercent'),
+  backupNativeToolProgressBytes: document.getElementById('backupNativeToolProgressBytes'),
   backupNativeToolError: document.getElementById('backupNativeToolError'),
   backupNativeToolStatus: document.getElementById('backupNativeToolStatus'),
   backupNativeToolInstallButton: document.getElementById('backupNativeToolInstallButton'),
@@ -3043,10 +3060,6 @@ const els = {
   projectGrid: document.getElementById('projectGrid'),
   projectList: document.getElementById('projectList'),
   serverSearch: document.getElementById('serverSearch'),
-  sidebarServerTabs: document.getElementById('sidebarServerTabs'),
-  sidebarAllServersTab: document.getElementById('sidebarAllServersTab'),
-  sidebarConnectedServersTab: document.getElementById('sidebarConnectedServersTab'),
-  sidebarConnectedServerCount: document.getElementById('sidebarConnectedServerCount'),
   topWorkspaceSwitcher: document.getElementById('topWorkspaceSwitcher'),
   topWorkspaceButton: document.getElementById('topWorkspaceButton'),
   topWorkspaceLabel: document.getElementById('topWorkspaceLabel'),
@@ -4049,6 +4062,8 @@ function renderTopUpdateAction() {
 let toastTimer = null;
 let uptimeRefreshTimer = null;
 let dashboardRefreshTimer = null;
+let workspaceRefreshTimer = null;
+let workspaceRefreshInFlight = false;
 let dashboardRefreshInFlight = false;
 let dashboardOperationsLoaded = false;
 let backupRunPollTimer = null;
@@ -6767,7 +6782,16 @@ function updateVncDisplaySelector(displays = [], selectedDisplayId = 'all') {
     return;
   }
 
-  els.vncDisplaySelector.replaceChildren(...vncDisplays.map((display, index) => {
+  const allButton = document.createElement('button');
+  allButton.type = 'button';
+  allButton.className = `vnc-display-toggle${selectedVncDisplayId === 'all' ? ' active' : ''}`;
+  allButton.dataset.vncDisplayId = 'all';
+  allButton.setAttribute('aria-pressed', selectedVncDisplayId === 'all' ? 'true' : 'false');
+  allButton.setAttribute('aria-label', 'All displays');
+  allButton.title = 'All displays';
+  allButton.innerHTML = '<span class="vnc-display-toggle-mark vnc-display-all-mark" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-monitor"></use></svg><svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-monitor"></use></svg></span>';
+
+  els.vncDisplaySelector.replaceChildren(allButton, ...vncDisplays.map((display, index) => {
     const button = document.createElement('button');
     const monitorNumber = index + 1;
     const monitorLabel = 'Monitor ' + monitorNumber;
@@ -11274,7 +11298,7 @@ function showAlert(message) {
   if (/^(?:TypeError|ReferenceError|RangeError|SyntaxError):/i.test(safeMessage) || /Cannot read properties of (?:undefined|null)/i.test(safeMessage)) {
     safeMessage = 'This action is temporarily unavailable. Please try again.';
   }
-  showToast(safeMessage, { tone: 'error' });
+  showToast(safeMessage, { tone: 'error', duration: 6000 });
 }
 
 function objectiveDuration(minutes) {
@@ -15586,16 +15610,35 @@ function selectDefaultBackupJobRepository() {
 }
 
 function renderBackupJobSavedSources() {
-  const sources = state.backupJobWizard.readiness.sources;
-  els.backupJobSavedSources.innerHTML = sources.length ? `
-    <div class="backup-job-source-picker-label">Saved Sources</div>
-    <div class="backup-job-saved-source-list">
-      ${sources.map((source) => `
+  const sources = state.backupJobWizard.readiness.sources || [];
+  const connections = (state.backupJobWizard.readiness.sourceConnections || [])
+    .filter((connection) => connection.currentDevice !== false)
+    .filter((connection) => !sources.some((source) => source.connectionId === connection.id));
+  const savedSources = sources.length ? `
+      <div class="backup-job-source-picker-label">Saved Sources</div>
+      <div class="backup-job-saved-source-list">
+        ${sources.map((source) => `
         <button class="backup-job-saved-source ${source.id === state.backupJobWizard.sourceId ? 'is-current' : ''}" type="button" data-backup-job-saved-source="${escapeHtml(source.id)}" ${source.readiness?.ready ? '' : 'disabled'} ${source.id === state.backupJobWizard.sourceId ? 'aria-current="true"' : ''}>
           <span class="backup-job-choice-copy"><strong>${escapeHtml(source.name)}</strong><small>${escapeHtml(backupJobSourceDetail(source))}</small></span>
           <span class="backup-job-choice-status ${source.readiness?.ready ? 'ready' : ''}">${escapeHtml(source.readiness?.message || 'Unavailable')}</span>
         </button>`).join('')}
-    </div>` : '';
+      </div>` : '';
+  const existingConnections = connections.length ? `
+      <div class="backup-job-source-picker-label">Existing Source Connections</div>
+      <div class="backup-job-saved-source-list">
+        ${connections.map((connection) => {
+          const database = BACKUP_DATABASE_CONNECTION_KINDS.includes(connection.connectionKind);
+          const type = database ? backupDatabaseUi(connection.connectionKind).label : connection.connectionKind === 'ssh' ? 'Linux server' : 'This computer';
+          const action = database ? 'Select databases' : 'Select files';
+          return `<button class="backup-job-saved-source" type="button" data-backup-job-existing-connection="${escapeHtml(connection.id)}">
+            <span class="backup-job-choice-copy"><strong>${escapeHtml(connection.name)}</strong><small>${escapeHtml(`${type} connection`)}</small></span>
+            <span class="backup-job-choice-status ready">${action}</span>
+          </button>`;
+        }).join('')}
+      </div>` : '';
+  els.backupJobSavedSources.innerHTML = savedSources || existingConnections
+    ? `${savedSources}${existingConnections}`
+    : '<div class="backup-job-source-picker-loading">No saved sources or existing source connections.</div>';
 }
 
 function renderBackupJobChoices() {
@@ -15778,22 +15821,98 @@ async function openBackupJobFileSourceCreator() {
   openBackupBrowser(connection);
 }
 
-function openBackupJobSourceTypes({ trigger = els.backupJobAddSourceButton, replacing = false, focusLast = false } = {}) {
+async function refreshBackupJobWizardReadiness() {
+  if (!window.deployerx?.getBackupJobReadiness) return null;
+  syncBackupJobDraftSelections();
+  const readiness = await window.deployerx.getBackupJobReadiness();
+  const sources = Array.isArray(readiness?.sources) ? readiness.sources : [];
+  const sourceConnections = Array.isArray(readiness?.sourceConnections) ? readiness.sourceConnections : [];
+  const repositories = Array.isArray(readiness?.repositories) ? readiness.repositories : [];
+  state.backupJobWizard.readiness = { ...readiness, sources, sourceConnections, repositories };
+  if (state.backupJobWizard.sourceId && !sources.some((source) => source.id === state.backupJobWizard.sourceId)) state.backupJobWizard.sourceId = '';
+  const selectedRepositoryIds = Array.isArray(state.backupJobWizard.repositoryIds) ? state.backupJobWizard.repositoryIds : [];
+  state.backupJobWizard.repositoryIds = selectedRepositoryIds.filter((id) => repositories.some((repository) => repository.id === id));
+  renderBackupJobChoices();
+  renderBackupJobForm();
+  return state.backupJobWizard.readiness;
+}
+
+async function openBackupJobSourceTypes({ trigger = els.backupJobAddSourceButton, replacing = false, focusLast = false } = {}) {
   state.backupJobWizard.replaceSourceOnReturn = replacing;
   els.backupJobSourcePickerTitle.textContent = replacing ? 'Replace Backup Source' : 'Add Backup Source';
   els.backupJobSourcePickerDescription.textContent = replacing ? 'Choose a saved source or create a new one.' : 'Choose the type of data you want to protect.';
   els.backupJobSavedSources.classList.toggle('hidden', !replacing);
   els.backupJobSourceCreateLabel.classList.toggle('hidden', !replacing);
-  if (replacing) renderBackupJobSavedSources();
+  if (replacing) {
+    els.backupJobSavedSources.innerHTML = '<div class="backup-job-source-picker-loading" role="status">Refreshing saved sources...</div>';
+  }
   openBackupSourceAddMenu({
     focusLast,
     trigger,
     host: els.backupJobSourcePickerBody,
     context: 'backup-job'
   });
+  if (replacing) renderBackupJobSavedSources();
+  if (replacing) {
+    try {
+      await refreshBackupJobWizardReadiness();
+      if (els.backupJobSourcePicker.classList.contains('hidden') || backupSourceAddMenuContext !== 'backup-job') return;
+    } catch (_error) {
+      if (!els.backupJobSourcePicker.classList.contains('hidden')) els.backupJobSavedSources.innerHTML = '<div class="backup-job-source-picker-loading">Saved sources could not be refreshed.</div>';
+      return;
+    }
+  }
   if (replacing && !focusLast) {
     requestAnimationFrame(() => els.backupJobSavedSources.querySelector('[data-backup-job-saved-source]:not(:disabled)')?.focus());
   }
+}
+
+function openBackupSourceForConnection(connection) {
+  if (!connection) return;
+  if (connection.connectionKind === 'sqlite') {
+    openBackupSqliteModal(connection);
+    discoverBackupSqlite();
+  } else if (connection.connectionKind === 'redis') {
+    openBackupRedisModal(connection);
+    discoverBackupRedis();
+  } else if (connection.connectionKind === 'search-snapshot') {
+    openBackupSearchSnapshotModal(connection);
+    discoverBackupSearchSnapshot();
+  } else if (connection.connectionKind === 'scylla-manager') {
+    openBackupScyllaManagerModal(connection);
+    discoverBackupScyllaManager();
+  } else if (connection.connectionKind === 'neo4j') {
+    openBackupNeo4jModal(connection);
+    discoverBackupNeo4j();
+  } else if (connection.connectionKind === 'clickhouse') {
+    openBackupClickHouseModal(connection);
+    discoverBackupClickHouse();
+  } else if (connection.connectionKind === 'influxdb') {
+    openBackupInfluxDbModal(connection);
+    discoverBackupInfluxDb();
+  } else if (connection.connectionKind === 'influxdb3-core') {
+    openBackupInfluxDb3CoreModal(connection);
+    discoverBackupInfluxDb3Core();
+  } else if (connection.connectionKind === 'influxdb3-enterprise') {
+    openBackupInfluxDb3EnterpriseModal(connection);
+    discoverBackupInfluxDb3Enterprise();
+  } else if (connection.connectionKind === 'cockroachdb') {
+    openBackupCockroachDbModal(connection);
+    discoverBackupCockroachDb();
+  } else if (['mysql', 'mariadb', 'postgresql', 'sqlserver', 'oracle', 'mongodb'].includes(connection.connectionKind)) {
+    openBackupMysqlModal(connection);
+    discoverBackupMysql();
+  } else {
+    openBackupBrowser(connection);
+  }
+}
+
+function openBackupJobExistingConnection(connectionId) {
+  const connection = (state.backupJobWizard.readiness.sourceConnections || []).find((candidate) => candidate.id === connectionId);
+  if (!connection) return;
+  closeBackupSourceAddMenu();
+  suspendBackupJobForDependency(connection.connectionKind === 'local' || connection.connectionKind === 'ssh' ? 'file-source' : 'source-creator');
+  openBackupSourceForConnection(connection);
 }
 
 function cancelBackupJobSourceTypes() {
@@ -15985,13 +16104,14 @@ function renderBackupRepositories() {
           <button class="button outline compact icon-only" type="button" data-backup-repository-policy="${escapeHtml(repository.id)}" aria-label="Configure ${escapeHtml(repository.name)} storage policy" title="Storage policy" ${repository.currentDevice ? '' : 'disabled'}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-settings"></use></svg>
           </button>
-          <button class="button outline compact icon-only" type="button" data-backup-repository-prune="${escapeHtml(repository.id)}" aria-label="Prune ${escapeHtml(repository.name)}" title="Review expired recovery points" ${repository.currentDevice ? '' : 'disabled'}>
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-trash"></use></svg>
+          <button class="button outline compact" type="button" data-backup-repository-prune="${escapeHtml(repository.id)}" aria-label="Review expired recovery points for ${escapeHtml(repository.name)}" title="Review expired recovery points" ${repository.currentDevice ? '' : 'disabled'}>
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-archive"></use></svg>
+            <span>Prune</span>
           </button>
           <button class="button outline compact icon-only" type="button" data-backup-repository-test="${escapeHtml(repository.id)}" aria-label="Test ${escapeHtml(repository.name)}" title="Test destination health, capacity, and locking" ${repository.currentDevice ? '' : 'disabled'}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg>
           </button>
-          <button class="button outline danger compact icon-only" type="button" data-backup-repository-delete="${escapeHtml(repository.id)}" aria-label="Remove ${escapeHtml(repository.name)}" title="Remove destination configuration" ${repository.currentDevice ? '' : 'disabled'}>
+          <button class="button outline danger compact icon-only" type="button" data-backup-repository-delete="${escapeHtml(repository.id)}" aria-label="Remove ${escapeHtml(repository.name)} destination configuration" title="Remove destination configuration" ${repository.currentDevice ? '' : 'disabled'}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-trash"></use></svg>
           </button>
         </span>
@@ -16370,11 +16490,21 @@ async function removeBackupDestination(repositoryId, button) {
   await withButtonLoading(`backup:destination:delete:${repositoryId}`, button, async () => {
     try {
       await window.deployerx.deleteBackupDestination(repository.id, repository.revision);
-      await Promise.all([loadBackupRepositories(), loadBackupDestinationConnections()]);
-      showToast('Destination configuration removed.');
     } catch (error) {
       showAlert(error.message || 'Could not remove the destination configuration.');
+      return;
     }
+
+    // Deletion is complete once the IPC operation resolves. Keep the UI in sync
+    // even if a secondary refresh is blocked by an unrelated credential error.
+    state.backupDestinations = state.backupDestinations.filter((item) => item.id !== repository.id);
+    renderBackupRepositories();
+    renderBackupDestinationConnections();
+    await Promise.all([
+      loadBackupRepositories().catch(() => {}),
+      loadBackupDestinationConnections().catch(() => {})
+    ]);
+    showToast('Destination configuration removed.');
   });
 }
 
@@ -16818,6 +16948,9 @@ function renderBackupConnections() {
         </span>
         <button class="backup-source-status ${healthy ? 'is-ready' : test.status === 'failure' ? 'is-error' : ''}" type="button" data-backup-connection-diagnostics="${escapeHtml(connection.id)}" data-backup-connection-kind="${connection.connectionKind}" title="View connection diagnostics">${escapeHtml(statusLabel)}</button>
         <span class="backup-source-actions">
+          ${connection.connectionKind === 'postgresql' ? `<button class="button outline compact icon-only" type="button" data-backup-connection-edit="${escapeHtml(connection.id)}" data-backup-connection-kind="${connection.connectionKind}" aria-label="Edit ${escapeHtml(connection.name)}" title="Edit connection">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-edit"></use></svg>
+          </button>` : ''}
           <button class="button outline compact icon-only" type="button" data-backup-connection-browse="${escapeHtml(connection.id)}" data-backup-connection-kind="${connection.connectionKind}" aria-label="${sourceCreationAvailable ? (database ? 'Select databases from' : 'Browse') : 'Source creation unavailable for'} ${escapeHtml(connection.name)}" title="${browseTitle}" ${browseDisabled ? 'disabled' : ''}>
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#${database ? 'icon-save' : 'icon-folder-open'}"></use></svg>
           </button>
@@ -16937,7 +17070,7 @@ async function removeBackupConnection(connectionId, connectionKind, button) {
   if (!connection) return;
   const confirmed = await confirmDangerousAction(
     `Remove ${connection.name}?`,
-    'This removes the source connection and its saved credentials. Backup data is not deleted. Connections used by a saved source or destination must be detached first.',
+    'This removes the source connection, its saved source profiles, and saved credentials. Backup data is not deleted. Enabled jobs and destinations must be detached first.',
     'Remove source'
   );
   if (!confirmed) return;
@@ -16946,7 +17079,11 @@ async function removeBackupConnection(connectionId, connectionKind, button) {
   pendingActions.add(action);
   setButtonLoading(button, true);
   try {
-    await window.deployerx.deleteBackupConnection(connection.id, connection.revision);
+    const result = await window.deployerx.deleteBackupConnection(connection.id, connection.revision);
+    if (result?.blocked) {
+      showAlert(result.error?.message || 'This connection is still referenced by an active backup configuration.');
+      return;
+    }
     await loadBackupConnections();
     showToast('Source connection removed.');
   } catch (error) {
@@ -17247,7 +17384,20 @@ function backupDatabaseUi(engine = state.backupDatabaseEngine) {
 }
 
 const NATIVE_TOOL_ERROR_ENGINES = Object.freeze({
-  MYSQL_NATIVE_TOOL_NOT_FOUND: 'mysql'
+  MYSQL_NATIVE_TOOL_NOT_FOUND: 'mysql',
+  MARIADB_NATIVE_TOOL_NOT_FOUND: 'mariadb',
+  POSTGRESQL_NATIVE_TOOL_NOT_FOUND: 'postgresql',
+  SQLSERVER_SQLCMD_NOT_FOUND: 'sqlserver',
+  ORACLE_SQLPLUS_NOT_FOUND: 'oracle',
+  MONGODB_MONGOSH_NOT_FOUND: 'mongodb',
+  REDIS_CLI_NOT_FOUND: 'redis',
+  CLICKHOUSE_CLIENT_NOT_FOUND: 'clickhouse',
+  INFLUXDB_CLI_NOT_FOUND: 'influxdb',
+  COCKROACHDB_CLIENT_NOT_FOUND: 'cockroachdb',
+  NEO4J_CLIENT_NOT_FOUND: 'neo4j',
+  SQLITE_CLI_NOT_FOUND: 'sqlite',
+  CASSANDRA_PRODUCT_UNAVAILABLE: 'cassandra',
+  SCYLLA_PRODUCT_UNAVAILABLE: 'cassandra'
 });
 let backupNativeToolDependency = null;
 let backupNativeToolRetry = null;
@@ -17257,22 +17407,61 @@ function formatDownloadSize(bytes) {
   return megabytes > 0 ? `${Math.round(megabytes)} MB download` : '';
 }
 
+function renderBackupNativeToolProgress(progress = {}) {
+  const receivedBytes = Math.max(0, Number(progress.receivedBytes) || 0);
+  const totalBytes = Math.max(0, Number(progress.totalBytes) || 0);
+  const formatProgressBytes = (bytes) => bytes ? formatBytes(bytes) : '0 B';
+  const reportedPercent = progress.percent;
+  const hasPercent = reportedPercent !== null && reportedPercent !== undefined && reportedPercent !== '' && Number.isFinite(Number(reportedPercent));
+  const numericPercent = Number(reportedPercent);
+  const percent = hasPercent ? Math.min(100, Math.max(0, numericPercent)) : totalBytes ? Math.min(100, (receivedBytes / totalBytes) * 100) : null;
+  const indeterminate = percent === null;
+  els.backupNativeToolProgressGroup.classList.remove('hidden');
+  els.backupNativeToolProgress.classList.toggle('is-indeterminate', indeterminate);
+  els.backupNativeToolProgressFill.style.width = indeterminate ? '' : `${percent}%`;
+  if (indeterminate) {
+    els.backupNativeToolProgressPercent.textContent = 'Downloading...';
+    els.backupNativeToolProgress.removeAttribute('aria-valuenow');
+    els.backupNativeToolProgressBytes.textContent = receivedBytes ? `${formatProgressBytes(receivedBytes)} downloaded` : 'Preparing download...';
+  } else {
+    els.backupNativeToolProgressPercent.textContent = `${Math.round(percent)}%`;
+    els.backupNativeToolProgress.setAttribute('aria-valuenow', String(Math.round(percent)));
+    els.backupNativeToolProgressBytes.textContent = totalBytes
+      ? `${formatProgressBytes(receivedBytes)} of ${formatProgressBytes(totalBytes)}`
+      : `${formatProgressBytes(receivedBytes)} downloaded`;
+  }
+}
+
+function resetBackupNativeToolProgress() {
+  els.backupNativeToolProgressGroup.classList.add('hidden');
+  els.backupNativeToolProgress.classList.remove('is-indeterminate');
+  els.backupNativeToolProgressFill.style.width = '0%';
+  els.backupNativeToolProgressPercent.textContent = '0%';
+  els.backupNativeToolProgress.setAttribute('aria-valuenow', '0');
+  els.backupNativeToolProgressBytes.textContent = 'Preparing download...';
+}
+
 async function offerBackupNativeToolSetup(error, retry) {
   const engine = NATIVE_TOOL_ERROR_ENGINES[String(error?.code || '')];
   if (!engine || !window.deployerx?.getBackupNativeToolStatus) return false;
   try {
     const dependency = await window.deployerx.getBackupNativeToolStatus(engine);
-    if (!dependency?.supported) return false;
+    if (!dependency || (!dependency.supported && !dependency.manual)) return false;
     backupNativeToolDependency = dependency;
     backupNativeToolRetry = retry;
-    els.backupNativeToolTitle.textContent = `Set up ${dependency.label} tools`;
+    const automatic = dependency.supported === true;
+    els.backupNativeToolTitle.textContent = automatic ? `Set up ${dependency.label} tools` : `Install ${dependency.label} tools`;
     els.backupNativeToolSubtitle.textContent = 'Required for backup and recovery';
-    els.backupNativeToolMessage.textContent = `DeployerX needs these tools to connect to ${dependency.label} and create reliable backups. Setup is automatic.`;
+    els.backupNativeToolMessage.textContent = automatic
+      ? `DeployerX needs these tools to connect to ${dependency.label} and create reliable backups. Setup is automatic.`
+      : `DeployerX needs these tools to connect to ${dependency.label}. Download and install them on the computer or SSH execution host, then make them available on PATH.`;
     els.backupNativeToolPackage.textContent = dependency.packageLabel;
     els.backupNativeToolSize.textContent = [dependency.version ? `Version ${dependency.version}` : '', formatDownloadSize(dependency.downloadBytes)].filter(Boolean).join(' / ');
+    els.backupNativeToolInstallButton.innerHTML = `<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-${automatic ? 'import' : 'external-link'}"></use></svg>${automatic ? 'Download and set up' : 'Open official download page'}`;
     els.backupNativeToolError.textContent = '';
     els.backupNativeToolError.classList.add('hidden');
     els.backupNativeToolStatus.textContent = '';
+    resetBackupNativeToolProgress();
     setModalVisible(true, els.backupNativeToolModal);
     window.setTimeout(() => els.backupNativeToolInstallButton.focus(), 0);
     return true;
@@ -17295,8 +17484,16 @@ async function installBackupNativeTools() {
   els.backupNativeToolCancelButton.disabled = true;
   els.backupNativeToolCloseButton.disabled = true;
   els.backupNativeToolError.classList.add('hidden');
-  els.backupNativeToolStatus.textContent = 'Downloading and setting up the client tools...';
   try {
+    if (!backupNativeToolDependency.supported) {
+      if (!backupNativeToolDependency.manualUrl || !window.deployerx?.openExternalUrl) throw new Error('An official installer link is not available for this database yet.');
+      els.backupNativeToolStatus.textContent = 'Opening the official download page...';
+      await window.deployerx.openExternalUrl(backupNativeToolDependency.manualUrl);
+      els.backupNativeToolStatus.textContent = 'The official download page was opened. Install the tools, add them to PATH, then test the connection again.';
+      return;
+    }
+    renderBackupNativeToolProgress({ totalBytes: backupNativeToolDependency.downloadBytes, percent: 0 });
+    els.backupNativeToolStatus.textContent = 'Downloading and setting up the client tools...';
     await window.deployerx.installBackupNativeTools(backupNativeToolDependency.engine);
     const retry = backupNativeToolRetry;
     els.backupNativeToolStatus.textContent = 'Setup complete. Retrying the connection...';
@@ -17321,7 +17518,8 @@ function syncBackupPostgresqlDeploymentProfile({ resetEndpointDefaults = false }
   const postgresql = state.backupDatabaseEngine === 'postgresql';
   const supabase = postgresql && backupPostgresqlDeploymentProfile() === 'supabase';
   const connectionMode = supabase ? backupSupabaseConnectionMode() : 'direct';
-  const existing = Boolean(state.backupMysqlConnectionId);
+  const editing = state.backupMysqlEditMode === true;
+  const existing = Boolean(state.backupMysqlConnectionId) && !editing;
   const projectRef = els.backupSupabaseProjectRef.value.trim();
 
   els.backupPostgresqlDeploymentProfileField.classList.toggle('hidden', !postgresql);
@@ -17347,8 +17545,8 @@ function syncBackupPostgresqlDeploymentProfile({ resetEndpointDefaults = false }
     els.backupMysqlPhysicalOption.classList.toggle('hidden', supabase);
     els.backupMysqlPhysicalFields.classList.toggle('hidden', supabase || !els.backupMysqlPhysicalEnabled.checked);
     els.backupPostgresqlWalArchiveField.classList.toggle('hidden', supabase);
-    els.backupMysqlModalTitle.textContent = `Add ${supabase ? 'Supabase PostgreSQL' : 'PostgreSQL'} source`;
-    els.backupMysqlModalSubtitle.textContent = supabase ? 'Supabase PostgreSQL data and schema logical backup' : 'PostgreSQL 14 through 18 logical backup';
+    els.backupMysqlModalTitle.textContent = editing ? 'Edit PostgreSQL connection' : `Add ${supabase ? 'Supabase PostgreSQL' : 'PostgreSQL'} source`;
+    els.backupMysqlModalSubtitle.textContent = editing ? 'Update the saved endpoint, credentials, and TLS policy' : supabase ? 'Supabase PostgreSQL data and schema logical backup' : 'PostgreSQL 14 through 18 logical backup';
     els.backupMysqlName.placeholder = `Production ${supabase ? 'Supabase' : 'PostgreSQL'}`;
     els.backupMysqlHost.placeholder = supabase
       ? connectionMode === 'direct' ? `db.${projectRef || '<project-ref>'}.supabase.co` : 'aws-0-region.pooler.supabase.com'
@@ -17367,19 +17565,89 @@ function setBackupMysqlExistingConnection(existing) {
   for (const input of els.backupMysqlConnectionFields.querySelectorAll('input, select')) input.disabled = existing || (input === els.backupMysqlTlsMode && ['sqlserver', 'oracle', 'mongodb'].includes(state.backupDatabaseEngine));
 }
 
-function openBackupMysqlModal(connection = null, engine = connection?.connectionKind || 'mysql') {
+function setBackupMysqlConnectionSummary(connection = null) {
+  const existing = Boolean(connection);
+  const endpoint = connection?.endpoint || {};
+  const host = String(endpoint.host || endpoint.address || '').trim();
+  const port = endpoint.port ? `:${endpoint.port}` : '';
+  const username = String(endpoint.username || '').trim();
+  els.backupMysqlExistingConnectionSummary.classList.toggle('hidden', !existing);
+  els.backupMysqlNewConnectionStatus.classList.toggle('hidden', existing);
+  els.backupMysqlExistingConnectionName.textContent = existing ? String(connection.name || 'Saved database connection') : '';
+  els.backupMysqlExistingConnectionEndpoint.textContent = existing
+    ? `${host || 'Saved endpoint'}${port}${username ? ` - ${username}` : ''}`
+    : '';
+}
+
+function setBackupMysqlDiscoveryStatus(message) {
+  const target = els.backupMysqlExistingConnectionSummary.classList.contains('hidden')
+    ? els.backupMysqlNewConnectionStatus
+    : els.backupMysqlDiscoveryStatus;
+  target.textContent = message;
+}
+
+function normalizeBackupMongoDbEndpointInput() {
+  const rawHost = els.backupMysqlHost.value.trim();
+  if (!rawHost) throw new Error('Enter a MongoDB hostname or IP address.');
+  let host = rawHost;
+  let port = Number(els.backupMysqlPort.value);
+
+  // The form stores host and port separately, but MongoDB documentation often
+  // provides a complete mongodb:// URI. Accept that common input at the UI
+  // boundary and keep the persisted connection model normalized.
+  if (/^mongodb\+srv:\/\//i.test(rawHost)) {
+    throw new Error('MongoDB SRV connection strings are not supported here. Enter the MongoDB host and port separately.');
+  }
+  if (/^mongodb:\/\//i.test(rawHost)) {
+    let parsed;
+    try {
+      parsed = new URL(rawHost);
+    } catch (_error) {
+      throw new Error('Enter a valid MongoDB connection string.');
+    }
+    if (parsed.username || parsed.password) throw new Error('Do not include MongoDB credentials in the connection string. Enter them in the username and password fields.');
+    if (!parsed.hostname) throw new Error('Enter a valid MongoDB hostname or IP address.');
+    host = parsed.hostname.replace(/^\[|\]$/g, '');
+    if (parsed.port) port = Number(parsed.port);
+  } else {
+    const bracketedIpv6 = rawHost.match(/^\[([^\]]+)\](?::(\d+))?$/);
+    const hostAndPort = rawHost.match(/^([^:]+):(\d+)$/);
+    if (bracketedIpv6) {
+      host = bracketedIpv6[1];
+      if (bracketedIpv6[2]) port = Number(bracketedIpv6[2]);
+    } else if (hostAndPort) {
+      host = hostAndPort[1];
+      port = Number(hostAndPort[2]);
+    }
+  }
+
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Enter a valid MongoDB hostname and port.');
+  return { host, port };
+}
+
+function openBackupMysqlModal(connection = null, engine = connection?.connectionKind || 'mysql', options = {}) {
   state.backupDatabaseEngine = ['mariadb', 'postgresql', 'sqlserver', 'oracle', 'mongodb'].includes(engine) ? engine : 'mysql';
   const database = backupDatabaseUi();
   const mongoDb = database.engine === 'mongodb';
+  const editing = Boolean(options?.edit && connection?.id && database.engine === 'postgresql');
+  state.backupMysqlEditMode = editing;
   els.backupMysqlForm.reset();
+  const endpoint = connection?.endpoint || {};
   const deploymentProfile = database.engine === 'postgresql' ? backupPostgresqlDeploymentProfile(connection) : 'postgresql';
   const connectionMode = deploymentProfile === 'supabase' ? backupSupabaseConnectionMode(connection) : 'direct';
   els.backupPostgresqlDeploymentProfile.value = deploymentProfile;
   els.backupSupabaseProjectRef.value = connection?.projectRef || connection?.endpoint?.projectRef || '';
   els.backupSupabaseConnectionMode.value = connectionMode;
-  els.backupMysqlPort.value = mongoDb ? '27017' : database.engine === 'oracle' ? '2484' : database.engine === 'postgresql' && connectionMode === 'transaction-pooler' ? '6543' : database.engine === 'postgresql' ? '5432' : database.engine === 'sqlserver' ? '1433' : '3306';
-  els.backupMysqlTlsMode.value = 'verify-identity';
+  els.backupMysqlName.value = editing ? String(connection.name || '') : '';
+  els.backupMysqlHost.value = editing ? String(endpoint.host || endpoint.address || '') : '';
+  els.backupMysqlUsername.value = editing ? String(endpoint.username || '') : '';
+  els.backupMysqlPort.value = editing
+    ? String(endpoint.port || (connectionMode === 'transaction-pooler' ? 6543 : 5432))
+    : mongoDb ? '27017' : database.engine === 'oracle' ? '2484' : database.engine === 'postgresql' && connectionMode === 'transaction-pooler' ? '6543' : database.engine === 'postgresql' ? '5432' : database.engine === 'sqlserver' ? '1433' : '3306';
+  els.backupMysqlTlsMode.value = editing ? String(endpoint.tlsMode || 'verify-identity') : 'verify-identity';
   els.backupPostgresqlMaintenanceDatabase.value = connection?.endpoint?.maintenanceDatabase || connection?.endpoint?.database || 'postgres';
+  els.backupMysqlPassword.value = '';
+  els.backupMysqlPassword.required = !editing;
   els.backupPostgresqlMaintenanceField.classList.toggle('hidden', database.engine !== 'postgresql');
   els.backupPostgresqlMaintenanceDatabase.required = database.engine === 'postgresql';
   const oracle = database.engine === 'oracle';
@@ -17394,7 +17662,6 @@ function openBackupMysqlModal(connection = null, engine = connection?.connection
   els.backupMongoDbTopology.value = connection?.endpoint?.expectedTopology === 'standalone' ? 'standalone' : 'replica-set';
   els.backupMongoDbReplicaSet.value = connection?.endpoint?.replicaSet || '';
   els.backupMongoDbCaFile.value = connection?.endpoint?.caFile || '';
-  els.backupMysqlPassword.value = '';
   els.backupMysqlError.classList.add('hidden');
   state.backupMysqlConnectionId = connection?.id || '';
   state.backupMysqlDatabases = [];
@@ -17452,28 +17719,87 @@ function openBackupMysqlModal(connection = null, engine = connection?.connection
   els.backupDatabaseSelectionMode.disabled = sqlServer || oracle || mongoDb;
   els.backupDatabaseSchemaModeOption.hidden = database.engine !== 'postgresql';
   els.backupDatabaseSchemaModeOption.disabled = database.engine !== 'postgresql';
-  setBackupMysqlExistingConnection(Boolean(connection));
-  els.backupMysqlModalTitle.textContent = `Add ${database.label} source`;
-  els.backupMysqlModalSubtitle.textContent = database.versionLabel;
+  setBackupMysqlExistingConnection(Boolean(connection) && !editing);
+  els.backupMysqlModalTitle.textContent = editing ? 'Edit PostgreSQL connection' : `Add ${database.label} source`;
+  els.backupMysqlModalSubtitle.textContent = editing ? 'Update the saved endpoint, credentials, and TLS policy' : database.versionLabel;
   els.backupMysqlSelectionTitle.textContent = mongoDb ? 'Protect this replica set' : 'Select databases';
   els.backupMysqlSelectionHelp.textContent = mongoDb ? 'All user databases are protected together. Partial database or collection selection cannot produce an authoritative oplog recovery chain.' : oracle ? 'Select the discovered whole database. RMAN Sources do not support schema, table, or PDB filters.' : sqlServer ? 'System databases are excluded. Select exactly one user database for native backup.' : `System databases are excluded. Protect entire databases${database.engine === 'postgresql' ? ', schemas,' : ''} or exact tables and views.`;
   els.backupMysqlName.placeholder = `Production ${database.label}`;
   els.backupMysqlSourceName.value = connection ? `${connection.name}${mongoDb ? ' replica set' : ' databases'}` : '';
-  els.backupMysqlDiscoverButton.textContent = connection ? 'Retest and discover' : 'Test and discover';
+  els.backupMysqlDiscoverButton.textContent = editing ? 'Save and test' : connection ? 'Retest and discover' : 'Test and discover';
+  setBackupMysqlConnectionSummary(editing ? null : connection);
+  setBackupMysqlDiscoveryStatus(editing ? 'Update the fields, then save and test the connection.' : connection ? 'Ready to test and discover databases.' : 'Enter the connection details, then test and discover databases.');
   syncBackupPostgresqlDeploymentProfile();
   renderBackupMysqlDatabases();
   syncBackupDatabaseObjectSelection();
+  if (editing) {
+    els.backupMysqlSelection.classList.add('hidden');
+    els.backupMysqlSaveSourceButton.classList.add('hidden');
+  }
   setModalVisible(true, els.backupMysqlModal);
-  window.setTimeout(() => (connection ? els.backupMysqlDiscoverButton : els.backupMysqlName).focus(), 0);
+  window.setTimeout(() => (editing ? els.backupMysqlName : connection ? els.backupMysqlDiscoverButton : els.backupMysqlName).focus(), 0);
 }
 
 function closeBackupMysqlModal() {
   setModalVisible(false, els.backupMysqlModal);
   els.backupMysqlPassword.value = '';
+  els.backupMysqlPassword.required = true;
   state.backupMysqlConnectionId = '';
+  state.backupMysqlEditMode = false;
   state.backupMysqlDatabases = [];
   clearBackupDatabaseObjects();
   resumeBackupJobSourceCreator();
+}
+
+function friendlyBackupDiscoveryError(error, fallback) {
+  let message = String(error?.message || error || '').trim();
+  message = message.replace(/^Error invoking remote method '[^']+':\s*/i, '');
+  message = message.replace(/^(?:TypeError|ReferenceError|RangeError|SyntaxError|Error):\s*/i, '');
+  return message || fallback;
+}
+
+async function updateBackupPostgresqlConnection(event) {
+  event?.preventDefault();
+  if (!state.backupMysqlEditMode || !state.backupMysqlConnectionId) return;
+  if (!els.backupMysqlForm.reportValidity()) return;
+  const action = `backup:connections:postgresql:update:${state.backupMysqlConnectionId}`;
+  if (pendingActions.has(action)) return;
+  pendingActions.add(action);
+  setButtonLoading(els.backupMysqlDiscoverButton, true);
+  els.backupMysqlError.classList.add('hidden');
+  setBackupMysqlDiscoveryStatus('Saving the updated PostgreSQL connection...');
+  try {
+    const deploymentProfile = backupPostgresqlDeploymentProfile();
+    const projectRef = deploymentProfile === 'supabase' ? els.backupSupabaseProjectRef.value.trim().toLowerCase() : undefined;
+    const connectionMode = deploymentProfile === 'supabase' ? backupSupabaseConnectionMode() : undefined;
+    const updated = await window.deployerx.updateBackupPostgresqlConnection(state.backupMysqlConnectionId, {
+      name: els.backupMysqlName.value.trim(),
+      host: els.backupMysqlHost.value.trim(),
+      port: Number(els.backupMysqlPort.value),
+      username: els.backupMysqlUsername.value.trim(),
+      password: els.backupMysqlPassword.value,
+      tlsMode: els.backupMysqlTlsMode.value,
+      maintenanceDatabase: els.backupPostgresqlMaintenanceDatabase.value.trim(),
+      deploymentProfile,
+      projectRef,
+      connectionMode
+    });
+    state.backupMysqlConnectionId = updated?.id || state.backupMysqlConnectionId;
+    const tested = await window.deployerx.testBackupPostgresqlConnection(state.backupMysqlConnectionId);
+    await loadBackupConnections();
+    if (tested?.result?.status !== 'success') {
+      throw new Error(tested?.result?.error?.safeMessage || 'The PostgreSQL connection test failed.');
+    }
+    closeBackupMysqlModal();
+    showToast('PostgreSQL connection updated and verified.');
+  } catch (error) {
+    setBackupMysqlDiscoveryStatus('The updated connection could not be verified.');
+    els.backupMysqlError.textContent = friendlyBackupDiscoveryError(error, 'Could not update the PostgreSQL connection.');
+    els.backupMysqlError.classList.remove('hidden');
+  } finally {
+    pendingActions.delete(action);
+    setButtonLoading(els.backupMysqlDiscoverButton, false);
+  }
 }
 
 async function discoverBackupMysql() {
@@ -17483,16 +17809,18 @@ async function discoverBackupMysql() {
   pendingActions.add(action);
   setButtonLoading(els.backupMysqlDiscoverButton, true);
   els.backupMysqlError.classList.add('hidden');
+  setBackupMysqlDiscoveryStatus(state.backupMysqlConnectionId ? 'Testing the saved connection...' : 'Creating and testing the connection...');
   try {
     if (!state.backupMysqlConnectionId) {
       const deploymentProfile = database.engine === 'postgresql' ? backupPostgresqlDeploymentProfile() : undefined;
       const projectRef = deploymentProfile === 'supabase' ? els.backupSupabaseProjectRef.value.trim().toLowerCase() : undefined;
       const connectionMode = deploymentProfile === 'supabase' ? backupSupabaseConnectionMode() : undefined;
       if (deploymentProfile === 'supabase' && !/^[a-z0-9]{20}$/.test(projectRef)) throw new Error('Enter the 20-character Supabase project ref.');
+      const mongoEndpoint = database.engine === 'mongodb' ? normalizeBackupMongoDbEndpointInput() : null;
       const connection = await window.deployerx[database.createConnection]({
         name: els.backupMysqlName.value,
-        host: els.backupMysqlHost.value,
-        port: Number(els.backupMysqlPort.value),
+        host: mongoEndpoint?.host || els.backupMysqlHost.value,
+        port: mongoEndpoint?.port || Number(els.backupMysqlPort.value),
         username: els.backupMysqlUsername.value,
         password: els.backupMysqlPassword.value,
         tlsMode: els.backupMysqlTlsMode.value,
@@ -17512,6 +17840,7 @@ async function discoverBackupMysql() {
       state.backupMysqlConnectionId = connection.id;
       els.backupMysqlPassword.value = '';
       setBackupMysqlExistingConnection(true);
+      setBackupMysqlConnectionSummary(connection);
       if (!els.backupMysqlSourceName.value.trim()) els.backupMysqlSourceName.value = `${connection.name}${database.engine === 'mongodb' ? ' replica set' : ' databases'}`;
     }
     const tested = await window.deployerx[database.testConnection](state.backupMysqlConnectionId);
@@ -17520,11 +17849,13 @@ async function discoverBackupMysql() {
       if (await offerBackupNativeToolSetup(tested.result.error, discoverBackupMysql)) return;
       throw new Error(tested.result.error?.safeMessage || `The ${database.label} connection test failed.`);
     }
+    setBackupMysqlDiscoveryStatus('Connection verified. Discovering available databases...');
     const discovered = await window.deployerx[database.discoverDatabases](state.backupMysqlConnectionId, { kind: 'database' });
     state.backupMysqlDatabases = discovered.items || [];
     clearBackupDatabaseObjects();
     renderBackupMysqlDatabases();
     if (!state.backupMysqlDatabases.length) throw new Error('No selectable user databases were discovered.');
+    setBackupMysqlDiscoveryStatus(`${state.backupMysqlDatabases.length} ${database.label} ${state.backupMysqlDatabases.length === 1 ? 'database' : 'databases'} found. Select what to protect.`);
     if (database.engine === 'mongodb' && tested.result.endpointIdentity?.topology !== 'replica-set') {
       els.backupMysqlError.textContent = tested.result.endpointIdentity?.topology === 'standalone'
         ? 'This standalone connection is ready as an alternate restore target, but backup Sources require a replica set with an authenticated oplog.'
@@ -17534,7 +17865,8 @@ async function discoverBackupMysql() {
     }
     showToast(`${state.backupMysqlDatabases.length} ${database.label} ${state.backupMysqlDatabases.length === 1 ? 'database' : 'databases'} discovered.`);
   } catch (error) {
-    els.backupMysqlError.textContent = error.message || `Could not discover ${database.label} databases.`;
+    setBackupMysqlDiscoveryStatus('Discovery could not be completed. Check the connection details and try again.');
+    els.backupMysqlError.textContent = friendlyBackupDiscoveryError(error, `Could not discover ${database.label} databases.`);
     els.backupMysqlError.classList.remove('hidden');
   } finally {
     pendingActions.delete(action);
@@ -20085,6 +20417,19 @@ function promptForFtpUser(project) {
 function defaultTerminalUser(project) {
   const users = Array.isArray(project?.ssh?.users) ? project.ssh.users.filter((user) => user?.id) : [];
   return users.find((user) => user.id === project?.ssh?.defaultUserId) || users[0] || null;
+}
+
+function terminalConnectionProject(project, selectedUser) {
+  const connectionProject = structuredClone(project);
+  const userId = String(selectedUser?.id || '').trim();
+  const user = structuredClone(selectedUser || {});
+  connectionProject.ssh = {
+    ...connectionProject.ssh,
+    ...user,
+    users: userId ? [user] : [],
+    defaultUserId: userId
+  };
+  return connectionProject;
 }
 
 function closeVariablePrompt(result = null) {
@@ -23084,6 +23429,7 @@ function fillModal(project) {
   els.modalProxyPort.value = normalizedProject.proxy?.port || '';
   els.modalProxyUsername.value = normalizedProject.proxy?.username || '';
   els.modalProxyPassword.value = normalizedProject.proxy?.password || '';
+  els.modalSshHost.setCustomValidity('');
   els.modalSshHost.value = normalizedProject.ssh?.host || '';
   els.modalSshPort.value = normalizedProject.ssh?.port || 22;
   state.modalSshUsers = structuredClone(normalizedProject.ssh.users);
@@ -23552,10 +23898,7 @@ function renderProjects() {
   if (els.dashboardRecentActivity) els.dashboardRecentActivity.innerHTML = '';
   renderDashboardOperations();
   const sidebarQuery = els.serverSearch?.value.trim().toLowerCase() || '';
-  const connectedSidebarCount = state.projects.filter(serverPrimaryConnectionActive).length;
-  const sidebarFilter = state.sidebarServerFilter === 'connected' ? 'connected' : 'all';
   const sidebarProjects = state.projects.filter((project) => {
-    if (sidebarFilter === 'connected' && !serverPrimaryConnectionActive(project)) return false;
     if (!sidebarQuery) return true;
     return [project.name, project.group, serverTypeLabel(project.serverType), serverHost(project), project.ssh?.username, project.vnc?.username, project.rdp?.username]
       .filter(Boolean)
@@ -23563,15 +23906,6 @@ function renderProjects() {
       .toLowerCase()
       .includes(sidebarQuery);
   });
-  els.sidebarConnectedServerCount.textContent = String(connectedSidebarCount);
-  els.sidebarConnectedServerCount.setAttribute('aria-label', `${connectedSidebarCount} connected server${connectedSidebarCount === 1 ? '' : 's'}`);
-  for (const tab of [els.sidebarAllServersTab, els.sidebarConnectedServersTab]) {
-    const active = tab.dataset.sidebarServerFilter === sidebarFilter;
-    tab.classList.toggle('active', active);
-    tab.setAttribute('aria-selected', String(active));
-    tab.tabIndex = active ? 0 : -1;
-  }
-  els.projectList.setAttribute('aria-labelledby', sidebarFilter === 'connected' ? 'sidebarConnectedServersTab' : 'sidebarAllServersTab');
   const sidebarProjectIds = new Set(sidebarProjects.map((project) => project.id));
   syncServerFilterOptions();
   const serverFilters = serverFilterCriteria();
@@ -23931,26 +24265,34 @@ function renderProjects() {
   }
 
   const sidebarGroupElements = [];
+  const connectedSidebarProjects = sidebarProjects
+    .filter(serverPrimaryConnectionActive)
+    .sort((first, second) => (first.name || '').localeCompare(second.name || ''));
+  if (connectedSidebarProjects.length) {
+    const connectedGroup = document.createElement('section');
+    connectedGroup.className = 'sidebar-server-group sidebar-connected-group';
+    connectedGroup.innerHTML = `
+      <div class="sidebar-server-group-header">
+        <div class="sidebar-server-group-title"><strong>Connected</strong></div>
+        <span class="sidebar-connected-count" aria-label="${connectedSidebarProjects.length} connected server${connectedSidebarProjects.length === 1 ? '' : 's'}">${connectedSidebarProjects.length}</span>
+      </div>
+    `;
+    for (const project of connectedSidebarProjects) connectedGroup.appendChild(renderSidebarProjectItem(project));
+    sidebarGroupElements.push({ element: connectedGroup });
+  }
   const pinnedSidebarProjects = sidebarProjects
-    .filter((project) => project.pinned)
-    .sort((first, second) => (
-      Number(serverPrimaryConnectionActive(second)) - Number(serverPrimaryConnectionActive(first))
-      || (first.name || '').localeCompare(second.name || '')
-    ));
+    .filter((project) => project.pinned && !serverPrimaryConnectionActive(project))
+    .sort((first, second) => (first.name || '').localeCompare(second.name || ''));
   if (pinnedSidebarProjects.length) {
     const pinnedGroup = document.createElement('section');
     pinnedGroup.className = 'sidebar-server-group sidebar-pinned-group';
     pinnedGroup.innerHTML = `
       <div class="sidebar-server-group-header">
-        <strong>Favorites</strong>
+        <div class="sidebar-server-group-title"><strong>Favorites</strong></div>
       </div>
     `;
     for (const project of pinnedSidebarProjects) pinnedGroup.appendChild(renderSidebarProjectItem(project));
-    sidebarGroupElements.push({
-      element: pinnedGroup,
-      connected: pinnedSidebarProjects.some(serverPrimaryConnectionActive),
-      pinned: true
-    });
+    sidebarGroupElements.push({ element: pinnedGroup });
   }
 
   for (const group of groups) {
@@ -23963,8 +24305,7 @@ function renderProjects() {
     if (els.dashboardGroupSummary) els.dashboardGroupSummary.appendChild(summary);
 
     const sidebarItems = group.items
-      .filter((project) => sidebarProjectIds.has(project.id))
-      .sort((first, second) => Number(serverPrimaryConnectionActive(second)) - Number(serverPrimaryConnectionActive(first)));
+      .filter((project) => sidebarProjectIds.has(project.id) && !serverPrimaryConnectionActive(project));
     const serverItems = sortServerProjects(
       group.items.filter((project) => visibleServerIds.has(project.id)),
       serverFilters.sort
@@ -23973,7 +24314,7 @@ function renderProjects() {
     sidebarGroup.className = 'sidebar-server-group';
     sidebarGroup.dataset.sidebarGroup = group.name;
     sidebarGroup.innerHTML = `
-      <div class="sidebar-server-group-header${sidebarQuery || sidebarFilter !== 'all' ? '' : ' is-reorderable'}"${sidebarQuery || sidebarFilter !== 'all' ? '' : ` draggable="true" data-sidebar-group-drag="${escapeHtml(group.name)}" title="Drag to reorder group"`}>
+      <div class="sidebar-server-group-header${sidebarQuery ? '' : ' is-reorderable'}"${sidebarQuery ? '' : ` draggable="true" data-sidebar-group-drag="${escapeHtml(group.name)}" title="Drag to reorder group"`}>
         <div class="sidebar-server-group-title">
           <strong>${escapeHtml(group.name)}</strong>
         </div>
@@ -23994,7 +24335,7 @@ function renderProjects() {
     const dashboardGrid = dashboardSection.querySelector('.server-group-grid');
 
     for (const project of sidebarItems) {
-      sidebarGroup.appendChild(renderSidebarProjectItem(project, { reorderable: !sidebarQuery && sidebarFilter === 'all' }));
+      sidebarGroup.appendChild(renderSidebarProjectItem(project, { reorderable: !sidebarQuery }));
     }
     for (const project of group.items) {
       dashboardGrid.appendChild(renderServerCard(project));
@@ -24011,33 +24352,12 @@ function renderProjects() {
     }
 
     if (sidebarItems.length) {
-      sidebarGroupElements.push({
-        element: sidebarGroup,
-        connected: sidebarItems.some(serverPrimaryConnectionActive),
-        pinned: false
-      });
+      sidebarGroupElements.push({ element: sidebarGroup });
     }
     if (els.dashboardServerSections) els.dashboardServerSections.appendChild(dashboardSection);
   }
 
-  sidebarGroupElements
-    .sort((first, second) => (
-      Number(second.connected) - Number(first.connected)
-      || Number(second.pinned) - Number(first.pinned)
-    ))
-    .forEach(({ element }) => els.projectList.appendChild(element));
-
-  // The Connected tab is a live, cross-group view. Keep it completely flat so
-  // a server's saved group never adds a heading or separates connected rows.
-  if (sidebarFilter === 'connected') {
-    els.projectList.innerHTML = '';
-    sidebarProjects
-      .sort((first, second) => (
-        Number(serverPrimaryConnectionActive(second)) - Number(serverPrimaryConnectionActive(first))
-        || (first.name || '').localeCompare(second.name || '')
-      ))
-      .forEach((project) => els.projectList.appendChild(renderSidebarProjectItem(project)));
-  }
+  sidebarGroupElements.forEach(({ element }) => els.projectList.appendChild(element));
 
   if (!visibleServerProjects.length) {
     const emptyFilters = document.createElement('div');
@@ -24050,19 +24370,11 @@ function renderProjects() {
     els.projectGrid.appendChild(emptyFilters);
   }
 
-  if (!sidebarProjects.length && (sidebarQuery || sidebarFilter === 'connected')) {
+  if (!sidebarProjects.length && sidebarQuery) {
     const emptySearch = document.createElement('div');
     emptySearch.className = 'empty-project';
-    emptySearch.textContent = sidebarQuery ? 'No matching servers' : 'No connected servers';
+    emptySearch.textContent = 'No matching servers';
     els.projectList.appendChild(emptySearch);
-  }
-}
-
-function setSidebarServerFilter(filter, { focus = false } = {}) {
-  state.sidebarServerFilter = filter === 'connected' ? 'connected' : 'all';
-  renderProjects();
-  if (focus) {
-    (state.sidebarServerFilter === 'connected' ? els.sidebarConnectedServersTab : els.sidebarAllServersTab).focus();
   }
 }
 
@@ -24112,7 +24424,7 @@ function reorderSidebarProject(sourceId, targetId, groupName, placeAfter) {
 }
 
 function beginSidebarDrag(event) {
-  if (!(event.target instanceof Element) || els.serverSearch.value.trim() || state.sidebarServerFilter !== 'all') return;
+  if (!(event.target instanceof Element) || els.serverSearch.value.trim()) return;
   const groupHandle = event.target.closest('[data-sidebar-group-drag]');
   const projectHandle = event.target.closest('[data-sidebar-project-drag]');
   if (!groupHandle && !projectHandle) return;
@@ -24331,7 +24643,7 @@ function projectRouteSummary(project = {}) {
   return 'Direct';
 }
 
-function renderDetailsSummary(project) {
+function renderDetailsSummary(project, terminalSession = null) {
   const route = projectRouteSummary(project);
   if (isVncServerType(project.serverType)) {
     const protocol = windowsConnectionProtocol(project).toUpperCase();
@@ -24352,7 +24664,7 @@ function renderDetailsSummary(project) {
     return;
   }
   const connectionHost = project.ssh?.host || project.ftp?.host || '';
-  const connectionUser = project.ssh?.username || project.ftp?.username || '';
+  const connectionUser = terminalSession?.sshUsername || project.ssh?.username || project.ftp?.username || '';
   const connectionPort = project.ssh?.host ? project.ssh?.port || 22 : project.ftp?.port || 22;
   const rows = [
     ['Server', `${serverGroupName(project)} - ${project.serverType || '-'}`],
@@ -25314,6 +25626,7 @@ function populateProjectView(project) {
   getFtpSession(normalizedProject.id, true);
   applyTerminalSessionToState(normalizedProject.id);
   applyFtpSessionToState(normalizedProject.id);
+  renderDetailsSummary(normalizedProject, terminalSession);
   renderVisibleTerminalSession(terminalSession);
   updateTerminalStatus(terminalSession.status || (terminalSession.connected ? 'Connected' : 'Not connected'), terminalSession.connected);
   updateFtpStatus(state.ftpConnected ? 'Connected' : 'Not connected', state.ftpConnected);
@@ -25378,6 +25691,23 @@ async function refreshProjectsAndTemplates() {
   if (state.currentView === 'server-monitoring' && monitoringProject) {
     await selectServerForMonitoring(monitoringProject.id);
   }
+}
+
+function startWorkspaceAutoRefresh() {
+  clearInterval(workspaceRefreshTimer);
+  workspaceRefreshTimer = setInterval(() => {
+    if (workspaceRefreshInFlight || state.setup.mode !== 'cloud' || !state.teams.activeTeamId || pendingActions.size) return;
+    if (document.querySelector('.modal:not(.hidden)')) return;
+    workspaceRefreshInFlight = true;
+    refreshProjectsAndTemplates().catch(() => {}).finally(() => {
+      workspaceRefreshInFlight = false;
+    });
+  }, 60 * 1000);
+}
+
+function stopWorkspaceAutoRefresh() {
+  clearInterval(workspaceRefreshTimer);
+  workspaceRefreshTimer = null;
 }
 
 let projectLoadPromise = null;
@@ -26181,7 +26511,8 @@ async function ensureTerminal(terminalSession, project) {
   if (isVisibleTerminalSession(terminalSession)) fitTerminal();
 
   const startupPath = String(terminalSession.startupDirectory || '').trim();
-  const startupDirectory = startupPath ? normalizeRemoteShellPath(startupPath) : '';
+  const startupDirectory = startupPath && startupPath !== '/' ? normalizeRemoteShellPath(startupPath) : '';
+  terminalSession.startupDirectory = startupDirectory;
   const sessionId = `terminal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   terminalSession.sessionId = sessionId;
   terminalSession.connected = false;
@@ -26285,12 +26616,8 @@ async function connectTerminal(project = state.activeProject, terminalSession = 
     if (!selectedUser) return;
     terminalSession.sshUserId = selectedUser.id;
     terminalSession.sshUsername = selectedUser.username;
-    const connectionProject = structuredClone(project);
-    connectionProject.ssh = {
-      ...connectionProject.ssh,
-      ...selectedUser,
-      defaultUserId: selectedUser.id
-    };
+    if (isVisibleTerminalSession(terminalSession)) renderDetailsSummary(project, terminalSession);
+    const connectionProject = terminalConnectionProject(project, selectedUser);
     await ensureTerminal(terminalSession, connectionProject);
   } catch (error) {
     removeTerminalSessionRegistration(terminalSession.sessionId);
@@ -26306,6 +26633,7 @@ async function connectTerminal(project = state.activeProject, terminalSession = 
       renderProjects();
     }
     appendLog(`${error.message}\n`, 'error');
+    showAlert(error.message || 'Could not connect SSH.');
   }
 }
 
@@ -27532,6 +27860,11 @@ els.backupJobReplaceSourceButton.addEventListener('keydown', (event) => {
 els.backupJobSourcePickerCloseButton.addEventListener('click', cancelBackupJobSourceTypes);
 els.backupJobSourcePicker.querySelector('[data-backup-job-source-picker-close]').addEventListener('click', cancelBackupJobSourceTypes);
 els.backupJobSavedSources.addEventListener('click', (event) => {
+  const connection = event.target.closest('[data-backup-job-existing-connection]');
+  if (connection) {
+    openBackupJobExistingConnection(connection.dataset.backupJobExistingConnection);
+    return;
+  }
   const option = event.target.closest('[data-backup-job-saved-source]');
   if (!option || option.disabled) return;
   state.backupJobWizard.sourceId = option.dataset.backupJobSavedSource;
@@ -27789,43 +28122,16 @@ els.backupRepositoryList.addEventListener('click', (event) => {
   removeBackupDestination(button.dataset.backupRepositoryDelete, button);
 });
 els.backupSourceConnections.addEventListener('click', (event) => {
+  const editButton = event.target.closest('[data-backup-connection-edit]');
+  if (editButton) {
+    const connection = allBackupConnections().find((item) => item.id === editButton.dataset.backupConnectionEdit && item.connectionKind === editButton.dataset.backupConnectionKind);
+    if (connection?.connectionKind === 'postgresql') openBackupMysqlModal(connection, 'postgresql', { edit: true });
+    return;
+  }
   const browseButton = event.target.closest('[data-backup-connection-browse]');
   if (browseButton) {
     const connection = allBackupConnections().find((item) => item.id === browseButton.dataset.backupConnectionBrowse && item.connectionKind === browseButton.dataset.backupConnectionKind);
-    if (connection?.connectionKind === 'sqlite') {
-      openBackupSqliteModal(connection);
-      discoverBackupSqlite();
-    } else if (connection?.connectionKind === 'redis') {
-      openBackupRedisModal(connection);
-      discoverBackupRedis();
-    } else if (connection?.connectionKind === 'search-snapshot') {
-      openBackupSearchSnapshotModal(connection);
-      discoverBackupSearchSnapshot();
-    } else if (connection?.connectionKind === 'scylla-manager') {
-      openBackupScyllaManagerModal(connection);
-      discoverBackupScyllaManager();
-    } else if (connection?.connectionKind === 'neo4j') {
-      openBackupNeo4jModal(connection);
-      discoverBackupNeo4j();
-    } else if (connection?.connectionKind === 'clickhouse') {
-      openBackupClickHouseModal(connection);
-      discoverBackupClickHouse();
-    } else if (connection?.connectionKind === 'influxdb') {
-      openBackupInfluxDbModal(connection);
-      discoverBackupInfluxDb();
-    } else if (connection?.connectionKind === 'influxdb3-core') {
-      openBackupInfluxDb3CoreModal(connection);
-      discoverBackupInfluxDb3Core();
-    } else if (connection?.connectionKind === 'influxdb3-enterprise') {
-      openBackupInfluxDb3EnterpriseModal(connection);
-      discoverBackupInfluxDb3Enterprise();
-    } else if (connection?.connectionKind === 'cockroachdb') {
-      openBackupCockroachDbModal(connection);
-      discoverBackupCockroachDb();
-    } else if (['mysql', 'mariadb', 'postgresql', 'sqlserver', 'oracle', 'mongodb'].includes(connection?.connectionKind)) {
-      openBackupMysqlModal(connection);
-      discoverBackupMysql();
-    } else openBackupBrowser(connection);
+    openBackupSourceForConnection(connection);
     return;
   }
   const diagnosticsButton = event.target.closest('[data-backup-connection-diagnostics]');
@@ -27919,7 +28225,10 @@ els.backupSshForm.addEventListener('submit', saveBackupSshConnection);
 els.backupMysqlCloseButton.addEventListener('click', closeBackupMysqlModal);
 els.backupMysqlCancelButton.addEventListener('click', closeBackupMysqlModal);
 els.backupMysqlModal.querySelector('[data-backup-mysql-close]').addEventListener('click', closeBackupMysqlModal);
-els.backupMysqlDiscoverButton.addEventListener('click', discoverBackupMysql);
+els.backupMysqlDiscoverButton.addEventListener('click', () => {
+  if (state.backupMysqlEditMode) updateBackupPostgresqlConnection();
+  else discoverBackupMysql();
+});
 els.backupNativeToolCloseButton.addEventListener('click', closeBackupNativeToolModal);
 els.backupNativeToolCancelButton.addEventListener('click', closeBackupNativeToolModal);
 els.backupNativeToolModal.querySelector('[data-backup-native-tool-close]').addEventListener('click', closeBackupNativeToolModal);
@@ -27938,7 +28247,10 @@ els.backupMysqlDatabaseList.addEventListener('change', (event) => {
   syncBackupDatabaseObjectSelection();
 });
 els.backupDatabaseObjectList.addEventListener('change', syncBackupDatabaseObjectSelection);
-els.backupMysqlForm.addEventListener('submit', saveBackupMysqlSource);
+els.backupMysqlForm.addEventListener('submit', (event) => {
+  if (state.backupMysqlEditMode) updateBackupPostgresqlConnection(event);
+  else saveBackupMysqlSource(event);
+});
 els.backupRedisCloseButton.addEventListener('click', closeBackupRedisModal);
 els.backupRedisCancelButton.addEventListener('click', closeBackupRedisModal);
 els.backupRedisModal.querySelector('[data-backup-redis-close]').addEventListener('click', closeBackupRedisModal);
@@ -28364,16 +28676,31 @@ els.terminalNewTabButton.addEventListener('click', () => {
 els.terminalTabs.addEventListener('click', (event) => {
   const closeButton = event.target.closest('[data-terminal-tab-close]');
   if (closeButton) {
+    cancelTerminalTabClick();
     closeTerminalTab(closeButton.dataset.terminalTabClose).catch((error) => showAlert(error.message || 'Could not close the terminal.'));
     return;
   }
-  if (event.target.closest('[data-terminal-tab-rename]')) return;
   const tabButton = event.target.closest('[data-terminal-tab-select]');
-  if (tabButton) activateTerminalTab(tabButton.dataset.terminalTabSelect);
+  if (!tabButton) return;
+  if (event.detail > 1) {
+    cancelTerminalTabClick();
+    return;
+  }
+  const tabId = tabButton.dataset.terminalTabSelect;
+  cancelTerminalTabClick();
+  if (event.detail === 0) {
+    activateTerminalTab(tabId);
+    return;
+  }
+  terminalTabClickTimer = setTimeout(() => {
+    terminalTabClickTimer = null;
+    activateTerminalTab(tabId);
+  }, 180);
 });
 els.terminalTabs.addEventListener('dblclick', (event) => {
   const renameTarget = event.target.closest('[data-terminal-tab-rename], [data-terminal-tab-select]');
   if (!renameTarget) return;
+  cancelTerminalTabClick();
   event.preventDefault();
   event.stopPropagation();
   startTerminalTabRename(renameTarget.dataset.terminalTabRename || renameTarget.dataset.terminalTabSelect);
@@ -28644,16 +28971,6 @@ document.addEventListener('click', (event) => {
   if (!els.topNotificationsDropdown.contains(event.target)) closeTopNotificationsMenu();
 });
 els.serverSearch.addEventListener('input', renderProjects);
-els.sidebarServerTabs.addEventListener('click', (event) => {
-  const tab = event.target.closest('[data-sidebar-server-filter]');
-  if (tab) setSidebarServerFilter(tab.dataset.sidebarServerFilter);
-});
-els.sidebarServerTabs.addEventListener('keydown', (event) => {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-  event.preventDefault();
-  const nextFilter = event.key === 'ArrowLeft' || event.key === 'Home' ? 'all' : 'connected';
-  setSidebarServerFilter(nextFilter, { focus: true });
-});
 els.projectList.addEventListener('dragstart', beginSidebarDrag);
 els.projectList.addEventListener('dragover', updateSidebarDragTarget);
 els.projectList.addEventListener('drop', finishSidebarDrop);
@@ -29063,6 +29380,7 @@ els.modalSshUserTabs.addEventListener('keydown', (event) => {
   buttons[nextIndex]?.click();
   requestAnimationFrame(() => els.modalSshUserTabs.querySelector('[tabindex="0"]')?.focus());
 });
+els.modalSshHost.addEventListener('input', () => els.modalSshHost.setCustomValidity(''));
 els.modalAddSshUserButton.addEventListener('click', addModalSshUser);
 els.modalRemoveSshUserButton.addEventListener('click', removeActiveModalSshUser);
 els.modalDefaultSshUserButton.addEventListener('click', makeActiveModalSshUserDefault);
@@ -29166,6 +29484,11 @@ window.deployerx?.onAppUpdateEvent?.((update) => {
   applyAppUpdateState(update, { toastOnDownloaded: true });
 });
 
+window.deployerx?.onBackupNativeToolProgress?.((progress) => {
+  if (!backupNativeToolDependency || progress?.engine !== backupNativeToolDependency.engine || !pendingActions.has('backup:native-tools:install')) return;
+  renderBackupNativeToolProgress(progress);
+});
+
 window.deployerx?.onDeploymentEvent?.((event) => {
   if (state.activeRunId && event.runId !== state.activeRunId) return;
 
@@ -29257,6 +29580,7 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
 
   if (event.type === 'connected') {
     terminalSession.connected = true;
+    if (isVisibleTerminalSession(terminalSession)) renderDetailsSummary(state.activeProject, terminalSession);
     setTerminalSessionStatus(terminalSession, terminalSession.sshUsername ? `Connected as ${terminalSession.sshUsername}` : 'Connected', true);
     if (isVisibleTerminalSession(terminalSession)) restoreTerminalInteraction();
     ensureTerminalHomeDirectory(event.sessionId).catch(() => {});
@@ -29307,8 +29631,13 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
   if (event.type === 'log') handleTerminalData(event.payload, terminalSession);
   if (event.type === 'error') handleTerminalData(event.payload, terminalSession);
   if (event.type === 'failed' || event.type === 'closed') {
-    const message = `${event.payload}\n`;
-    appendTerminalSessionOutput(terminalSession, message.replace(/\n/g, '\r\n'));
+    const payloadMessage = typeof event.payload === 'object'
+      ? event.payload?.message || event.payload?.error
+      : event.payload;
+    const detail = String(payloadMessage || (event.type === 'failed' ? 'SSH connection failed without a diagnostic message.' : 'Terminal closed.')).trim();
+    const message = event.type === 'failed' ? `[SSH connection error] ${detail}\n` : `${detail}\n`;
+    if (event.type === 'failed') showAlert(detail);
+    appendTerminalSessionOutput(terminalSession, `\r\n${message.replace(/\n/g, '\r\n')}`);
     appendTerminalOutputBuffer(message, terminalSession);
     if (state.scriptTerminalSessionId === event.sessionId) stopScriptQueue();
     const closedSessionId = terminalSession.sessionId;
@@ -29330,6 +29659,7 @@ window.deployerx?.onTerminalEvent?.(async (event) => {
       els.sshEditorDownloadButton.disabled = true;
     }
     removeTerminalSessionRegistration(closedSessionId);
+    if (isVisibleTerminalSession(terminalSession)) renderDetailsSummary(state.activeProject, terminalSession);
     setTerminalSessionStatus(terminalSession, event.type === 'failed' ? 'Connection failed' : 'Disconnected', false);
     const monitoring = state.serverMonitoring.entries[String(terminalSession.projectId)];
     if (monitoring) renderServerMonitoring();
@@ -29357,6 +29687,13 @@ terminal.write('Ready.\r\n');
 requestAnimationFrame(fitTerminal);
 
 let terminalKeyboardSelection = null;
+let terminalTabClickTimer = null;
+
+function cancelTerminalTabClick() {
+  if (terminalTabClickTimer === null) return;
+  clearTimeout(terminalTabClickTimer);
+  terminalTabClickTimer = null;
+}
 
 function terminalCursorOffset() {
   const buffer = terminal.buffer.active;
@@ -29499,6 +29836,7 @@ initializeProjectDropdowns();
 applyTheme(activeThemeId, { persist: false, announce: false });
 initializeDatabaseQueryMonaco();
 initializeSshEditorMonaco();
+startWorkspaceAutoRefresh();
 renderTemplateCategories();
 updateUptimeMonitorTypeFields();
 renderUptimeWorkspace();

@@ -29,7 +29,7 @@ test('RDP status text is bounded in the header and connect panel', () => {
   assert.match(styles, /\.rdp-connect-panel > span:not\(\.rdp-connect-icon\)\s*\{[^}]*max-height:\s*60px/s);
 });
 
-test('VNC renders one-click monitor toggles without an all-displays dropdown', () => {
+test('VNC renders one-click monitor toggles with an all-displays button', () => {
   assert.match(html, /id="vncDisplaySelector"[^>]*role="group"[^>]*aria-label="VNC monitors"/);
   assert.doesNotMatch(html, /vncDisplayButton|vncDisplayMenu/);
   assert.match(renderer, /vncDisplays\.map\(\(display, index\) =>/);
@@ -37,10 +37,12 @@ test('VNC renders one-click monitor toggles without an all-displays dropdown', (
   assert.match(renderer, /vnc-display-toggle-mark/);
   assert.match(renderer, /vnc-display-toggle-number/);
   assert.match(renderer, /href="#icon-monitor"/);
+  assert.match(renderer, /allButton\.dataset\.vncDisplayId = 'all'/);
+  assert.match(renderer, /allButton\.setAttribute\('aria-label', 'All displays'\)/);
+  assert.match(renderer, /vnc-display-all-mark/);
   assert.match(html, /id="icon-monitor"[^>]*>[\s\S]*?<rect[^>]*width="19"[^>]*height="14"/);
   assert.match(renderer, /button\.title = monitorLabel/);
   assert.match(renderer, /button\.setAttribute\('aria-pressed', display\.id === selectedVncDisplayId/);
-  assert.doesNotMatch(renderer, /All Displays|vnc-display-menu/);
   assert.match(styles, /\.vnc-display-selector\s*\{[^}]*display:\s*inline-flex/s);
   assert.match(styles, /\.vnc-display-toggle\s*\{[^}]*width:\s*36px/s);
   assert.match(styles, /\.vnc-display-toggle-number\s*\{[^}]*position:\s*absolute/s);

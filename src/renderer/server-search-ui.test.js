@@ -35,22 +35,22 @@ test('aligns the Add Server action with the server toolbar controls', async () =
   assert.match(styles, /#dashboardCreateButton\s*\{[\s\S]*?min-width: 128px;[\s\S]*?padding-inline: 14px;/);
 });
 
-test('provides a live connected-server tab in the sidebar', async () => {
+test('renders one grouped sidebar with connected servers in a dedicated top section', async () => {
   const [html, renderer, styles] = await Promise.all([
     fs.readFile(path.join(__dirname, 'index.html'), 'utf8'),
     fs.readFile(path.join(__dirname, 'renderer.js'), 'utf8'),
     fs.readFile(path.join(__dirname, 'styles.css'), 'utf8')
   ]);
 
-  assert.match(html, /id="sidebarServerTabs"[\s\S]*?role="tablist"[\s\S]*?data-sidebar-server-filter="all"[\s\S]*?data-sidebar-server-filter="connected"/);
-  assert.match(html, /id="sidebarConnectedServerCount"/);
-  assert.match(renderer, /const connectedSidebarCount = state\.projects\.filter\(serverPrimaryConnectionActive\)\.length;/);
-  assert.match(renderer, /sidebarFilter === 'connected' && !serverPrimaryConnectionActive\(project\)/);
-  assert.match(renderer, /function setSidebarServerFilter\(filter,[\s\S]*?renderProjects\(\);/);
-  assert.match(renderer, /if \(sidebarFilter === 'connected'\) \{[\s\S]*?sidebarProjects[\s\S]*?renderSidebarProjectItem\(project\)/);
-  assert.match(renderer, /const activeMissingProjects = state\.projects\.filter\(\(project\) => \([\s\S]*?serverPrimaryConnectionActive\(project\)/);
-  assert.match(styles, /\.sidebar-server-tabs\s*\{[\s\S]*?grid-template-columns:/);
-  assert.match(styles, /\.sidebar-server-tab\.active\s*\{/);
+  assert.match(html, /id="projectList" class="project-list" aria-label="Servers grouped by workspace"/);
+  assert.doesNotMatch(html, /sidebarServerTabs|sidebarConnectedServersTab|data-sidebar-server-filter/);
+  assert.match(renderer, /const connectedSidebarProjects = sidebarProjects[\s\S]*?\.filter\(serverPrimaryConnectionActive\)/);
+  assert.match(renderer, /sidebar-connected-group[\s\S]*?sidebar-connected-count[\s\S]*?connectedSidebarProjects\.length/);
+  assert.match(renderer, /const sidebarItems = group\.items[\s\S]*?!serverPrimaryConnectionActive\(project\)/);
+  assert.match(renderer, /sidebarGroupElements\.forEach\(\(\{ element \}\) => els\.projectList\.appendChild\(element\)\)/);
+  assert.doesNotMatch(renderer, /sidebar-server-group-connection|connectedGroupCount|pinnedConnectedCount/);
+  assert.doesNotMatch(styles, /\.sidebar-server-tabs\s*\{/);
+  assert.doesNotMatch(styles, /\.sidebar-server-group-connection\s*\{/);
 });
 
 test('keeps server toolbar actions out of scrolling inventory rows', async () => {

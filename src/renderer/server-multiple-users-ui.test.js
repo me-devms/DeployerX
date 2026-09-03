@@ -138,6 +138,14 @@ test('accepts FTP-only connections while keeping SSH operations gated', async ()
   assert.equal(context.validateConnectionProject(ftpOnly), null);
   assert.match(context.validateConnectionProject(ftpOnly, { requireSsh: true }), /requires an SSH connection/);
   assert.match(context.validateConnectionProject({ name: 'Empty server', ssh: {}, ftp: {} }), /SSH or FTP connection/);
+
+  const sshWithIncompleteFtp = {
+    name: 'SSH server with optional FTP settings',
+    ssh: { host: 'ssh.example.test', username: 'deploy', authType: 'password', password: 'ssh-secret' },
+    ftp: { host: 'files.example.test', username: 'ftp-user', authType: 'password' }
+  };
+  assert.match(context.validateConnectionProject(sshWithIncompleteFtp), /FTP password is required/);
+  assert.equal(context.validateConnectionProject(sshWithIncompleteFtp, { requireSsh: true }), null);
 });
 
 test('wires the responsive SSH user editor and validation controls', async () => {
@@ -162,7 +170,8 @@ test('wires the responsive SSH user editor and validation controls', async () =>
   assert.match(renderer, /function promptForTerminalUser\(project, terminalSession\)/);
   assert.match(renderer, /if \(users\.length <= 1\) return Promise\.resolve\(users\[0\] \|\| null\)/);
   assert.match(renderer, /terminalSession\.sshUserId = selectedUser\.id/);
-  assert.match(renderer, /connectionProject\.ssh = \{/);
+  assert.match(renderer, /function terminalConnectionProject\(project, selectedUser\)[\s\S]*?users: userId \? \[user\] : \[\],[\s\S]*?defaultUserId: userId/);
+  assert.match(renderer, /const connectionProject = terminalConnectionProject\(project, selectedUser\)/);
   assert.match(styles, /\.ssh-user-tabs\s*\{/);
   assert.match(styles, /\.terminal-user-option\s*\{/);
   assert.match(styles, /\.server-type-switcher \.workspace-switcher-menu\s*\{\s*max-height: min\(184px, var\(--server-type-menu-space, 184px\)\);/);
@@ -213,6 +222,8 @@ test('keeps optional Proxy and FTP steps after SSH and allows saving from SSH', 
     assert.match(renderer, new RegExp(`${id}: document\\.getElementById`));
   }
   assert.match(renderer, /function validateModalConnectionSettings\(\)/);
+  assert.match(renderer, /els\.modalSshHost\.setCustomValidity\('\'\);\s*els\.modalSshHost\.value = normalizedProject\.ssh\?\.host/);
+  assert.match(renderer, /els\.modalSshHost\.addEventListener\('input', \(\) => els\.modalSshHost\.setCustomValidity\('\'\)\)/);
   assert.match(renderer, /Configure an FTP connection, or go back and configure SSH/);
   assert.match(renderer, /function validateModalFtpUsers\(/);
   assert.match(renderer, /Each FTP user must have a unique username/);

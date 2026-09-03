@@ -24,6 +24,7 @@ app.whenReady().then(async () => {
         installBackupNativeTools: async (engine) => { window.__nativeToolInstalls.push(engine); return { engine, installed: true }; }
       }});
       const handled = await offerBackupNativeToolSetup({ code: 'MYSQL_NATIVE_TOOL_NOT_FOUND' }, async () => { window.__nativeToolRetries += 1; });
+      renderBackupNativeToolProgress({ receivedBytes: 125000000, totalBytes: 260772595, percent: 47.93 });
       const modal = document.querySelector('#backupNativeToolModal .modal-card').getBoundingClientRect();
       return {
         handled,
@@ -31,6 +32,9 @@ app.whenReady().then(async () => {
         title: document.getElementById('backupNativeToolTitle').innerText,
         packageText: document.querySelector('.backup-native-tool-package').innerText,
         action: document.getElementById('backupNativeToolInstallButton').innerText,
+        progressVisible: !document.getElementById('backupNativeToolProgressGroup').classList.contains('hidden'),
+        progressPercent: document.getElementById('backupNativeToolProgressPercent').innerText,
+        progressBytes: document.getElementById('backupNativeToolProgressBytes').innerText,
         contained: modal.left >= 0 && modal.right <= innerWidth && modal.top >= 0 && modal.bottom <= innerHeight,
         horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
       };
@@ -47,9 +51,10 @@ app.whenReady().then(async () => {
         hidden: document.getElementById('backupNativeToolModal').classList.contains('hidden')
       };
     })()`);
-    const ok = offered.handled && offered.visible && offered.title === 'Set up MySQL tools'
+      const ok = offered.handled && offered.visible && offered.title === 'Set up MySQL tools'
       && offered.packageText.includes('MySQL 8.4 client tools') && offered.packageText.includes('249 MB download')
-      && offered.action.includes('Download and set up') && offered.contained && !offered.horizontalOverflow
+      && offered.action.includes('Download and set up') && offered.progressVisible && offered.progressPercent === '48%'
+      && offered.progressBytes === '119 MB of 249 MB' && offered.contained && !offered.horizontalOverflow
       && installed.installs[0] === 'mysql' && installed.retries === 1 && installed.hidden;
     const report = { ok, offered, installed, screenshotPath };
     await fs.writeFile(path.join(captureRoot, 'result.json'), JSON.stringify(report, null, 2));

@@ -264,6 +264,25 @@ test('blocks soft deletion while domain references are active', async (context) 
   );
 });
 
+test('allows an explicit connection removal to cascade its source profiles', async (context) => {
+  const { control } = await fixture(context);
+  const host = await control.repository('connection').create(connection('local', 'Removable host'));
+  const source = await control.repository('source').create({
+    workspaceId: 'local', name: 'Removable source', connectionId: host.id,
+    sourceType: 'files', adapterId: 'deployerx.files', enabled: true
+  });
+
+  const deleted = await control.repository('connection').softDelete('local', host.id, {
+    expectedRevision: host.revision,
+    actorId: 'tester',
+    cascadeSources: true
+  });
+
+  assert.equal(deleted.id, host.id);
+  assert.equal(await control.repository('connection').get('local', host.id), null);
+  assert.equal(await control.repository('source').get('local', source.id), null);
+});
+
 test('projects validated Run and ExecutionGroup state without enabling ordinary CRUD', async (context) => {
   const { control } = await fixture(context);
   const workspaceId = 'local';

@@ -253,6 +253,7 @@ const UPTIME_CONFIG_REFRESH_MS = 60 * 1000;
 const UPTIME_COMMAND_POLL_MS = 4000;
 const UPTIME_WORKER_LOCK_RENEW_MS = 5000;
 const DATABASE_CLOUD_SYNC_INTERVAL_MS = 60 * 1000;
+const WORKSPACE_UPTIME_SYNC_INTERVAL_MS = 60 * 1000;
 const WORKSPACE_CONTROL_SYNC_INTERVAL_MS = 15 * 1000;
 const UPTIME_RUNTIME_FILE = 'runtime.json';
 const APP_USER_DATA_PATH = path.join(app.getPath('appData'), 'deployerx');
@@ -298,6 +299,7 @@ let uptimeWorkerInterval = null;
 let uptimeConfigRefreshTimer = null;
 let uptimeCommandPollTimer = null;
 let databaseCloudSyncTimer = null;
+let workspaceUptimeSyncTimer = null;
 let workspaceControlSyncTimer = null;
 let databaseManagerEventSequence = 0;
 const uptimeRunNowQueue = new Set();
@@ -3598,13 +3600,29 @@ async function initializeUptimeControlPlane({ startWorker = false } = {}) {
       maximumConcurrency: Math.max(1, Math.min(32, Number(monitoringSettings.maximumConcurrency) || 8)),
       onTransition: async (transition) => queueUptimeTransitionSync(context, transition)
     });
+    // Prime the active workspace before the renderer can issue its first read;
+    // retain the queued refresh for later best-effort retries.
     queueUptimeWorkspaceSync(context);
+    await syncUptimeWorkspaceBestEffort(context, { force: true });
+    if (workspaceUptimeSyncTimer) clearInterval(workspaceUptimeSyncTimer);
+    workspaceUptimeSyncTimer = setInterval(async () => {
+      const current = await readSettings().catch(() => null);
+      const workspaceId = current?.mode === 'cloud' ? String(current.activeTeamId || '') : '';
+      if (!workspaceId) return;
+      await syncUptimeWorkspaceBestEffort({
+        workspaceId,
+        actorId: String(current.auth?.uid || 'local-user')
+      }, { force: true });
+    }, WORKSPACE_UPTIME_SYNC_INTERVAL_MS);
+    workspaceUptimeSyncTimer.unref?.();
     if (startWorker) {
       if (monitoringSettings.autostartEnabled !== false) await ensureWorkerAutostartEnabled().catch(() => {});
       await uptimeScheduledWorkerService.start(context.workspaceId, 'uptime-worker');
     }
     return controlDatabase;
   } catch (error) {
+    if (workspaceUptimeSyncTimer) clearInterval(workspaceUptimeSyncTimer);
+    workspaceUptimeSyncTimer = null;
     uptimeControlDatabaseError = error;
     uptimeControlDatabase = null;
     uptimeIncidentPolicyService = null;
@@ -6245,19 +6263,24 @@ function queueUptimeWorkspaceSync(context, options = {}) {
   setImmediate(() => syncUptimeWorkspaceBestEffort(context, options).catch(() => {}));
 }
 
-function queueUptimeTransitionSync(context, transition = {}) {
-  setImmediate(() => syncUptimeTransitionBestEffort(context, transition).catch(() => {}));
+function queueUptimeTransitionSync(context, transition = {}, { wait = false } = {}) {
+  const sync = () => syncUptimeTransitionBestEffort(context, transition);
+  if (wait) return sync();
+  setImmediate(() => sync().catch(() => {}));
+  return null;
 }
 
 async function listUptimeMonitorsOperation(options = {}) {
   const context = await uptimeOperationalContext();
   queueUptimeWorkspaceSync(context);
+  await syncUptimeWorkspaceBestEffort(context);
   return getUptimeControlDatabaseV2().listMonitors(context.workspaceId, options);
 }
 
 async function getUptimeMonitorOperation(payload = {}) {
   const context = await uptimeOperationalContext();
   queueUptimeWorkspaceSync(context);
+  await syncUptimeWorkspaceBestEffort(context);
   return getUptimeControlDatabaseV2().getMonitor(context.workspaceId, payload.id, { includeDeleted: payload.includeDeleted === true });
 }
 
@@ -6291,7 +6314,7 @@ async function createUptimeMonitorOperation(input = {}) {
     });
     monitor = transition.monitor;
   }
-  queueUptimeTransitionSync(context, transition || { monitor });
+  await queueUptimeTransitionSync(context, transition || { monitor }, { wait: true });
   emitUptimeEvent('uptime:monitor-created', { monitorId: monitor.id });
   await maybeStartDetachedUptimeWorker().catch(() => {});
   return monitor;
@@ -6309,7 +6332,7 @@ async function updateUptimeMonitorOperation(input = {}) {
     const currentRefs = new Set(Object.values(monitor.config?.secretHeaderRefs || {}).map(String));
     await cleanupUptimeSecretReferences(context, previousRefs.filter((id) => !currentRefs.has(String(id))));
     if (monitor.state === 'enabled') await maybeStartDetachedUptimeWorker().catch(() => {});
-    queueUptimeTransitionSync(context, { monitor });
+    await queueUptimeTransitionSync(context, { monitor }, { wait: true });
     emitUptimeEvent('uptime:monitor-updated-v2', { monitorId: monitor.id });
     return monitor;
   } catch (error) {
@@ -6326,7 +6349,7 @@ async function deleteUptimeMonitorOperation(payload = {}) {
   const result = await database.deleteMonitor(context.workspaceId, context.actorId, current.id, payload.revision);
   if (result.deleted) {
     const deletedMonitor = await database.getMonitor(context.workspaceId, current.id, { includeDeleted: true });
-    queueUptimeTransitionSync(context, { monitor: deletedMonitor });
+    await queueUptimeTransitionSync(context, { monitor: deletedMonitor }, { wait: true });
     await cleanupUptimeSecretReferences(context, Object.values(current.config?.secretHeaderRefs || {}));
     emitUptimeEvent('uptime:monitor-deleted-v2', { monitorId: current.id });
   }
@@ -6360,7 +6383,7 @@ async function runUptimeMonitorNowOperation(payload = {}) {
     probeId: `local-windows:${backupDeviceId || process.pid}`,
     scheduledAt
   });
-  queueUptimeTransitionSync(context, transition);
+  await queueUptimeTransitionSync(context, transition, { wait: true });
   await maybeStartDetachedUptimeWorker().catch(() => {});
   emitUptimeEvent('uptime:monitor-run-completed-v2', { monitorId: monitor.id });
   return { queued: false, completed: true, monitorId: monitor.id, revision: transition.monitor.revision };
@@ -6371,7 +6394,7 @@ async function acknowledgeUptimeIncidentOperation(payload = {}) {
   if (!uptimeIncidentPolicyService) throw new Error('Uptime incident policy is not initialized.');
   const incident = await uptimeIncidentPolicyService.acknowledge(context.workspaceId, context.actorId, payload.id, payload.revision, payload.note);
   if (!incident) throw Object.assign(new Error('Incident was not found.'), { code: 'UPTIME_INCIDENT_NOT_FOUND' });
-  queueUptimeTransitionSync(context, { incident });
+  await queueUptimeTransitionSync(context, { incident }, { wait: true });
   emitUptimeEvent('uptime:incident-acknowledged-v2', { monitorId: incident.monitorId, incidentId: incident.id });
   return incident;
 }
@@ -6379,7 +6402,7 @@ async function acknowledgeUptimeIncidentOperation(payload = {}) {
 async function createUptimeMaintenanceOperation(input = {}) {
   const context = await uptimeOperationalContext();
   const maintenance = await getUptimeControlDatabaseV2().createMaintenanceWindow(context.workspaceId, context.actorId, input);
-  queueUptimeTransitionSync(context, { maintenance });
+  await queueUptimeTransitionSync(context, { maintenance }, { wait: true });
   emitUptimeEvent('uptime:maintenance-created', { maintenanceId: maintenance.id });
   return maintenance;
 }
@@ -6388,7 +6411,7 @@ async function updateUptimeMaintenanceOperation(input = {}) {
   const context = await uptimeOperationalContext();
   const maintenance = await getUptimeControlDatabaseV2().updateMaintenanceWindow(context.workspaceId, context.actorId, input.id, input, input.revision);
   if (!maintenance) throw Object.assign(new Error('Maintenance window was not found.'), { code: 'UPTIME_MAINTENANCE_NOT_FOUND' });
-  queueUptimeTransitionSync(context, { maintenance });
+  await queueUptimeTransitionSync(context, { maintenance }, { wait: true });
   emitUptimeEvent('uptime:maintenance-updated', { maintenanceId: maintenance.id });
   return maintenance;
 }
@@ -6400,7 +6423,7 @@ async function deleteUptimeMaintenanceOperation(payload = {}) {
   if (result.deleted) {
     const maintenance = (await database.listMaintenanceWindows(context.workspaceId, { includeDeleted: true, limit: 10000 }))
       .find((window) => String(window.id) === String(result.id));
-    queueUptimeTransitionSync(context, { maintenance });
+    await queueUptimeTransitionSync(context, { maintenance }, { wait: true });
   }
   if (result.deleted) emitUptimeEvent('uptime:maintenance-deleted', { maintenanceId: result.id });
   return result;
@@ -6409,6 +6432,7 @@ async function deleteUptimeMaintenanceOperation(payload = {}) {
 async function getUptimeStatusOperation() {
   const context = await uptimeOperationalContext();
   queueUptimeWorkspaceSync(context);
+  await syncUptimeWorkspaceBestEffort(context);
   const database = getUptimeControlDatabaseV2();
   const checkedAt = nowIso();
   const [worker, monitors, incidents, activeMaintenance] = await Promise.all([
@@ -8662,6 +8686,42 @@ function normalizeFtpConnectionError(error, project, config = {}) {
   );
 }
 
+function normalizeTerminalConnectionError(error, project, config = {}) {
+  const rawMessage = String(error?.message || error || '').trim();
+  const message = rawMessage || 'The SSH connection failed without a diagnostic message.';
+  const host = String(config.host || project?.ssh?.host || '').trim();
+  const port = normalizedConnectionPort(config.port, 22) || 22;
+  const username = String(config.username || project?.ssh?.username || '').trim();
+  const endpoint = host ? `${host}:${port}` : 'the saved server';
+  const lowerMessage = message.toLowerCase();
+  let detail = message;
+
+  if (
+    error?.code === 'ETIMEDOUT'
+    || error?.level === 'client-timeout'
+    || /timed out|timeout|handshake/i.test(lowerMessage)
+  ) {
+    detail = `SSH connection timed out while connecting to ${endpoint}. Check that the server is online, the SSH service is running, and port ${port} is reachable.`;
+  } else if (error?.code === 'ECONNREFUSED' || /econnrefused|connection refused/i.test(lowerMessage)) {
+    detail = `SSH connection was refused by ${endpoint}. Check that the SSH service is running and listening on port ${port}.`;
+  } else if (['ENOTFOUND', 'EAI_AGAIN'].includes(error?.code) || /enotfound|eai_again|getaddrinfo/i.test(lowerMessage)) {
+    detail = `The SSH host "${host || 'saved server'}" could not be resolved. Check the hostname or IP address.`;
+  } else if (
+    /authentication|auth method|permission denied|password.*fail|all configured authentication methods failed/i.test(lowerMessage)
+  ) {
+    detail = `SSH authentication failed${username ? ` for user "${username}"` : ''} on ${endpoint}. Check the username, password, or private key.`;
+  } else if (/enetunreach|ehostunreach|network is unreachable|host is unreachable/i.test(lowerMessage)) {
+    detail = `The network could not reach SSH host ${endpoint}. Check the server address, VPN, proxy, and firewall rules.`;
+  } else if (!/^ssh\s+connection\s+failed\b/i.test(message)) {
+    detail = `SSH connection failed for ${endpoint}: ${message}`;
+  }
+
+  return Object.assign(new Error(detail), {
+    code: error?.code || 'SSH_CONNECTION_FAILED',
+    cause: error
+  });
+}
+
 function validateProject(project) {
   const connectionError = validateConnectionProject(project, { requireSsh: true });
   if (connectionError) return connectionError;
@@ -8725,6 +8785,7 @@ function validateConnectionProject(project, { requireSsh = false } = {}) {
   if (!ssh.username) return 'SSH username is required.';
   if (ssh.authType === 'key' && !ssh.privateKey) return 'SSH private key is required.';
   if (ssh.authType !== 'key' && !ssh.password) return 'SSH password is required.';
+  if (requireSsh) return null;
   if (hasFtp && ftp.authType === 'key' && !ftp.privateKey) return 'FTP private key is required.';
   if (hasFtp && isPlainFtpPort(ftp.port) && ftp.authType !== 'password') return 'Plain FTP requires password authentication.';
   if (hasFtp && ftp.authType === 'password' && !ftp.password) return 'FTP password is required.';
@@ -9118,12 +9179,40 @@ function emitMcpTerminal(project, type, payload, sessionId = '') {
   });
 }
 
+function mcpConnectionEntries(projectId, create = false) {
+  const id = String(projectId || '');
+  let entries = mcpSshConnections.get(id);
+  if (!entries && create) {
+    entries = new Set();
+    mcpSshConnections.set(id, entries);
+  }
+  return entries || null;
+}
+
+function removeMcpConnectionEntry(projectId, entry) {
+  const entries = mcpConnectionEntries(projectId);
+  if (!entries) return;
+  entries.delete(entry);
+  if (!entries.size) mcpSshConnections.delete(String(projectId || ''));
+}
+
+function releaseMcpConnectionEntry(entry) {
+  if (!entry || entry.busy < 1) return;
+  entry.busy -= 1;
+}
+
 function reusableSshConnection(projectId) {
   const id = String(projectId || '');
-  const terminal = [...activeTerminals.entries()].find(([, entry]) => entry.projectId === id && entry.connection && entry.stream);
-  if (terminal) return { connection: terminal[1].connection, reused: true, terminalSessionId: terminal[0] };
-  const managed = mcpSshConnections.get(id);
-  if (managed?.ready && managed.connection) return { connection: managed.connection, reused: true, terminalSessionId: '' };
+  const terminal = [...activeTerminals.entries()].find(([, entry]) => entry.projectId === id && entry.connection && entry.stream && !entry.mcpBusy);
+  if (terminal) {
+    terminal[1].mcpBusy = 1;
+    return { connection: terminal[1].connection, reused: true, terminalSessionId: terminal[0], terminalEntry: terminal[1] };
+  }
+  const managed = [...(mcpConnectionEntries(id) || [])].find((entry) => entry.ready && entry.connection && entry.busy === 0);
+  if (managed) {
+    managed.busy = 1;
+    return { connection: managed.connection, reused: true, terminalSessionId: '', entry: managed };
+  }
   return null;
 }
 
@@ -9132,15 +9221,14 @@ async function managedMcpSshConnection(project) {
   const reusable = reusableSshConnection(projectId);
   if (reusable) return reusable;
 
-  const pending = mcpSshConnections.get(projectId);
-  if (pending?.promise) return pending.promise;
-
   const connection = new Client();
-  const entry = { connection, networkAccess: null, ready: false, promise: null };
+  const entry = { connection, networkAccess: null, ready: false, promise: null, busy: 1 };
+  const entries = mcpConnectionEntries(projectId, true);
+  entries.add(entry);
   const promise = new Promise(async (resolve, reject) => {
     let opening = true;
     const fail = (error) => {
-      if (mcpSshConnections.get(projectId) === entry) mcpSshConnections.delete(projectId);
+      removeMcpConnectionEntry(projectId, entry);
       entry.networkAccess?.release().catch(() => {});
       connection.end();
       if (opening) reject(error);
@@ -9149,11 +9237,11 @@ async function managedMcpSshConnection(project) {
     connection.once('ready', () => {
       opening = false;
       entry.ready = true;
-      resolve({ connection, reused: false, terminalSessionId: '' });
+      resolve({ connection, reused: false, terminalSessionId: '', entry });
     });
     connection.on('error', fail);
     connection.on('close', () => {
-      if (mcpSshConnections.get(projectId) === entry) mcpSshConnections.delete(projectId);
+      removeMcpConnectionEntry(projectId, entry);
       entry.networkAccess?.release().catch(() => {});
     });
     try {
@@ -9163,7 +9251,6 @@ async function managedMcpSshConnection(project) {
     }
   });
   entry.promise = promise;
-  mcpSshConnections.set(projectId, entry);
   return promise;
 }
 
@@ -9177,7 +9264,7 @@ function appendMcpCommandOutput(chunks, data, currentBytes) {
 async function executeManagedMcpSshCommand(project, command, timeoutMs, { onOutput } = {}) {
   const validationError = validateConnectionProject(project, { requireSsh: true });
   if (validationError) throw new Error(validationError);
-  const { connection, reused, terminalSessionId } = await managedMcpSshConnection(project);
+  const { connection, reused, terminalSessionId, entry, terminalEntry } = await managedMcpSshConnection(project);
   const sessionId = `mcp-${Date.now()}-${crypto.randomUUID()}`;
   const mirror = (type, payload) => {
     if (terminalSessionId) emitTerminal(terminalSessionId, type, payload);
@@ -9197,6 +9284,8 @@ async function executeManagedMcpSshCommand(project, command, timeoutMs, { onOutp
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      releaseMcpConnectionEntry(entry);
+      if (terminalEntry) terminalEntry.mcpBusy = Math.max(0, Number(terminalEntry.mcpBusy || 0) - 1);
       if (error) {
         if (terminalSessionId) {
           mirror('error', `\r\n\x1b[31m[MCP Agent]\x1b[0m ${String(error?.message || error)}\r\n`);
@@ -9254,14 +9343,15 @@ async function startTerminal(project, sessionId, size = {}) {
   if (validationError) throw new Error(validationError);
 
   const connection = new Client();
+  const connectionConfig = toConnectionConfig(project);
   const terminalState = { connection, stream: null, projectId: String(project.id || ''), networkAccess: null, sftpUnavailable: false };
   activeTerminals.set(sessionId, terminalState);
 
   try {
-    terminalState.networkAccess = await connectClientWithProjectRoute(connection, project, toConnectionConfig(project), { protocol: 'ssh' });
+    terminalState.networkAccess = await connectClientWithProjectRoute(connection, project, connectionConfig, { protocol: 'ssh' });
   } catch (error) {
     activeTerminals.delete(sessionId);
-    throw error;
+    throw normalizeTerminalConnectionError(error, project, connectionConfig);
   }
 
   connection.on('ready', () => {
@@ -9280,7 +9370,7 @@ async function startTerminal(project, sessionId, size = {}) {
       },
       (error, stream) => {
         if (error) {
-          emitTerminal(sessionId, 'failed', error.message);
+          emitTerminal(sessionId, 'failed', normalizeTerminalConnectionError(error, project, connectionConfig).message);
           activeTerminals.delete(sessionId);
           connection.end();
           return;
@@ -9326,16 +9416,17 @@ async function startTerminal(project, sessionId, size = {}) {
         });
 
         const promptDirectoryTracking = "if [ -n \"$BASH_VERSION\" ]; then PS1='\\[\\e]1337;DeployerXPwd=$PWD\\a\\]'\"$PS1\"; fi";
+        const completionCaseHandling = "if [ -n \"$BASH_VERSION\" ]; then bind 'set completion-ignore-case on'; fi";
         const startupDirectory = String(size.startupDirectory || '').trim();
         const changeDirectory = startupDirectory ? `cd -- ${quoteTerminalShellPath(startupDirectory)}; ` : '';
-        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; ${changeDirectory}printf '\\r\\033[1A\\033[2K\\r'; printf '\\033]1337;DeployerXReady\\a'; stty echo echonl\n`);
+        stream.write(`stty sane cols ${cols} rows ${rows}; ${promptDirectoryTracking}; ${completionCaseHandling}; ${changeDirectory}printf '\\r\\033[1A\\033[2K\\r'; printf '\\033]1337;DeployerXReady\\a'; stty echo echonl\n`);
         emitTerminal(sessionId, 'connected', 'Terminal connected.');
       }
     );
   });
 
   connection.on('error', (error) => {
-    emitTerminal(sessionId, 'failed', error.message);
+    emitTerminal(sessionId, 'failed', normalizeTerminalConnectionError(error, project, connectionConfig).message);
     serverMonitoringSessionManager.stopByConnection(connection);
     activeTerminals.delete(sessionId);
     terminalState.networkAccess?.release().catch(() => {});
@@ -10369,7 +10460,9 @@ app.on('before-quit', () => {
   disposeDatabaseAccessFallbackWindows();
   databaseConnectionService?.closeAll().catch(() => {});
   databaseDriverRuntimeRegistry?.stopAll().catch(() => {});
-  for (const entry of mcpSshConnections.values()) entry.connection?.end();
+  for (const entries of mcpSshConnections.values()) {
+    for (const entry of entries) entry.connection?.end();
+  }
   mcpSshConnections.clear();
   if (tray && !tray.isDestroyed()) tray.destroy();
   tray = null;
@@ -10390,6 +10483,8 @@ app.on('before-quit', () => {
   if (uptimeCommandPollTimer) clearInterval(uptimeCommandPollTimer);
   if (databaseCloudSyncTimer) clearInterval(databaseCloudSyncTimer);
   if (workspaceControlSyncTimer) clearInterval(workspaceControlSyncTimer);
+  if (workspaceUptimeSyncTimer) clearInterval(workspaceUptimeSyncTimer);
+  workspaceUptimeSyncTimer = null;
   if (isWorkerMode()) {
     mutateUptimeRuntime((current) => {
       current.worker = {
@@ -11127,35 +11222,43 @@ ipcMain.handle('backup:audit:verify', async () => {
 
 ipcMain.handle('backup:connections:delete', async (_event, payload = {}) => {
   const context = await backupSecretContext();
-  return runAuditedBackupMutation(
-    context,
-    { action: 'connection.delete', resourceType: 'connection', resourceId: payload.id, component: 'backup-connection' },
-    async () => {
-      const repository = getBackupControlDatabase().repository('connection');
-      const connection = await repository.get(context.workspaceId, payload.id);
-      if (!connection) throw new Error('Backup source connection was not found.');
-      const deleted = await repository.softDelete(context.workspaceId, connection.id, {
-        expectedRevision: payload.revision,
-        actorId: context.actorId
-      });
-      const credentialsNotRemoved = [];
-      for (const secretRefId of connection.secretRefIds || []) {
-        try {
-          await getBackupSecretStore().delete({ workspaceId: context.workspaceId, id: secretRefId });
-          const secretRef = await getBackupControlDatabase().repository('secretRef').get(context.workspaceId, secretRefId);
-          if (secretRef) {
-            await getBackupControlDatabase().repository('secretRef').softDelete(context.workspaceId, secretRefId, {
-              expectedRevision: secretRef.revision,
-              actorId: context.actorId
-            });
+  try {
+    return await runAuditedBackupMutation(
+      context,
+      { action: 'connection.delete', resourceType: 'connection', resourceId: payload.id, component: 'backup-connection' },
+      async () => {
+        const repository = getBackupControlDatabase().repository('connection');
+        const connection = await repository.get(context.workspaceId, payload.id);
+        if (!connection) throw new Error('Backup source connection was not found.');
+        const deleted = await repository.softDelete(context.workspaceId, connection.id, {
+          expectedRevision: payload.revision,
+          actorId: context.actorId,
+          cascadeSources: true
+        });
+        const credentialsNotRemoved = [];
+        for (const secretRefId of connection.secretRefIds || []) {
+          try {
+            await getBackupSecretStore().delete({ workspaceId: context.workspaceId, id: secretRefId });
+            const secretRef = await getBackupControlDatabase().repository('secretRef').get(context.workspaceId, secretRefId);
+            if (secretRef) {
+              await getBackupControlDatabase().repository('secretRef').softDelete(context.workspaceId, secretRefId, {
+                expectedRevision: secretRef.revision,
+                actorId: context.actorId
+              });
+            }
+          } catch {
+            credentialsNotRemoved.push(secretRefId);
           }
-        } catch {
-          credentialsNotRemoved.push(secretRefId);
         }
+        return { connection: deleted, credentialsNotRemoved };
       }
-      return { connection: deleted, credentialsNotRemoved };
+    );
+  } catch (error) {
+    if (error?.code === 'BACKUP_CONTROL_RECORD_REFERENCED') {
+      return { blocked: true, error: { code: error.code, message: error.message } };
     }
-  );
+    throw error;
+  }
 });
 
 ipcMain.handle('backup:connections:local:list', async () => {
@@ -11236,7 +11339,26 @@ ipcMain.handle('backup:native-tools:status', async (_event, payload = {}) => {
 });
 
 ipcMain.handle('backup:native-tools:install', async (_event, payload = {}) => {
-  return getBackupNativeToolManager().install(payload.engine);
+  const engine = String(payload.engine || '').trim().toLowerCase();
+  const sender = _event.sender;
+  let lastProgressSentAt = 0;
+  const sendProgress = (progress = {}) => {
+    const now = Date.now();
+    const percentValue = progress.percent;
+    const percent = percentValue !== null && percentValue !== undefined && percentValue !== '' && Number.isFinite(Number(percentValue))
+      ? Number(percentValue)
+      : null;
+    if (percent !== 100 && now - lastProgressSentAt < 100) return;
+    lastProgressSentAt = now;
+    if (!sender.isDestroyed()) sender.send('backup:native-tools:progress', {
+      engine,
+      phase: 'download',
+      receivedBytes: Number(progress.receivedBytes || 0),
+      totalBytes: Number(progress.totalBytes || 0),
+      percent
+    });
+  };
+  return getBackupNativeToolManager().install(engine, { onProgress: sendProgress });
 });
 
 ipcMain.handle('backup:connections:mysql:list', async () => {
@@ -11306,6 +11428,15 @@ ipcMain.handle('backup:connections:postgresql:create', async (_event, payload = 
     context,
     { action: 'connection.create-postgresql', resourceType: 'connection', component: 'backup-postgresql-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, maintenanceDatabase: payload.maintenanceDatabase, tlsMode: payload.tlsMode } },
     () => createCoreDatabaseConnection(POSTGRESQL_ADAPTER_ID, () => getBackupPostgresqlConnectionService().create(context.workspaceId, context.actorId, payload))
+  );
+});
+
+ipcMain.handle('backup:connections:postgresql:update', async (_event, payload = {}) => {
+  const context = await backupSecretContext();
+  return runAuditedBackupMutation(
+    context,
+    { action: 'connection.update-postgresql', resourceType: 'connection', resourceId: payload.id, component: 'backup-postgresql-connection', details: { name: payload.name, host: payload.host, port: payload.port, username: payload.username, maintenanceDatabase: payload.maintenanceDatabase, tlsMode: payload.tlsMode } },
+    () => getBackupPostgresqlConnectionService().update(context.workspaceId, context.actorId, payload.id, payload)
   );
 });
 
@@ -13509,7 +13640,20 @@ ipcMain.handle('app:update-open-releases', async () => {
 const ABOUT_EXTERNAL_URLS = new Set([
   'https://everythingx.in/',
   'mailto:info@everythingx.in',
-  'https://wa.me/917897892129'
+  'https://wa.me/917897892129',
+  'https://dev.mysql.com/downloads/installer/',
+  'https://www.postgresql.org/download/windows/',
+  'https://mariadb.com/downloads/community/community-server/',
+  'https://learn.microsoft.com/en-us/sql/tools/sqlcmd/sqlcmd-download-install',
+  'https://www.oracle.com/database/technologies/instant-client/downloads.html',
+  'https://www.mongodb.com/try/download/database-tools',
+  'https://redis.io/docs/latest/operate/oss_and_stack/install/',
+  'https://clickhouse.com/docs/en/install',
+  'https://docs.influxdata.com/influxdb/v2/tools/influx-cli/',
+  'https://www.cockroachlabs.com/docs/stable/install-cockroachdb-windows',
+  'https://neo4j.com/download-center/',
+  'https://www.sqlite.org/download.html',
+  'https://cassandra.apache.org/_/download.html'
 ]);
 
 ipcMain.handle('app:open-external-url', async (_event, targetUrl) => {
@@ -13796,6 +13940,7 @@ ipcMain.handle('teams:switch', async (_event, teamId) => {
       activeTeamUid: auth.uid
     });
     if (previousWorkspaceId !== String(teamId)) await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
+    await syncUptimeWorkspaceBestEffort({ workspaceId: String(teamId), actorId: auth.uid }, { force: true });
     await syncWorkspaceControlFromCloud(String(teamId), { force: true }).catch(async (error) => logWorkspaceControlSyncFailure(error, String(teamId)));
     return teamSnapshot();
   });
@@ -13877,6 +14022,7 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
     await patchDoc(['teams', teamId, 'invites', inviteId], acceptedInvite).catch(() => {});
     await deleteInviteInboxDocument(acceptedInvite).catch(() => {});
     if (previousWorkspaceId !== String(teamId)) await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
+    await syncUptimeWorkspaceBestEffort({ workspaceId: String(teamId), actorId: auth.uid }, { force: true });
     return teamSnapshot();
   });
 });
@@ -14303,7 +14449,7 @@ ipcMain.handle('terminal:start', async (_event, payload) => {
     rows: payload.rows,
     startupDirectory: payload.startupDirectory
   }).catch((error) => {
-    emitTerminal(sessionId, 'failed', error.message || 'Could not connect SSH.');
+    emitTerminal(sessionId, 'failed', normalizeTerminalConnectionError(error, payload.project).message);
   });
   return { sessionId };
 });
@@ -14436,12 +14582,14 @@ uptimeIpcMain.handle('uptime:monitors:run-now', async (_event, payload = {}) => 
 uptimeIpcMain.handle('uptime:checks:list', async (_event, payload = {}) => {
   const context = await uptimeOperationalContext();
   queueUptimeWorkspaceSync(context);
+  await syncUptimeWorkspaceBestEffort(context);
   return getUptimeControlDatabaseV2().listChecks(context.workspaceId, payload.monitorId, payload);
 });
 
 uptimeIpcMain.handle('uptime:incidents:list', async (_event, options = {}) => {
   const context = await uptimeOperationalContext();
   queueUptimeWorkspaceSync(context);
+  await syncUptimeWorkspaceBestEffort(context);
   return getUptimeControlDatabaseV2().listIncidents(context.workspaceId, options);
 });
 
@@ -14450,6 +14598,7 @@ uptimeIpcMain.handle('uptime:incidents:acknowledge', async (_event, payload = {}
 uptimeIpcMain.handle('uptime:maintenance:list', async (_event, options = {}) => {
   const context = await uptimeOperationalContext();
   queueUptimeWorkspaceSync(context);
+  await syncUptimeWorkspaceBestEffort(context);
   return getUptimeControlDatabaseV2().listMaintenanceWindows(context.workspaceId, options);
 });
 

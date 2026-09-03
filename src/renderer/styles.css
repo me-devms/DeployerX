@@ -238,7 +238,7 @@ button:disabled {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 60;
+  z-index: 1000;
   max-width: min(360px, calc(100vw - 48px));
   border: 1px solid rgba(24, 24, 27, 0.12);
   border-radius: 8px;
@@ -2265,7 +2265,7 @@ select.project-dropdown-native {
   z-index: 1;
   display: grid;
   width: min(560px, 100%);
-  max-height: 100%;
+  max-height: min(520px, calc(100% - 16px));
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--line);
@@ -2300,6 +2300,20 @@ select.project-dropdown-native {
 .backup-job-source-picker-body {
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.backup-job-source-picker-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.backup-job-source-picker-loading {
+  padding: 18px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .backup-job-source-picker-label {
@@ -2913,6 +2927,49 @@ select.project-dropdown-native {
   gap: 16px;
 }
 
+.backup-mysql-connection-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  padding: 12px;
+}
+
+.backup-mysql-connection-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.backup-mysql-connection-summary-copy > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.backup-mysql-connection-summary-copy strong {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.backup-mysql-connection-summary-copy small,
+.backup-mysql-discovery-status {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.backup-mysql-discovery-status {
+  margin: 0;
+}
+
 .backup-mysql-modal-card .modal-header,
 #backupMysqlRestoreModal .modal-header,
 #backupSqliteModal .modal-header,
@@ -2961,6 +3018,68 @@ select.project-dropdown-native {
 .backup-native-tool-package small,
 .backup-native-tool-status {
   color: var(--muted);
+}
+
+.backup-native-tool-progress-group {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+.backup-native-tool-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backup-native-tool-progress-meta strong,
+.backup-native-tool-progress-meta span {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.backup-native-tool-progress-meta span {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.backup-native-tool-progress {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.backup-native-tool-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 120ms linear;
+}
+
+.backup-native-tool-progress.is-indeterminate > span {
+  width: 42%;
+  animation: backup-native-tool-progress-indeterminate 1.2s ease-in-out infinite;
+}
+
+.backup-native-tool-progress-bytes {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+@keyframes backup-native-tool-progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
 }
 
 .backup-native-tool-status:empty {
@@ -3162,6 +3281,16 @@ select.project-dropdown-native {
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+}
+
+.backup-panel-actions.backup-activity-actions {
+  flex-wrap: nowrap;
+}
+
+.backup-activity-actions #backupActivityFilter {
+  width: 148px;
+  min-width: 148px;
+  flex: 0 0 148px;
 }
 
 .backup-ssh-modal-card {
@@ -4210,6 +4339,16 @@ select.project-dropdown-native {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .backup-panel-actions.backup-activity-actions {
+    flex-wrap: initial;
+  }
+
+  .backup-activity-actions #backupActivityFilter {
+    width: 100%;
+    min-width: 0;
+    flex: initial;
+  }
+
   .backup-job-modal-card {
     width: calc(100vw - 32px);
   }
@@ -4830,8 +4969,8 @@ select.project-dropdown-native {
   width: 16px;
   height: 16px;
   margin: -8px 0 0 -8px;
-  border: 2px solid rgba(24, 24, 27, 0.22);
-  border-top-color: #18181b;
+  border: 2px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border-top-color: var(--ink);
   border-radius: 50%;
   animation: button-spin 0.75s linear infinite;
 }
@@ -6085,6 +6224,15 @@ html[data-theme] .project-grid .project-card:focus-visible {
 .vnc-display-toggle-mark .button-icon {
   width: 20px;
   height: 20px;
+}
+
+.vnc-display-all-mark {
+  gap: 1px;
+}
+
+.vnc-display-all-mark .button-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .vnc-display-toggle-number {
@@ -7380,6 +7528,14 @@ textarea:focus {
   display: none;
   width: 0;
   height: 0;
+}
+
+/* xterm renders its own scrollbar on top of the viewport. Keep the scroll
+   surface interactive while making that visual control unobtrusive. */
+.main-terminal-output .xterm-scrollable-element > .scrollbar > .slider,
+.main-terminal-output .xterm-scrollable-element > .scrollbar > .slider:hover,
+.main-terminal-output .xterm-scrollable-element > .scrollbar > .slider.active {
+  background: transparent !important;
 }
 
 .main-terminal-output .xterm {
@@ -10208,6 +10364,11 @@ canvas.rdp-canvas {
   border: 0;
   margin: 0;
   padding: 0;
+}
+
+#terminalUserPromptList {
+  display: grid;
+  gap: 12px;
 }
 
 .terminal-user-options .sr-only {
@@ -14020,67 +14181,6 @@ html[data-theme="solarized-light"] .mcp-client-row[data-mcp-client-id="codex"] .
   border-radius: 6px;
 }
 
-.sidebar-server-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1.35fr;
-  gap: 2px;
-  margin-bottom: 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface-subtle);
-  padding: 2px;
-}
-
-.sidebar-server-tab {
-  display: inline-flex;
-  min-width: 0;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.sidebar-server-tab:hover {
-  color: var(--ink);
-}
-
-.sidebar-server-tab.active {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
-}
-
-.sidebar-server-tab:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-.sidebar-server-tab-count {
-  display: inline-grid;
-  min-width: 18px;
-  height: 18px;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--surface-raised, var(--surface));
-  color: var(--muted);
-  padding-inline: 5px;
-  font-size: 10px;
-  line-height: 18px;
-}
-
-.sidebar-server-tab.active .sidebar-server-tab-count {
-  background: var(--primary-soft);
-  color: var(--primary-hover);
-}
-
 .project-list {
   gap: 8px;
 }
@@ -14096,6 +14196,10 @@ html[data-theme="solarized-light"] .mcp-client-row[data-mcp-client-id="codex"] .
 }
 
 .sidebar-server-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 4px 0 4px;
 }
 
@@ -14125,6 +14229,17 @@ html[data-theme="solarized-light"] .mcp-client-row[data-mcp-client-id="codex"] .
 .sidebar-server-group-header span {
   font-size: 12px;
   font-weight: 500;
+}
+
+.sidebar-connected-group .sidebar-server-group-header strong {
+  color: var(--success);
+}
+
+.sidebar-connected-group .sidebar-connected-count {
+  flex: 0 0 auto;
+  color: var(--success);
+  font-size: 11px !important;
+  white-space: nowrap;
 }
 
 .project-item {
@@ -23115,4 +23230,16 @@ body .app-search:has(> input:disabled),
 html[data-theme] body .app-search:has(> input:disabled) {
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+/* Keep the server list scrollable without showing a browser scrollbar. */
+.sidebar-body .project-list {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-body .project-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }

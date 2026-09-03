@@ -185,6 +185,7 @@ contextBridge.exposeInMainWorld('deployerx', {
   discoverBackupMariadbDatabases: (id, payload = {}) => ipcRenderer.invoke('backup:connections:mariadb:discover', { id, ...payload }),
   listBackupPostgresqlConnections: () => ipcRenderer.invoke('backup:connections:postgresql:list'),
   createBackupPostgresqlConnection: (payload) => ipcRenderer.invoke('backup:connections:postgresql:create', payload),
+  updateBackupPostgresqlConnection: (id, payload) => ipcRenderer.invoke('backup:connections:postgresql:update', { id, ...payload }),
   testBackupPostgresqlConnection: (id) => ipcRenderer.invoke('backup:connections:postgresql:test', { id }),
   discoverBackupPostgresqlDatabases: (id, payload = {}) => ipcRenderer.invoke('backup:connections:postgresql:discover', { id, ...payload }),
   listBackupSqlServerConnections: () => ipcRenderer.invoke('backup:connections:sqlserver:list'),
@@ -621,5 +622,11 @@ contextBridge.exposeInMainWorld('deployerx', {
     };
     ipcRenderer.on('database-manager:event', handler);
     return () => ipcRenderer.removeListener('database-manager:event', handler);
+  },
+  onBackupNativeToolProgress: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Backup native-tool progress callback is invalid.');
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('backup:native-tools:progress', handler);
+    return () => ipcRenderer.removeListener('backup:native-tools:progress', handler);
   }
 });

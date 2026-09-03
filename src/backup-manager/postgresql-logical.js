@@ -185,6 +185,10 @@ function pgpassContents(config, password) {
 
 function safeAdapterError(error, operation) {
   if (error instanceof DatabaseAdapterError) return error;
+  const message = String(error?.message || '').toLowerCase();
+  if (/secret could not be decrypted|credentials are unavailable|secret has expired/.test(message)) {
+    return new DatabaseAdapterError('POSTGRESQL_CREDENTIALS_UNAVAILABLE', 'The saved PostgreSQL password could not be read on this device. Edit the connection and enter the password again.', { category: 'authentication' });
+  }
   if (error instanceof NativeProcessError) {
     const stderr = error.stderr.toLowerCase();
     if (stderr.includes('password authentication failed')) return new DatabaseAdapterError('POSTGRESQL_AUTHENTICATION_FAILED', 'PostgreSQL authentication failed. Check the username and password.', { category: 'authentication' });
@@ -780,6 +784,58 @@ class PostgresqlConnectionService {
     const trust = result.status === 'success' ? { mode: current.endpoint.tlsMode, fingerprint: result.endpointIdentity?.serverFingerprint || null, observedAt: result.testedAt } : current.trust;
     const updated = await this.controlDatabase.repository('connection').update(tenant, id, { lastTest: result, trust, adapterVersion: ADAPTER_VERSION }, { expectedRevision: current.revision, actorId });
     return { connection: updated, result };
+  }
+
+  async update(workspaceId, actorId, connectionId, input = {}) {
+    const tenant = requiredText(workspaceId, 'Workspace ID', 200);
+    const actor = requiredText(actorId, 'Actor ID', 200);
+    const id = requiredText(connectionId, 'Connection ID', 200);
+    const current = await this.controlDatabase.repository('connection').get(tenant, id);
+    if (!current || current.adapterId !== ADAPTER_ID) throw new Error('PostgreSQL source connection was not found.');
+    if (!(current.workerAffinity || []).includes(`device:${this.deviceId}`)) throw new Error('This PostgreSQL connection belongs to another device.');
+    const [passwordSecretRefId] = current.secretRefIds || [];
+    const name = requiredText(input.name ?? current.name, 'PostgreSQL connection name', 200);
+    const config = normalizeConfig({
+      host: input.host ?? current.endpoint?.host,
+      port: input.port ?? current.endpoint?.port,
+      username: input.username ?? current.endpoint?.username,
+      database: input.database ?? current.endpoint?.database,
+      maintenanceDatabase: input.maintenanceDatabase ?? input.database ?? current.endpoint?.maintenanceDatabase ?? current.endpoint?.database,
+      tlsMode: input.tlsMode ?? current.endpoint?.tlsMode,
+      timeoutMs: input.timeoutMs ?? current.endpoint?.timeoutMs,
+      psqlExecutable: input.psqlExecutable ?? current.endpoint?.psqlExecutable,
+      pgDumpExecutable: input.pgDumpExecutable ?? current.endpoint?.pgDumpExecutable,
+      deploymentProfile: input.deploymentProfile ?? current.endpoint?.deploymentProfile,
+      connectionMode: input.connectionMode ?? current.endpoint?.connectionMode,
+      projectRef: input.projectRef ?? current.endpoint?.projectRef,
+      passwordSecretRefId
+    });
+    const password = input.password === undefined || input.password === null || input.password === '' ? null : String(input.password);
+    if (password !== null && (!password || password.includes('\0') || /[\r\n]/.test(password) || password.length > 1024 * 1024)) throw new TypeError('PostgreSQL password is invalid.');
+    if (password !== null) {
+      const rotated = await this.secretStore.rotate({ workspaceId: tenant, id: passwordSecretRefId, actorId: actor, value: password });
+      const secretRepository = this.controlDatabase.repository('secretRef');
+      const metadata = await secretRepository.get(tenant, passwordSecretRefId);
+      if (!metadata) throw new Error('PostgreSQL password SecretRef metadata was not found.');
+      await secretRepository.update(tenant, passwordSecretRefId, {
+        version: rotated.version,
+        expiresAt: rotated.expiresAt,
+        lastValidatedAt: rotated.lastValidatedAt
+      }, { expectedRevision: metadata.revision, actorId: actor });
+    }
+    const updated = await this.controlDatabase.repository('connection').update(tenant, id, {
+      name,
+      endpoint: {
+        host: config.host, port: config.port, username: config.username, database: config.maintenanceDatabase,
+        maintenanceDatabase: config.maintenanceDatabase, tlsMode: config.tlsMode, timeoutMs: config.timeoutMs,
+        psqlExecutable: config.psqlExecutable, pgDumpExecutable: config.pgDumpExecutable,
+        deploymentProfile: config.deploymentProfile, connectionMode: config.connectionMode, projectRef: config.projectRef
+      },
+      trust: { mode: config.tlsMode, fingerprint: null },
+      lastTest: null,
+      adapterVersion: ADAPTER_VERSION
+    }, { expectedRevision: current.revision, actorId: actor });
+    return updated;
   }
 
   async discover(workspaceId, connectionId, input = {}) {

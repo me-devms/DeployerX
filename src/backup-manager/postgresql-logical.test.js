@@ -189,6 +189,14 @@ test('tests PostgreSQL with a temporary passfile and captures the cluster system
   } finally { await fs.rm(temporaryRoot, { recursive: true, force: true }); }
 });
 
+test('reports saved-password decryption failures with actionable diagnostics', async () => {
+  const adapter = new PostgresqlLogicalAdapter({ processRunner: new FakePostgresqlRunner() });
+  const result = await adapter.testConnection({ resolveSecret: async () => { throw new Error('Secret could not be decrypted on this device.'); } }, config());
+  assert.equal(result.status, 'failure');
+  assert.equal(result.error.code, 'POSTGRESQL_CREDENTIALS_UNAVAILABLE');
+  assert.match(result.error.safeMessage, /enter the password again/i);
+});
+
 test('discovers databases and proves per-database snapshots, privileges, and tool compatibility', async () => {
   const runner = new FakePostgresqlRunner();
   const adapter = new PostgresqlLogicalAdapter({ processRunner: runner, clock: () => '2026-08-04T00:00:00.000Z' });
@@ -395,6 +403,68 @@ test('persists canonical Supabase profile metadata while keeping the password Se
   const [listed] = await service.list('workspace-1');
   assert.deepEqual(listed.capabilities.backupMethods, ['logical']);
   assert.equal(listed.capabilities.transactionLogs.supported, false);
+});
+
+test('updates a saved PostgreSQL connection without rotating a blank password', async () => {
+  let persistedConnection = {
+    id: 'conn_postgresql_1', revision: 4, adapterId: ADAPTER_ID, name: 'Old PostgreSQL',
+    endpoint: {
+      host: 'old.example.com', port: 5432, username: 'old_user', database: 'postgres', maintenanceDatabase: 'postgres',
+      tlsMode: 'verify-identity', timeoutMs: 5000, psqlExecutable: 'psql', pgDumpExecutable: 'pg_dump',
+      deploymentProfile: 'postgresql', connectionMode: null, projectRef: null
+    },
+    secretRefIds: ['sec_postgresql_1'], workerAffinity: ['device:device-1'],
+    trust: { mode: 'verify-identity', fingerprint: 'sha256:old' },
+    lastTest: { status: 'success' }
+  };
+  const rotations = [];
+  let secretMetadata = { id: 'sec_postgresql_1', revision: 2, version: 1, expiresAt: null, lastValidatedAt: '2026-08-01T00:00:00.000Z' };
+  const controlDatabase = {
+    repository(kind) {
+      if (kind === 'secretRef') {
+        return {
+          async get() { return structuredClone(secretMetadata); },
+          async update(_workspaceId, _id, changes) {
+            secretMetadata = { ...secretMetadata, ...structuredClone(changes), revision: secretMetadata.revision + 1 };
+            return structuredClone(secretMetadata);
+          }
+        };
+      }
+      assert.equal(kind, 'connection');
+      return {
+        async get() { return structuredClone(persistedConnection); },
+        async update(_workspaceId, _id, changes) {
+          persistedConnection = { ...persistedConnection, ...structuredClone(changes), revision: persistedConnection.revision + 1 };
+          return structuredClone(persistedConnection);
+        }
+      };
+    }
+  };
+  const secretStore = {
+    async rotate(input) { rotations.push(input); return { version: 2, expiresAt: null, lastValidatedAt: null }; },
+    async resolve() { return 'existing-password'; }
+  };
+  const service = new PostgresqlConnectionService({ controlDatabase, secretStore, deviceId: 'device-1', adapter: new PostgresqlLogicalAdapter({ processRunner: new FakePostgresqlRunner() }) });
+  const updated = await service.update('workspace-1', 'actor-1', persistedConnection.id, {
+    name: 'Current PostgreSQL', host: 'db.example.com', port: 5433, username: 'backup_user',
+    maintenanceDatabase: 'app', tlsMode: 'required', password: ''
+  });
+  assert.equal(updated.name, 'Current PostgreSQL');
+  assert.deepEqual(updated.endpoint, {
+    host: 'db.example.com', port: 5433, username: 'backup_user', database: 'app', maintenanceDatabase: 'app',
+    tlsMode: 'required', timeoutMs: 5000, psqlExecutable: 'psql', pgDumpExecutable: 'pg_dump',
+    deploymentProfile: 'postgresql', connectionMode: null, projectRef: null
+  });
+  assert.equal(updated.lastTest, null);
+  assert.deepEqual(updated.trust, { mode: 'required', fingerprint: null });
+  assert.equal(rotations.length, 0);
+
+  await service.update('workspace-1', 'actor-1', updated.id, { password: 'rotated-password' });
+  assert.equal(rotations.length, 1);
+  assert.equal(rotations[0].id, 'sec_postgresql_1');
+  assert.equal(rotations[0].value, 'rotated-password');
+  assert.equal(secretMetadata.version, 2);
+  assert.equal(secretMetadata.lastValidatedAt, null);
 });
 
 module.exports = { FakePostgresqlRunner, config, context, supabaseConfig };

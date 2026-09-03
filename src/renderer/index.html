@@ -88,6 +88,11 @@
         <path d="M10 11v6" />
         <path d="M14 11v6" />
       </symbol>
+      <symbol id="icon-archive" viewBox="0 0 24 24">
+        <path d="M4 4h16v4H4z" />
+        <path d="M5 8h14v12H5z" />
+        <path d="M9 12h6" />
+      </symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24">
         <rect x="8" y="8" width="12" height="12" rx="2" />
         <path d="M4 16V6a2 2 0 0 1 2-2h10" />
@@ -462,11 +467,7 @@
               </svg>
               <input id="serverSearch" type="search" placeholder="Search servers" autocomplete="off" />
             </label>
-            <div id="sidebarServerTabs" class="sidebar-server-tabs" role="tablist" aria-label="Server list">
-              <button id="sidebarAllServersTab" class="sidebar-server-tab active" type="button" role="tab" aria-selected="true" aria-controls="projectList" data-sidebar-server-filter="all">All</button>
-              <button id="sidebarConnectedServersTab" class="sidebar-server-tab" type="button" role="tab" aria-selected="false" aria-controls="projectList" data-sidebar-server-filter="connected">Connected <span id="sidebarConnectedServerCount" class="sidebar-server-tab-count" aria-label="0 connected servers">0</span></button>
-            </div>
-            <div id="projectList" class="project-list" role="tabpanel" aria-labelledby="sidebarAllServersTab"></div>
+            <div id="projectList" class="project-list" aria-label="Servers grouped by workspace"></div>
           </div>
         </nav>
 
@@ -1095,7 +1096,7 @@
 
               <section id="backupPanelActivity" class="backup-manager-panel hidden" role="tabpanel" aria-labelledby="backupTabActivity" data-backup-panel="activity">
                 <div class="backup-panel-heading backup-panel-heading-actions-only">
-                  <div class="backup-panel-actions">
+                  <div class="backup-panel-actions backup-activity-actions">
                     <select id="backupActivityFilter" aria-label="Filter activity"><option value="all">All activity</option><option value="backup">Backups</option><option value="restore">Restores</option><option value="verification">Verifications</option></select>
                     <button id="backupActivityRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh activity" title="Refresh activity"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-refresh"></use></svg></button>
                   </div>
@@ -3954,6 +3955,15 @@ tool_timeout_sec = 300</pre>
         </header>
         <div class="modal-body backup-mysql-modal-body">
           <p id="backupMysqlError" class="inline-error hidden" role="alert"></p>
+          <section id="backupMysqlExistingConnectionSummary" class="backup-mysql-connection-summary hidden" aria-live="polite">
+            <div class="backup-mysql-connection-summary-copy">
+              <span>Saved connection</span>
+              <strong id="backupMysqlExistingConnectionName"></strong>
+              <small id="backupMysqlExistingConnectionEndpoint"></small>
+            </div>
+            <p id="backupMysqlDiscoveryStatus" class="backup-mysql-discovery-status">Ready to test and discover databases.</p>
+          </section>
+          <p id="backupMysqlNewConnectionStatus" class="backup-mysql-discovery-status" aria-live="polite">Enter the connection details, then test and discover databases.</p>
           <section id="backupMysqlConnectionFields" class="field-grid modal-columns">
             <label id="backupPostgresqlDeploymentProfileField" class="field span-2 hidden"><span>Deployment</span><select id="backupPostgresqlDeploymentProfile"><option value="postgresql" selected>PostgreSQL</option><option value="supabase">Supabase</option></select></label>
             <label id="backupSupabaseProjectRefField" class="field hidden"><span>Project ref</span><input id="backupSupabaseProjectRef" type="text" minlength="20" maxlength="20" pattern="[A-Za-z0-9]{20}" autocomplete="off" spellcheck="false" placeholder="abcdefghijklmnopqrst" /></label>
@@ -4070,6 +4080,11 @@ tool_timeout_sec = 300</pre>
           <div class="backup-native-tool-package">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-database"></use></svg>
             <span><strong id="backupNativeToolPackage"></strong><small id="backupNativeToolSize"></small></span>
+          </div>
+          <div id="backupNativeToolProgressGroup" class="backup-native-tool-progress-group hidden">
+            <div class="backup-native-tool-progress-meta"><strong>Download progress</strong><span id="backupNativeToolProgressPercent">0%</span></div>
+            <div id="backupNativeToolProgress" class="backup-native-tool-progress" role="progressbar" aria-label="Client tools download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="backupNativeToolProgressFill"></span></div>
+            <div id="backupNativeToolProgressBytes" class="backup-native-tool-progress-bytes">Preparing download...</div>
           </div>
           <p id="backupNativeToolError" class="inline-error hidden" role="alert"></p>
           <p id="backupNativeToolStatus" class="backup-native-tool-status" aria-live="polite"></p>

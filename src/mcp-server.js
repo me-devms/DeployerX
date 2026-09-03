@@ -845,7 +845,10 @@ class DeployerXMcpServer {
       this.sendJson(response, 400, jsonRpcError(null, -32700, 'Parse error', String(error?.message || error)));
       return;
     }
-    const acceptsEvents = String(request.headers.accept || '').toLowerCase().includes('text/event-stream');
+    const acceptHeader = String(request.headers.accept || '').toLowerCase();
+    // Codex advertises both formats but expects a JSON response during the
+    // initialize handshake. Use SSE only when it is explicitly preferred.
+    const acceptsEvents = acceptHeader.includes('text/event-stream') && !acceptHeader.includes('application/json');
     if (acceptsEvents) this.startEventStream(response);
     const responsePayload = await this.handleRpc(payload, {
       notify: acceptsEvents ? (notification) => this.sendEvent(response, notification) : null

@@ -234,6 +234,27 @@ function sourceSummary(source, connection, deviceId, executionConnection = null,
   };
 }
 
+function sourceConnectionKind(connection) {
+  if (connection.kind === 'local' || connection.kind === 'ssh') return connection.kind;
+  const adapterId = String(connection.adapterId || '');
+  const databaseKinds = [
+    ['influxdb3-enterprise', 'influxdb3-enterprise'], ['influxdb3-core', 'influxdb3-core'],
+    ['search.snapshot', 'search-snapshot'], ['scylla-manager', 'scylla-manager'], ['cockroachdb', 'cockroachdb'],
+    ['postgresql', 'postgresql'], ['sqlserver', 'sqlserver'], ['clickhouse', 'clickhouse'],
+    ['mongodb', 'mongodb'], ['mariadb', 'mariadb'], ['influxdb', 'influxdb'], ['oracle', 'oracle'],
+    ['neo4j', 'neo4j'], ['redis', 'redis'], ['sqlite', 'sqlite'], ['mysql', 'mysql']
+  ];
+  return databaseKinds.find(([fragment]) => adapterId.includes(fragment))?.[1] || null;
+}
+
+function sourceConnectionSummary(connection, deviceId) {
+  return {
+    ...connection,
+    connectionKind: sourceConnectionKind(connection),
+    currentDevice: (connection.workerAffinity || []).includes(`device:${deviceId}`)
+  };
+}
+
 function repositorySummary(repository, deviceId) {
   return {
     id: repository.id,
@@ -276,6 +297,10 @@ class BackupJobService {
         connectionById.get(source.physicalExecution?.sshConnectionId),
         [...(source.physicalExecution?.components || []), ...(source.physicalExecution?.nodes || [])].map((component) => connectionById.get(component.connectionId)).filter(Boolean)
       )),
+      sourceConnections: connections
+        .filter((connection) => ['local', 'ssh', 'database'].includes(connection.kind))
+        .map((connection) => sourceConnectionSummary(connection, this.deviceId))
+        .filter((connection) => connection.connectionKind),
       repositories: repositories.map((repository) => repositorySummary(repository, this.deviceId))
     };
   }

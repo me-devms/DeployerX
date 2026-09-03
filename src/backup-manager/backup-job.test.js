@@ -29,10 +29,13 @@ async function fixture(context) {
 }
 
 test('reports source and repository readiness for the current device', async (context) => {
-  const { service, source, repository } = await fixture(context);
+  const { service, connection, source, repository } = await fixture(context);
   const readiness = await service.readiness('local');
   assert.equal(readiness.sources[0].id, source.id);
   assert.equal(readiness.sources[0].readiness.ready, true);
+  assert.equal(readiness.sourceConnections[0].id, connection.id);
+  assert.equal(readiness.sourceConnections[0].connectionKind, 'local');
+  assert.equal(readiness.sourceConnections[0].currentDevice, true);
   assert.equal(readiness.repositories[0].id, repository.id);
   assert.equal(readiness.repositories[0].readiness.ready, true);
 });
