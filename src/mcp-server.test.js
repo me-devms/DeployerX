@@ -280,7 +280,7 @@ test('desktop integration keeps MCP always on and exposes no stop control', () =
   const html = fs.readFileSync(path.join(__dirname, 'renderer', 'index.html'), 'utf8');
 
   assert.match(main, /function normalizeMcpIntegration[\s\S]*enabled: true/);
-  assert.match(main, /await initializeUptimeControlPlane\(\)\.catch\(\(\) => \{\}\);\s*await restoreMcpIntegration\(\)\.catch\(\(\) => \{\}\);\s*startMcpHealthWatchdog\(\);\s*createWindow\(/);
+  assert.match(main, /await initializeUptimeControlPlane\(\)\.catch\(\(\) => \{\}\);\s*await restoreMcpIntegration\(\)\.catch\(\(\) => \{\}\);\s*startMcpHealthWatchdog\(\);\s*startGithubDeploymentWatcher\(\);\s*createWindow\(/);
   assert.doesNotMatch(main, /mcp-integration:stop|function stopMcpIntegration/);
   assert.doesNotMatch(preload, /stopMcpIntegration|mcp-integration:stop/);
   assert.doesNotMatch(renderer, /mcpIntegrationStopButton|stopMcpIntegration/);

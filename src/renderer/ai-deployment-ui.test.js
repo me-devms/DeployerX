@@ -22,6 +22,11 @@ test('provides the accessible deployment list and configuration workflow', async
   assert.doesNotMatch(html, /id="aiExternalDeploymentsHeading"/);
   assert.doesNotMatch(html, /id="aiDeploymentTableViewButton"|id="aiDeploymentListViewButton"/);
   assert.match(html, /id="aiDeploymentProject" required/);
+  assert.match(html, /id="aiDeploymentSourceType" required/);
+  assert.match(html, /id="aiDeploymentGithubRepo"/);
+  assert.match(html, /id="aiDeploymentAutoDeploy"/);
+  assert.match(html, /id="githubIntegrationConnectButton"/);
+  assert.match(html, /<dialog id="githubIntegrationDialog"/);
   assert.match(html, /id="aiDeploymentProject"[^>]+data-project-dropdown-search="true"/);
   assert.match(html, /id="aiDeploymentLocalPath"[^>]+required/);
   assert.doesNotMatch(html, /id="aiDeploymentRemotePath"[^>]+required/);
@@ -56,6 +61,8 @@ test('provides the accessible deployment list and configuration workflow', async
   assert.match(renderer, /data-project-dropdown-search-input/);
   assert.match(renderer, /option\.hidden = !visible/);
   assert.match(renderer, /startSavedAiDeployment\(saved\.id\)/);
+  assert.match(renderer, /function updateAiDeploymentSourceFields\(\)/);
+  assert.match(renderer, /loadGithubIntegration\(\{ repositories: true \}\)/);
   assert.match(renderer, /serverFilters: new Set\(\)/);
   assert.match(renderer, /statusFilters: new Set\(\)/);
   assert.match(renderer, /function deleteSelectedAiDeploymentPrompt\(\)/);
@@ -69,6 +76,7 @@ test('provides the accessible deployment list and configuration workflow', async
   assert.match(renderer, /window\.deployerx\.runAiDeployment\(id, runOptions\)/);
   assert.match(renderer, /closeAiDeploymentRunDialog\(\{ force: true \}\);\s*await startSavedAiDeployment\(id, options\);/);
   assert.match(preload, /listAiDeployments: \(\) => ipcRenderer\.invoke\('ai-deployments:list'\)/);
+  assert.match(preload, /connectGithubIntegration: \(payload\) => ipcRenderer\.invoke\('github-integration:connect', payload\)/);
   assert.match(preload, /selectAiDeploymentTemporaryFiles: \(\) => ipcRenderer\.invoke\('ai-deployments:select-temporary-files'\)/);
   assert.match(preload, /onAiDeploymentEvent:/);
 });

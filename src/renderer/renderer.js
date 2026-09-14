@@ -420,6 +420,8 @@ const state = {
   },
   backupHistory: [],
   mcpIntegration: null,
+  githubIntegration: { connected: false },
+  githubRepositories: [],
   teams: {
     teams: [],
     activeTeamId: '',
@@ -3121,8 +3123,13 @@ const els = {
   aiDeploymentForm: document.getElementById('aiDeploymentForm'),
   aiDeploymentFormError: document.getElementById('aiDeploymentFormError'),
   aiDeploymentProject: document.getElementById('aiDeploymentProject'),
+  aiDeploymentSourceType: document.getElementById('aiDeploymentSourceType'),
+  aiDeploymentLocalSourceField: document.getElementById('aiDeploymentLocalSourceField'),
   aiDeploymentLocalPath: document.getElementById('aiDeploymentLocalPath'),
   aiDeploymentBrowseButton: document.getElementById('aiDeploymentBrowseButton'),
+  aiDeploymentGithubSourceField: document.getElementById('aiDeploymentGithubSourceField'),
+  aiDeploymentGithubRepo: document.getElementById('aiDeploymentGithubRepo'),
+  aiDeploymentGithubBranch: document.getElementById('aiDeploymentGithubBranch'),
   aiDeploymentRemotePath: document.getElementById('aiDeploymentRemotePath'),
   aiDeploymentRemoteBrowseButton: document.getElementById('aiDeploymentRemoteBrowseButton'),
   aiDeploymentName: document.getElementById('aiDeploymentName'),
@@ -3134,6 +3141,7 @@ const els = {
   aiDeploymentClearInstructionsButton: document.getElementById('aiDeploymentClearInstructionsButton'),
   aiDeploymentAgent: document.getElementById('aiDeploymentAgent'),
   aiDeploymentRollback: document.getElementById('aiDeploymentRollback'),
+  aiDeploymentAutoDeploy: document.getElementById('aiDeploymentAutoDeploy'),
   aiDeploymentSubmitButton: document.getElementById('aiDeploymentSubmitButton'),
   aiDeploymentSearch: document.getElementById('aiDeploymentSearch'),
   aiDeploymentFilterButton: document.getElementById('aiDeploymentFilterButton'),
@@ -3965,6 +3973,17 @@ const els = {
   mcpCopyCodexConfigButton: document.getElementById('mcpCopyCodexConfigButton'),
   mcpCopyGenericConfigButton: document.getElementById('mcpCopyGenericConfigButton'),
   mcpClientList: document.getElementById('mcpClientList'),
+  githubIntegrationStatus: document.getElementById('githubIntegrationStatus'),
+  githubIntegrationDescription: document.getElementById('githubIntegrationDescription'),
+  githubIntegrationConnectButton: document.getElementById('githubIntegrationConnectButton'),
+  githubIntegrationDisconnectButton: document.getElementById('githubIntegrationDisconnectButton'),
+  githubIntegrationDialog: document.getElementById('githubIntegrationDialog'),
+  githubIntegrationForm: document.getElementById('githubIntegrationForm'),
+  githubIntegrationToken: document.getElementById('githubIntegrationToken'),
+  githubIntegrationError: document.getElementById('githubIntegrationError'),
+  githubIntegrationSubmitButton: document.getElementById('githubIntegrationSubmitButton'),
+  githubIntegrationCloseButton: document.getElementById('githubIntegrationCloseButton'),
+  githubIntegrationCancelButton: document.getElementById('githubIntegrationCancelButton'),
   settingsImportAccountButton: document.getElementById('settingsImportAccountButton'),
   settingsExportAccountButton: document.getElementById('settingsExportAccountButton'),
   backupHistoryList: document.getElementById('backupHistoryList'),
@@ -11371,7 +11390,7 @@ function filteredAiDeployments() {
   return state.aiDeployments.items.filter((deployment) => {
     const project = aiDeploymentProject(deployment.projectId);
     const agent = aiDeploymentAgent(deployment.agentId);
-    const searchable = [deployment.name, deployment.localPath, deployment.remotePath, project?.name, agent?.name, deployment.prompt]
+    const searchable = [deployment.name, deployment.localPath, deployment.githubRepo, deployment.githubBranch, deployment.remotePath, project?.name, agent?.name, deployment.prompt]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
@@ -11423,7 +11442,7 @@ function renderAiDeployments() {
       <td>${index + 1}</td>
       <td><div class="ai-deployment-name-cell"><strong>${escapeHtml(deployment.name)}</strong></div></td>
       <td>${escapeHtml(project?.name || 'Unavailable')}</td>
-      <td class="ai-deployment-path" title="${escapeHtml(deployment.localPath)}">${escapeHtml(deployment.localPath)}</td>
+      <td class="ai-deployment-path" title="${escapeHtml(deployment.sourceType === 'github' ? `${deployment.githubRepo} (${deployment.githubBranch})` : deployment.localPath)}">${escapeHtml(deployment.sourceType === 'github' ? deployment.githubRepo : deployment.localPath)}</td>
       <td>${escapeHtml(agent?.name || deployment.agentId)}</td>
       <td>${escapeHtml(deployment.lastRunAt ? formatDateTime(deployment.lastRunAt) : 'Never')}</td>
       <td><span class="ai-deployment-status-pill status-${escapeHtml(deployment.status)}">${escapeHtml(aiDeploymentStatusLabel(deployment.status))}</span></td>
@@ -11453,14 +11472,38 @@ function renderAiDeploymentFormOptions(selected = {}) {
     `<option value="${escapeHtml(deployment.id)}">${escapeHtml(deployment.name)}</option>`
   )).join('');
 
+  const repositories = [...state.githubRepositories];
+  if (selected.githubRepo && !repositories.some((repository) => repository.fullName === selected.githubRepo)) {
+    repositories.push({ fullName: selected.githubRepo, defaultBranch: selected.githubBranch || 'main', private: false });
+  }
+  els.aiDeploymentGithubRepo.innerHTML = '<option value="">Select repository</option>' + repositories.map((repository) => (
+    `<option value="${escapeHtml(repository.fullName)}" data-default-branch="${escapeHtml(repository.defaultBranch)}">${escapeHtml(repository.fullName)}${repository.private ? ' · Private' : ''}</option>`
+  )).join('');
+  const githubOption = els.aiDeploymentSourceType.querySelector('option[value="github"]');
+  if (githubOption) githubOption.disabled = !state.githubIntegration.connected && selected.sourceType !== 'github';
+
   if (selected.projectId && projects.some((project) => String(project.id) === selected.projectId)) els.aiDeploymentProject.value = selected.projectId;
   if (selected.agentId && agents.some((agent) => agent.id === selected.agentId && agent.runnable)) els.aiDeploymentAgent.value = selected.agentId;
+  if (selected.githubRepo) els.aiDeploymentGithubRepo.value = selected.githubRepo;
+}
+
+function updateAiDeploymentSourceFields() {
+  const github = els.aiDeploymentSourceType.value === 'github';
+  els.aiDeploymentLocalSourceField.classList.toggle('hidden', github);
+  els.aiDeploymentGithubSourceField.classList.toggle('hidden', !github);
+  els.aiDeploymentLocalPath.required = !github;
+  els.aiDeploymentGithubRepo.required = github;
+  els.aiDeploymentAutoDeploy.disabled = !github;
+  if (!github) els.aiDeploymentAutoDeploy.checked = false;
 }
 
 function updateAiDeploymentSummary() {
   const project = aiDeploymentProject(els.aiDeploymentProject.value);
   const agent = aiDeploymentAgent(els.aiDeploymentAgent.value);
-  const localPath = els.aiDeploymentLocalPath.value.trim();
+  const github = els.aiDeploymentSourceType.value === 'github';
+  const localPath = github
+    ? [els.aiDeploymentGithubRepo.value, els.aiDeploymentGithubBranch.value.trim() || 'main'].filter(Boolean).join(' · ')
+    : els.aiDeploymentLocalPath.value.trim();
   const remotePath = els.aiDeploymentRemotePath.value.trim();
   const hasPrompt = Boolean(els.aiDeploymentPrompt.value.trim());
   els.aiDeploymentSummaryServer.textContent = project?.name || 'Not selected';
@@ -11468,7 +11511,8 @@ function updateAiDeploymentSummary() {
   els.aiDeploymentSummaryRemotePath.textContent = remotePath || 'Agent decides';
   els.aiDeploymentSummaryAgent.textContent = agent?.name || 'Not selected';
   els.aiDeploymentCheckServer.classList.toggle('complete', Boolean(project));
-  els.aiDeploymentCheckFolder.classList.toggle('complete', Boolean(localPath));
+  els.aiDeploymentCheckFolder.textContent = github ? 'GitHub repository selected' : 'Local folder selected';
+  els.aiDeploymentCheckFolder.classList.toggle('complete', Boolean(localPath && (!github || els.aiDeploymentGithubRepo.value)));
   els.aiDeploymentCheckAgent.classList.toggle('complete', Boolean(agent?.runnable));
   els.aiDeploymentCheckPrompt.classList.toggle('complete', hasPrompt);
   els.aiDeploymentDeletePromptButton.disabled = !state.aiDeployments.items.some((deployment) => deployment.id === els.aiDeploymentSavedPrompt.value && deployment.promptReusable !== false);
@@ -11490,8 +11534,12 @@ function openAiDeploymentForm(deployment = null) {
   state.aiDeployments.editingId = deployment?.id || '';
   els.aiDeploymentRollback.checked = deployment ? deployment.createRollback !== false : true;
   renderAiDeploymentFormOptions(deployment || { agentId: recent.agentId });
+  els.aiDeploymentSourceType.value = deployment?.sourceType === 'github' ? 'github' : 'local';
   els.aiDeploymentName.value = deployment?.name || '';
   els.aiDeploymentLocalPath.value = deployment?.localPath || '';
+  els.aiDeploymentGithubRepo.value = deployment?.githubRepo || '';
+  els.aiDeploymentGithubBranch.value = deployment?.githubBranch || '';
+  els.aiDeploymentAutoDeploy.checked = deployment?.autoDeploy === true;
   els.aiDeploymentRemotePath.value = deployment?.remotePath || '';
   els.aiDeploymentPrompt.value = deployment?.prompt || '';
   els.aiDeploymentInstructions.value = deployment?.instructions || '';
@@ -11500,6 +11548,7 @@ function openAiDeploymentForm(deployment = null) {
   els.aiDeploymentForm.querySelectorAll('[aria-invalid="true"]').forEach((field) => field.removeAttribute('aria-invalid'));
   els.aiDeploymentFormError.classList.add('hidden');
   els.aiDeploymentFormError.textContent = '';
+  updateAiDeploymentSourceFields();
   els.aiDeploymentListPage.classList.add('hidden');
   els.aiDeploymentFormPage.classList.remove('hidden');
   updateAiDeploymentSummary();
@@ -11513,7 +11562,11 @@ function aiDeploymentFormValue() {
     id: state.aiDeployments.editingId,
     name: els.aiDeploymentName.value,
     projectId: els.aiDeploymentProject.value,
+    sourceType: els.aiDeploymentSourceType.value,
     localPath: els.aiDeploymentLocalPath.value,
+    githubRepo: els.aiDeploymentGithubRepo.value,
+    githubBranch: els.aiDeploymentGithubBranch.value,
+    autoDeploy: els.aiDeploymentAutoDeploy.checked,
     remotePath: els.aiDeploymentRemotePath.value,
     agentId: els.aiDeploymentAgent.value,
     prompt: els.aiDeploymentPrompt.value,
@@ -11813,6 +11866,10 @@ async function loadAiDeploymentWorkspace() {
   if (state.aiDeployments.loading) return;
   state.aiDeployments.loading = true;
   try {
+    await loadGithubIntegration({ repositories: true }).catch(() => {
+      state.githubIntegration = { connected: false };
+      state.githubRepositories = [];
+    });
     const [items, agents] = await Promise.all([
       window.deployerx.listAiDeployments(),
       window.deployerx.listLocalAgents()
@@ -21932,7 +21989,10 @@ function renderSettingsView() {
   renderBackupHistory();
   renderServerGroupsSettings();
   renderProfileView();
-  if (state.settingsTab === 'integrations') loadMcpIntegration().catch((error) => showAlert(error.message || 'Could not load the MCP integration.'));
+  if (state.settingsTab === 'integrations') {
+    loadMcpIntegration().catch((error) => showAlert(error.message || 'Could not load the MCP integration.'));
+    loadGithubIntegration().catch((error) => showAlert(error.message || 'Could not load the GitHub integration.'));
+  }
   if (state.settingsTab === 'notifications') loadBackupNotifications().catch((error) => showAlert(error.message || 'Could not load notification routes.'));
   if (state.settingsTab === 'monitoring') loadUptimeMonitoringSettings().catch((error) => showAlert(error.message || 'Could not load monitoring settings.'));
   if (state.settingsTab === 'database') loadDatabasePlugins().catch((error) => showAlert(error.message || 'Could not load database plugins.'));
@@ -21978,6 +22038,69 @@ function renderMcpClients(clients = []) {
   els.mcpClientList.querySelectorAll('[data-mcp-disconnect]').forEach((button) => {
     button.addEventListener('click', () => disconnectMcpClient(button.dataset.mcpDisconnect, button));
   });
+}
+
+function renderGithubIntegration() {
+  if (!els.githubIntegrationStatus) return;
+  const integration = state.githubIntegration || { connected: false };
+  els.githubIntegrationStatus.textContent = integration.connected ? 'Connected' : 'Not connected';
+  els.githubIntegrationStatus.dataset.status = integration.connected ? 'up-to-date' : 'idle';
+  els.githubIntegrationDescription.textContent = integration.connected
+    ? `Connected as ${integration.name || integration.login}. Repository sources and automatic updates are available.`
+    : 'Connect GitHub to deploy from repositories and enable automatic updates.';
+  els.githubIntegrationConnectButton.classList.toggle('hidden', integration.connected);
+  els.githubIntegrationDisconnectButton.classList.toggle('hidden', !integration.connected);
+}
+
+async function loadGithubIntegration({ repositories = false } = {}) {
+  state.githubIntegration = await window.deployerx.getGithubIntegration();
+  renderGithubIntegration();
+  state.githubRepositories = repositories && state.githubIntegration.connected
+    ? await window.deployerx.listGithubRepositories()
+    : [];
+  return state.githubIntegration;
+}
+
+function openGithubIntegrationDialog() {
+  els.githubIntegrationToken.value = '';
+  els.githubIntegrationError.textContent = '';
+  els.githubIntegrationError.classList.add('hidden');
+  els.githubIntegrationDialog.showModal();
+  requestAnimationFrame(() => els.githubIntegrationToken.focus());
+}
+
+function closeGithubIntegrationDialog() {
+  if (els.githubIntegrationDialog.open) els.githubIntegrationDialog.close();
+  els.githubIntegrationToken.value = '';
+}
+
+async function submitGithubIntegration(event) {
+  event.preventDefault();
+  setButtonLoading(els.githubIntegrationSubmitButton, true);
+  try {
+    state.githubIntegration = await window.deployerx.connectGithubIntegration({ token: els.githubIntegrationToken.value });
+    closeGithubIntegrationDialog();
+    renderGithubIntegration();
+    showToast(`GitHub connected as ${state.githubIntegration.login}`);
+  } catch (error) {
+    els.githubIntegrationError.textContent = error.message || 'Could not connect GitHub.';
+    els.githubIntegrationError.classList.remove('hidden');
+  } finally {
+    setButtonLoading(els.githubIntegrationSubmitButton, false);
+  }
+}
+
+async function disconnectGithubIntegration() {
+  const confirmed = await confirmDangerousAction(
+    'Disconnect GitHub?',
+    'GitHub repository deployments remain saved, but automatic checks and runs will stop until you reconnect.',
+    'Disconnect'
+  );
+  if (!confirmed) return;
+  state.githubIntegration = await window.deployerx.disconnectGithubIntegration();
+  state.githubRepositories = [];
+  renderGithubIntegration();
+  showToast('GitHub disconnected');
 }
 
 function renderMcpIntegration() {
@@ -27559,6 +27682,15 @@ els.aiDeploymentForm.addEventListener('input', (event) => {
   updateAiDeploymentSummary();
 });
 els.aiDeploymentForm.addEventListener('change', updateAiDeploymentSummary);
+els.aiDeploymentSourceType.addEventListener('change', () => {
+  updateAiDeploymentSourceFields();
+  updateAiDeploymentSummary();
+});
+els.aiDeploymentGithubRepo.addEventListener('change', () => {
+  const option = els.aiDeploymentGithubRepo.selectedOptions[0];
+  if (option?.dataset.defaultBranch) els.aiDeploymentGithubBranch.value = option.dataset.defaultBranch;
+  updateAiDeploymentSummary();
+});
 els.aiDeploymentSavedPrompt.addEventListener('change', () => {
   const saved = state.aiDeployments.items.find((item) => item.id === els.aiDeploymentSavedPrompt.value);
   els.aiDeploymentPrompt.value = saved?.prompt || '';
@@ -27773,6 +27905,12 @@ els.themeOptions.forEach((option) => {
   option.addEventListener('click', () => applyTheme(option.dataset.themeOption));
 });
 els.settingsLoginButtons.forEach((button) => button.addEventListener('click', activateCloudMode));
+els.githubIntegrationConnectButton.addEventListener('click', openGithubIntegrationDialog);
+els.githubIntegrationDisconnectButton.addEventListener('click', () => disconnectGithubIntegration().catch((error) => showAlert(error.message || 'Could not disconnect GitHub.')));
+els.githubIntegrationForm.addEventListener('submit', submitGithubIntegration);
+els.githubIntegrationCloseButton.addEventListener('click', closeGithubIntegrationDialog);
+els.githubIntegrationCancelButton.addEventListener('click', closeGithubIntegrationDialog);
+els.githubIntegrationDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeGithubIntegrationDialog(); });
 els.mcpIntegrationForm.addEventListener('submit', applyMcpPortConfiguration);
 els.mcpIntegrationTestButton.addEventListener('click', testMcpIntegration);
 els.mcpRotateTokenButton.addEventListener('click', () => rotateMcpToken().catch((error) => showAlert(error.message || 'Could not rotate the MCP token.')));

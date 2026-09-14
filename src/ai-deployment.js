@@ -42,7 +42,12 @@ function normalizeAiDeployment(input = {}) {
     id: text(input.id, 160),
     name: text(input.name, 120),
     projectId: text(input.projectId, 160),
+    sourceType: input.sourceType === 'github' ? 'github' : 'local',
     localPath: text(input.localPath, 1024),
+    githubRepo: text(input.githubRepo, 300),
+    githubBranch: text(input.githubBranch, 255),
+    githubLastCommit: text(input.githubLastCommit, 64),
+    autoDeploy: input.sourceType === 'github' && input.autoDeploy === true,
     remotePath: text(input.remotePath, 1024),
     agentId: text(input.agentId, 80),
     prompt: text(input.prompt, 8000),
@@ -71,7 +76,8 @@ function validateAiDeployment(input = {}) {
   const deployment = normalizeAiDeployment(input);
   if (!deployment.name) throw new Error('Deployment name is required.');
   if (!deployment.projectId) throw new Error('Target server is required.');
-  if (!deployment.localPath) throw new Error('Local project folder is required.');
+  if (deployment.sourceType === 'github' && !deployment.githubRepo) throw new Error('GitHub repository is required.');
+  if (deployment.sourceType === 'local' && !deployment.localPath) throw new Error('Local project folder is required.');
   if (!deployment.agentId) throw new Error('Deployment agent is required.');
   if (!deployment.prompt) throw new Error('Deployment prompt is required.');
   return deployment;
@@ -87,6 +93,9 @@ function buildAgentPrompt(deploymentInput, project = {}, uploadedArchive = '', r
   const target = {
     serverId: text(project.id || deployment.projectId, 160),
     serverName: text(project.name || 'Selected server', 120),
+    source: deployment.sourceType === 'github'
+      ? { type: 'github', repository: deployment.githubRepo, branch: deployment.githubBranch }
+      : { type: 'local', folder: deployment.localPath },
     uploadedArchive: text(uploadedArchive, 1024),
     targetPath: deployment.remotePath,
     deploymentPrompt: temporaryPrompt || deployment.prompt,
@@ -97,7 +106,9 @@ function buildAgentPrompt(deploymentInput, project = {}, uploadedArchive = '', r
   return [
     'Run this saved DeployerX deployment using your local shell tools and the direct SSH helper below. Do not use MCP tools.',
     runOptions.sshCommand ? `Direct SSH access: ${runOptions.sshCommand}\nPass one remote shell command as the next argument, or pipe the command through stdin. The helper streams output and returns the remote exit code. It is already authenticated to the selected server; do not request or read server credentials.` : '',
-    'The selected local project folder has already been compressed and uploaded to the target server as a ZIP archive.',
+    deployment.sourceType === 'github'
+      ? 'The selected GitHub repository branch has already been downloaded and uploaded to the target server as a ZIP archive.'
+      : 'The selected local project folder has already been compressed and uploaded to the target server as a ZIP archive.',
     deployment.remotePath
       ? 'Inspect the uploaded archive and deploy its contents into the target path, then follow the deployment prompt. Inspect any temporary files listed in the deployment data and use them only for this run. Install requested dependencies such as Composer or npm packages when needed.'
       : 'No target path was provided. Determine the correct destination from the deployment prompt, additional instructions, and server context. Inspect the uploaded archive and any temporary files, then deploy using the available SSH access.',

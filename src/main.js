@@ -237,6 +237,8 @@ let mcpRestartTimer = null;
 let mcpRestorePromise = null;
 let mcpHealthTimer = null;
 let mcpClientRendererCache = null;
+let githubDeploymentTimer = null;
+let githubDeploymentCheckRunning = false;
 const activeDeployments = new Map();
 const activeAiDeployments = new Map();
 const activeTerminals = new Map();
@@ -4196,6 +4198,7 @@ function defaultSettings() {
     cloudWorkspaceCache: null,
     cloudWorkspaceCaches: {},
     mcpIntegration: null,
+    githubIntegration: null,
     aiDeployments: [],
     projectLocalSettings: {},
     uptimeMonitoring: { autostartEnabled: true, maximumConcurrency: 8 }
@@ -4303,6 +4306,136 @@ async function writeSettings(nextSettings) {
   };
   await fs.writeFile(getSettingsPath(), JSON.stringify(settingsCache, null, 2));
   return structuredClone(settingsCache);
+}
+
+function normalizeGithubIntegration(input = {}) {
+  return {
+    tokenEncrypted: String(input.tokenEncrypted || ''),
+    login: String(input.login || '').slice(0, 100),
+    name: String(input.name || '').slice(0, 160),
+    avatarUrl: String(input.avatarUrl || '').slice(0, 1000),
+    connectedAt: String(input.connectedAt || '')
+  };
+}
+
+function publicGithubIntegration(input = {}) {
+  const integration = normalizeGithubIntegration(input);
+  return {
+    connected: Boolean(integration.tokenEncrypted && integration.login),
+    login: integration.login,
+    name: integration.name,
+    avatarUrl: integration.avatarUrl,
+    connectedAt: integration.connectedAt
+  };
+}
+
+function encryptGithubToken(token) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this device.');
+  return safeStorage.encryptString(String(token)).toString('base64');
+}
+
+function decryptGithubToken(tokenEncrypted) {
+  if (!tokenEncrypted) return '';
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this device.');
+  return safeStorage.decryptString(Buffer.from(tokenEncrypted, 'base64'));
+}
+
+async function githubToken(settings = null) {
+  const current = settings || await readSettings();
+  const integration = normalizeGithubIntegration(current.githubIntegration);
+  if (!integration.tokenEncrypted) throw new Error('Connect GitHub in Settings before using a repository source.');
+  try { return decryptGithubToken(integration.tokenEncrypted); }
+  catch { throw new Error('The saved GitHub credential could not be unlocked on this device. Reconnect GitHub.'); }
+}
+
+async function githubRequest(token, endpoint, { binary = false } = {}) {
+  const response = await fetch(new URL(endpoint, 'https://api.github.com'), {
+    redirect: 'follow',
+    headers: {
+      Accept: binary ? 'application/vnd.github+json' : 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'User-Agent': 'DeployerX',
+      'X-GitHub-Api-Version': '2026-03-10'
+    }
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 401) throw new Error('GitHub rejected this token. Reconnect your account.');
+    if (response.status === 403) throw new Error(body.message || 'GitHub denied access. Check token repository permissions.');
+    if (response.status === 404) throw new Error('GitHub repository or branch was not found, or the token cannot access it.');
+    throw new Error(String(body.message || `GitHub request failed (${response.status}).`).slice(0, 300));
+  }
+  return binary ? Buffer.from(await response.arrayBuffer()) : response.json();
+}
+
+function githubRepositoryName(value) {
+  const name = String(value || '').trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name)) throw new Error('Choose a valid GitHub repository.');
+  return name;
+}
+
+async function githubRepository(token, repository) {
+  const name = githubRepositoryName(repository);
+  return githubRequest(token, `/repos/${name.split('/').map(encodeURIComponent).join('/')}`);
+}
+
+async function githubCommit(token, repository, branch) {
+  const name = githubRepositoryName(repository);
+  const commit = await githubRequest(token, `/repos/${name.split('/').map(encodeURIComponent).join('/')}/commits/${encodeURIComponent(branch)}`);
+  return String(commit.sha || '');
+}
+
+async function connectGithubIntegration(input = {}) {
+  const token = String(input.token || '').trim();
+  if (!token) throw new Error('Enter a GitHub personal access token.');
+  const profile = await githubRequest(token, '/user');
+  if (!profile.login) throw new Error('GitHub did not return an account for this token.');
+  const settings = await readSettings();
+  const integration = normalizeGithubIntegration({
+    tokenEncrypted: encryptGithubToken(token),
+    login: profile.login,
+    name: profile.name,
+    avatarUrl: profile.avatar_url,
+    connectedAt: nowIso()
+  });
+  await writeSettings({ ...settings, githubIntegration: integration });
+  return publicGithubIntegration(integration);
+}
+
+async function disconnectGithubIntegration() {
+  const settings = await readSettings();
+  await writeSettings({ ...settings, githubIntegration: null });
+  return publicGithubIntegration();
+}
+
+async function listGithubRepositories() {
+  const settings = await readSettings();
+  const token = await githubToken(settings);
+  const repositories = [];
+  for (let page = 1; page <= 20; page += 1) {
+    const batch = await githubRequest(token, `/user/repos?affiliation=owner,collaborator,organization_member&sort=full_name&direction=asc&per_page=100&page=${page}`);
+    repositories.push(...batch.map((repository) => ({
+      id: String(repository.id),
+      fullName: String(repository.full_name || ''),
+      private: Boolean(repository.private),
+      defaultBranch: String(repository.default_branch || 'main'),
+      htmlUrl: String(repository.html_url || '')
+    })));
+    if (batch.length < 100) break;
+  }
+  return repositories.filter((repository) => repository.fullName);
+}
+
+async function downloadGithubArchive(repository, branch, destinationPath) {
+  const settings = await readSettings();
+  const token = await githubToken(settings);
+  const name = githubRepositoryName(repository);
+  const selectedBranch = String(branch || (await githubRepository(token, name)).default_branch || 'main');
+  const commit = await githubCommit(token, name, selectedBranch);
+  const archive = await githubRequest(token, `/repos/${name.split('/').map(encodeURIComponent).join('/')}/zipball/${encodeURIComponent(commit)}`, { binary: true });
+  await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fs.writeFile(destinationPath, archive, { mode: 0o600 });
+  return { branch: selectedBranch, commit };
 }
 
 async function saveFirebaseConfig(config) {
@@ -5628,8 +5761,18 @@ async function readAiDeployments() {
 }
 
 async function saveAiDeploymentSettings(input = {}) {
-  const deployment = validateAiDeployment(input);
+  let deployment = validateAiDeployment(input);
   const settings = await readSettings();
+  if (deployment.sourceType === 'github') {
+    const token = await githubToken(settings);
+    const repository = await githubRepository(token, deployment.githubRepo);
+    const branch = deployment.githubBranch || String(repository.default_branch || 'main');
+    deployment = normalizeAiDeployment({
+      ...deployment,
+      githubBranch: branch,
+      githubLastCommit: deployment.githubLastCommit || await githubCommit(token, deployment.githubRepo, branch)
+    });
+  }
   const deployments = aiDeploymentsFromSettings(settings);
   const existingIndex = deployments.findIndex((item) => item.id === deployment.id);
   const timestamp = nowIso();
@@ -5643,6 +5786,20 @@ async function saveAiDeploymentSettings(input = {}) {
   else deployments.unshift(saved);
   await writeSettings({ ...settings, aiDeployments: deployments });
   return saved;
+}
+
+async function writeAiDeploymentGithubCommit(id, commit) {
+  const settings = await readSettings();
+  const deployments = aiDeploymentsFromSettings(settings);
+  const index = deployments.findIndex((item) => item.id === String(id || ''));
+  if (index < 0 || !commit) return null;
+  deployments[index] = normalizeAiDeployment({ ...deployments[index], githubLastCommit: commit, updatedAt: nowIso() });
+  await writeSettings({ ...settings, aiDeployments: deployments });
+  return deployments[index];
+}
+
+function updateAiDeploymentGithubCommit(id, commit) {
+  return queueAiDeploymentSettings(() => writeAiDeploymentGithubCommit(id, commit));
 }
 
 async function deleteAiDeploymentSettings(id) {
@@ -9400,7 +9557,9 @@ async function prepareAiDeployment(deploymentId, options = {}) {
   };
   appendRunLog(`Deployment started: ${deployment.name}`);
   appendRunLog(`Server: ${project.name || deployment.projectId}`);
-  appendRunLog(`Local folder: ${deployment.localPath}`);
+  appendRunLog(deployment.sourceType === 'github'
+    ? `GitHub source: ${deployment.githubRepo} (${deployment.githubBranch || 'main'})`
+    : `Local folder: ${deployment.localPath}`);
   appendRunLog(`Server folder: ${deployment.remotePath || 'Agent decides from instructions'}`);
   if (runOptions.temporaryPrompt) appendRunLog('Using a temporary prompt for this run.');
   if (temporaryFiles.length) appendRunLog(`Temporary files: ${temporaryFiles.length}`);
@@ -9436,16 +9595,25 @@ async function prepareAiDeployment(deploymentId, options = {}) {
   };
 
   const stagingDirectory = path.join(app.getPath('temp'), 'DeployerX', 'ai-deployments', runId);
-  const archiveName = `${path.basename(deployment.localPath).replace(/[^a-z0-9._-]+/gi, '-') || 'project'}-${Date.now()}.zip`;
+  const sourceName = deployment.sourceType === 'github' ? deployment.githubRepo.split('/').pop() : path.basename(deployment.localPath);
+  const archiveName = `${String(sourceName || 'project').replace(/[^a-z0-9._-]+/gi, '-')}-${Date.now()}.zip`;
   const localArchivePath = path.join(stagingDirectory, archiveName);
   const execute = async () => {
     let bridge;
     let networkAccess;
     try {
-      appendRunLog('Compressing local project folder.');
-      progress(5, 'Compressing local project folder…');
-      await createProjectArchive(deployment.localPath, localArchivePath);
-      appendRunLog(`Project ZIP created: ${archiveName}`);
+      if (deployment.sourceType === 'github') {
+        appendRunLog('Downloading GitHub repository archive.');
+        progress(5, 'Downloading GitHub repository…');
+        const source = await downloadGithubArchive(deployment.githubRepo, deployment.githubBranch, localArchivePath);
+        await updateAiDeploymentGithubCommit(deployment.id, source.commit);
+        appendRunLog(`GitHub archive downloaded at commit ${source.commit.slice(0, 12)}.`);
+      } else {
+        appendRunLog('Compressing local project folder.');
+        progress(5, 'Compressing local project folder…');
+        await createProjectArchive(deployment.localPath, localArchivePath);
+        appendRunLog(`Project ZIP created: ${archiveName}`);
+      }
       if (run.stopped) throw new Error('Deployment stopped.');
       appendRunLog('Uploading project ZIP to server.');
       progress(30, 'Uploading project ZIP to server…');
@@ -9576,6 +9744,36 @@ function stopAiDeployment(runId) {
   run.child?.kill();
   run.connection?.end();
   return true;
+}
+
+async function checkAutomatedGithubDeployments() {
+  if (githubDeploymentCheckRunning || isAppQuitting) return;
+  githubDeploymentCheckRunning = true;
+  try {
+    const settings = await readSettings();
+    if (!publicGithubIntegration(settings.githubIntegration).connected) return;
+    const token = await githubToken(settings);
+    const deployments = aiDeploymentsFromSettings(settings).filter((deployment) => deployment.sourceType === 'github' && deployment.autoDeploy);
+    for (const deployment of deployments) {
+      if (startingAiDeployments.has(deployment.id) || [...activeAiDeployments.values()].some((run) => run.deploymentId === deployment.id)) continue;
+      try {
+        const commit = await githubCommit(token, deployment.githubRepo, deployment.githubBranch || 'main');
+        if (!commit || commit === deployment.githubLastCommit) continue;
+        await updateAiDeploymentGithubCommit(deployment.id, commit);
+        await runAiDeployment(deployment.id, { automatic: true });
+      } catch (error) {
+        console.error(`Automated GitHub deployment check failed for ${deployment.name}:`, error.message);
+      }
+    }
+  } finally {
+    githubDeploymentCheckRunning = false;
+  }
+}
+
+function startGithubDeploymentWatcher() {
+  if (githubDeploymentTimer) clearInterval(githubDeploymentTimer);
+  githubDeploymentTimer = setInterval(() => checkAutomatedGithubDeployments().catch(() => {}), 60_000);
+  githubDeploymentTimer.unref?.();
 }
 
 function emitMcpTerminal(project, type, payload, sessionId = '') {
@@ -10845,6 +11043,7 @@ app.whenReady().then(async () => {
   await initializeUptimeControlPlane().catch(() => {});
   await restoreMcpIntegration().catch(() => {});
   startMcpHealthWatchdog();
+  startGithubDeploymentWatcher();
   createWindow({ show: !isMcpAutostartMode() });
   if (pendingSecondInstanceArguments) {
     const argv = pendingSecondInstanceArguments;
@@ -10898,6 +11097,8 @@ app.on('before-quit', () => {
   mcpRestartTimer = null;
   if (mcpHealthTimer) clearInterval(mcpHealthTimer);
   mcpHealthTimer = null;
+  if (githubDeploymentTimer) clearInterval(githubDeploymentTimer);
+  githubDeploymentTimer = null;
   if (backupScheduledWorkerService && isWorkerMode()) backupScheduledWorkerService.stop({ drain: false }).catch(() => {});
   if (uptimeScheduledWorkerService && isWorkerMode()) uptimeScheduledWorkerService.stop({ drain: false }).catch(() => {});
   if (uptimeControlDatabase) uptimeControlDatabase.close().catch(() => {});
@@ -14269,6 +14470,10 @@ ipcMain.handle('mcp-integration:connect-client', async (_event, clientId) => con
 ipcMain.handle('mcp-integration:disconnect-client', async (_event, clientId) => disconnectMcpClientIntegration(clientId));
 ipcMain.handle('mcp-integration:connect-all', async () => connectAllMcpClientsIntegration());
 ipcMain.handle('mcp-integration:disconnect', async () => disconnectMcpIntegration());
+ipcMain.handle('github-integration:get', async () => publicGithubIntegration((await readSettings()).githubIntegration));
+ipcMain.handle('github-integration:connect', async (_event, payload = {}) => connectGithubIntegration(payload));
+ipcMain.handle('github-integration:disconnect', async () => disconnectGithubIntegration());
+ipcMain.handle('github-integration:repositories', async () => listGithubRepositories());
 ipcMain.handle('ai-deployments:agents', async () => listLocalAgents());
 ipcMain.handle('ai-deployments:list', async () => listAiDeployments());
 ipcMain.handle('ai-deployments:save', async (_event, payload = {}) => saveAiDeployment(payload));

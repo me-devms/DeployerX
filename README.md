@@ -59,13 +59,13 @@ DeployerX brings the tools used throughout a server's lifecycle into one focused
 - Expose bounded SSH, SFTP, monitoring, and uptime tools to trusted AI clients through a loopback-only MCP endpoint.
 - Choose from light and dark themes designed for long operational sessions.
 
-## What's new in v0.2.8
+## What's new in v0.2.9
 
-- Adds AI-assisted deployments through installed local agents with direct, authenticated SSH access and saved run logs.
-- Adds TightVNC file transfer, clipboard uploads, and expanded remote keyboard controls.
-- Improves uptime cloud synchronization, MCP integration, and multi-user server workflows.
+- Adds GitHub repositories as deployment sources with encrypted local token storage.
+- Adds automatic deployments when a selected GitHub branch receives a new commit.
+- Adds repository and branch selection throughout deployment setup, summaries, and run logs.
 
-Read the complete changes on the [v0.2.8 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.2.8).
+Read the complete changes on the [v0.2.9 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.2.9).
 
 ## What's new in v0.2.2
 
@@ -83,15 +83,15 @@ DeployerX is distributed for 64-bit Windows and Linux, plus Intel and Apple Sili
 
 | Platform | Package | Download |
 | --- | --- | --- |
-| **Windows x64** | Setup | [DeployerX-0.2.8-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-Setup-x64.exe) |
-| **Windows x64** | Portable | [DeployerX-0.2.8-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-Portable-x64.exe) |
-| **Linux x64** | AppImage | [DeployerX-0.2.8-x86_64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-x86_64.AppImage) |
-| **Linux x64** | Debian/Ubuntu | [DeployerX-0.2.8-amd64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-amd64.deb) |
-| **Linux x64** | Fedora/RHEL | [DeployerX-0.2.8-x86_64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-x86_64.rpm) |
-| **macOS Intel** | DMG | [DeployerX-0.2.8-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-x64.dmg) |
-| **macOS Intel** | ZIP | [DeployerX-0.2.8-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-x64.zip) |
-| **macOS Apple Silicon** | DMG | [DeployerX-0.2.8-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-arm64.dmg) |
-| **macOS Apple Silicon** | ZIP | [DeployerX-0.2.8-arm64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.8/DeployerX-0.2.8-arm64.zip) |
+| **Windows x64** | Setup | [DeployerX-0.2.9-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-Setup-x64.exe) |
+| **Windows x64** | Portable | [DeployerX-0.2.9-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-Portable-x64.exe) |
+| **Linux x64** | AppImage | [DeployerX-0.2.9-x86_64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-x86_64.AppImage) |
+| **Linux x64** | Debian/Ubuntu | [DeployerX-0.2.9-amd64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-amd64.deb) |
+| **Linux x64** | Fedora/RHEL | [DeployerX-0.2.9-x86_64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-x86_64.rpm) |
+| **macOS Intel** | DMG | [DeployerX-0.2.9-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-x64.dmg) |
+| **macOS Intel** | ZIP | [DeployerX-0.2.9-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-x64.zip) |
+| **macOS Apple Silicon** | DMG | [DeployerX-0.2.9-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-arm64.dmg) |
+| **macOS Apple Silicon** | ZIP | [DeployerX-0.2.9-arm64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-arm64.zip) |
 
 Windows may show a SmartScreen warning and macOS may require manual approval because the current release artifacts are unsigned. Confirm that every file came from this repository's release page before running it.
 

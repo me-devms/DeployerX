@@ -918,7 +918,7 @@
                       <col class="ai-deployment-col-status" />
                       <col class="ai-deployment-col-actions" />
                     </colgroup>
-                    <thead><tr><th scope="col">#</th><th scope="col">Deployment</th><th scope="col">Server</th><th scope="col">Local folder</th><th scope="col">Agent</th><th scope="col">Last run</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+                    <thead><tr><th scope="col">#</th><th scope="col">Deployment</th><th scope="col">Server</th><th scope="col">Source</th><th scope="col">Agent</th><th scope="col">Last run</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
                     <tbody id="aiDeploymentTableBody"></tbody>
                   </table>
                 </div>
@@ -951,13 +951,22 @@
                 <h2 id="aiDeploymentConfigurationHeading">Deployment configuration</h2>
                 <div id="aiDeploymentFormError" class="form-error hidden" role="alert" tabindex="-1"></div>
 
+                <div class="field ai-deployment-source-picker">
+                  <label for="aiDeploymentSourceType">Source <span aria-hidden="true">*</span></label>
+                  <select id="aiDeploymentSourceType" required aria-describedby="aiDeploymentSourceTypeHint">
+                    <option value="local">This PC</option>
+                    <option value="github">GitHub repository</option>
+                  </select>
+                  <small id="aiDeploymentSourceTypeHint">Choose where DeployerX gets project files.</small>
+                </div>
+
                 <div class="ai-deployment-field-grid">
                   <div class="field">
                     <label for="aiDeploymentProject">Target server <span aria-hidden="true">*</span></label>
                     <select id="aiDeploymentProject" required data-project-dropdown-search="true" data-search-placeholder="Search servers..." data-search-empty="No servers found." aria-describedby="aiDeploymentProjectHint"></select>
                     <small id="aiDeploymentProjectHint">Choose an SSH-capable server.</small>
                   </div>
-                  <div class="field">
+                  <div id="aiDeploymentLocalSourceField" class="field">
                     <label for="aiDeploymentLocalPath">Local project folder <span aria-hidden="true">*</span></label>
                     <div class="ai-deployment-folder-field">
                       <input id="aiDeploymentLocalPath" type="text" required maxlength="1024" placeholder="Choose a local folder" aria-describedby="aiDeploymentLocalPathHint" />
@@ -967,6 +976,14 @@
                       </button>
                     </div>
                     <small id="aiDeploymentLocalPathHint">The folder is compressed as a ZIP and uploaded to the selected server before the agent starts.</small>
+                  </div>
+                  <div id="aiDeploymentGithubSourceField" class="field hidden">
+                    <label for="aiDeploymentGithubRepo">GitHub repository <span aria-hidden="true">*</span></label>
+                    <div class="ai-deployment-github-source">
+                      <select id="aiDeploymentGithubRepo" aria-describedby="aiDeploymentGithubRepoHint"></select>
+                      <input id="aiDeploymentGithubBranch" type="text" maxlength="255" placeholder="main" aria-label="GitHub branch" />
+                    </div>
+                    <small id="aiDeploymentGithubRepoHint">Select a repository and branch from your connected GitHub account.</small>
                   </div>
                   <div class="field ai-deployment-field-wide">
                     <label for="aiDeploymentRemotePath">Server deployment folder <small>Optional</small></label>
@@ -1030,6 +1047,10 @@
                     <input id="aiDeploymentRollback" type="checkbox" checked />
                     <span><strong>Create rollback point</strong><small>Ask the agent to create a safe restore point before changes.</small></span>
                   </label>
+                  <label class="ai-deployment-checkbox" for="aiDeploymentAutoDeploy">
+                    <input id="aiDeploymentAutoDeploy" type="checkbox" />
+                    <span><strong>Automated updates</strong><small>Check GitHub every minute and run when selected branch gets a new commit.</small></span>
+                  </label>
                 </details>
               </section>
 
@@ -1037,7 +1058,7 @@
                 <h2 id="aiDeploymentSummaryHeading">Deployment summary</h2>
                 <dl>
                   <div><dt>Server</dt><dd id="aiDeploymentSummaryServer">Not selected</dd></div>
-                  <div><dt>Local folder</dt><dd id="aiDeploymentSummaryFolder">Not selected</dd></div>
+                  <div><dt>Source</dt><dd id="aiDeploymentSummaryFolder">Not selected</dd></div>
                   <div><dt>Server folder</dt><dd id="aiDeploymentSummaryRemotePath">Not selected</dd></div>
                   <div><dt>Agent</dt><dd id="aiDeploymentSummaryAgent">Not selected</dd></div>
                 </dl>
@@ -2623,6 +2644,36 @@
 
               <section id="settingsIntegrationsPanel" class="settings-panel" data-settings-panel="integrations">
                 <div class="settings-panel-body">
+                  <div class="settings-card github-integration-card">
+                    <div class="mcp-details-header">
+                      <div class="github-integration-title">
+                        <span class="github-integration-mark" aria-hidden="true">GH</span>
+                        <div><span class="settings-eyebrow">Source control</span><h2>GitHub</h2></div>
+                      </div>
+                      <span id="githubIntegrationStatus" class="app-update-pill" data-status="idle">Not connected</span>
+                    </div>
+                    <p id="githubIntegrationDescription" class="settings-muted">Connect GitHub to deploy from repositories and enable automatic updates.</p>
+                    <div class="settings-inline-actions">
+                      <button id="githubIntegrationConnectButton" class="button solid" type="button">Connect GitHub</button>
+                      <button id="githubIntegrationDisconnectButton" class="button outline hidden" type="button">Disconnect</button>
+                    </div>
+                  </div>
+
+                  <dialog id="githubIntegrationDialog" class="ai-deployment-run-dialog" aria-labelledby="githubIntegrationHeading">
+                    <form id="githubIntegrationForm" class="ai-deployment-run-form" method="dialog">
+                      <header class="ai-deployment-run-dialog-header">
+                        <div><h2 id="githubIntegrationHeading">Connect GitHub</h2><p>Use a fine-grained personal access token with read access to repository contents.</p></div>
+                        <button id="githubIntegrationCloseButton" class="button plain compact icon-only" type="button" aria-label="Close GitHub connection"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg></button>
+                      </header>
+                      <div class="ai-deployment-run-body">
+                        <div id="githubIntegrationError" class="form-error hidden" role="alert"></div>
+                        <label class="field" for="githubIntegrationToken"><span>Personal access token</span><input id="githubIntegrationToken" type="password" required autocomplete="off" spellcheck="false" placeholder="github_pat_…" /></label>
+                        <p class="settings-muted">Token stays encrypted on this device. DeployerX uses it only for account details, repository lists, commits, and ZIP downloads.</p>
+                      </div>
+                      <footer class="ai-deployment-run-dialog-actions"><button id="githubIntegrationCancelButton" class="button outline" type="button">Cancel</button><button id="githubIntegrationSubmitButton" class="button solid" type="submit">Connect</button></footer>
+                    </form>
+                  </dialog>
+
                   <div class="settings-card mcp-details-card">
                     <div class="mcp-details-header">
                       <div>

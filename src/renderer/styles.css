@@ -2222,6 +2222,8 @@ html[data-theme] #aiDeploymentSearch:focus {
   gap: 12px;
 }
 
+.ai-deployment-source-picker { max-width: 320px; margin-bottom: 12px !important; }
+
 .ai-deployment-field-wide {
   grid-column: auto;
 }
@@ -2317,6 +2319,7 @@ html[data-theme] #aiDeploymentSearch:focus {
 .ai-deployment-folder-field input { min-width: 0; }
 .ai-deployment-folder-field .button { min-height: 40px; flex: 0 0 auto; }
 .ai-deployment-field-grid .project-dropdown { height: 40px; }
+.ai-deployment-github-source { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 0.35fr); gap: 8px; }
 
 .ai-deployment-saved-prompt-field {
   display: flex;
@@ -14019,6 +14022,12 @@ html[data-theme="gruvbox-dark"] .about-whatsapp-button:focus-visible {
 .mcp-status-pill {
   flex: 0 0 auto;
 }
+
+.github-integration-card { display: grid; gap: 14px; }
+.github-integration-title { display: flex; align-items: center; gap: 12px; }
+.github-integration-title h2 { margin: 2px 0 0; }
+.github-integration-mark { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: #24292f; color: #fff; font-size: 12px; font-weight: 800; letter-spacing: -.03em; }
+.github-integration-card .settings-inline-actions { justify-content: flex-start; }
 
 .mcp-error-message {
   margin: 10px 0 0;

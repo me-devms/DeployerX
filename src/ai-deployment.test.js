@@ -41,6 +41,18 @@ test('normalizes, validates, and builds a bounded deployment request', () => {
   assert.throws(() => agentArguments('cursor', 'Deploy.'), /does not support unattended deployments/);
 });
 
+test('accepts GitHub sources and enables automation only for them', () => {
+  const deployment = validateAiDeployment({
+    name: 'GitHub production', projectId: 'server-1', sourceType: 'github', githubRepo: 'owner/app',
+    githubBranch: 'main', autoDeploy: true, agentId: 'codex', prompt: 'Deploy.'
+  });
+  assert.equal(deployment.localPath, '');
+  assert.equal(deployment.autoDeploy, true);
+  assert.match(buildAgentPrompt(deployment, {}, '/uploads/app.zip'), /"type": "github"/);
+  assert.throws(() => validateAiDeployment({ name: 'Missing repo', projectId: 'server-1', sourceType: 'github', agentId: 'codex', prompt: 'Deploy.' }), /GitHub repository is required/);
+  assert.equal(normalizeAiDeployment({ sourceType: 'local', autoDeploy: true }).autoDeploy, false);
+});
+
 test('decodes local agent sessions, output and structured failures', () => {
   assert.equal(parseAgentEvent('{"type":"thread.started","thread_id":"session-1"}').sessionId, 'session-1');
   assert.equal(parseAgentEvent('{"type":"turn.failed","error":{"message":"Model unavailable"}}').error, 'Model unavailable');
@@ -89,6 +101,30 @@ test('30 simultaneous deployment status writes retain every run', async () => {
     assert.equal(deployment.runs[0].log, `Final ${index}`);
     assert.equal(deployment.status, index % 2 ? 'failed' : 'successful');
   });
+});
+
+test('automated GitHub checks run only deployments with a new branch commit', async () => {
+  const mainSource = await fs.readFile(path.join(__dirname, 'main.js'), 'utf8');
+  const calls = [];
+  const context = vm.createContext({
+    isAppQuitting: false,
+    readSettings: async () => ({ githubIntegration: { tokenEncrypted: 'encrypted', login: 'octocat' }, aiDeployments: [
+      { id: 'changed', name: 'Changed', projectId: 'server', sourceType: 'github', githubRepo: 'octocat/app', githubBranch: 'main', githubLastCommit: 'old', autoDeploy: true, agentId: 'codex', prompt: 'Deploy' },
+      { id: 'same', name: 'Same', projectId: 'server', sourceType: 'github', githubRepo: 'octocat/docs', githubBranch: 'main', githubLastCommit: 'same', autoDeploy: true, agentId: 'codex', prompt: 'Deploy' },
+      { id: 'manual', name: 'Manual', projectId: 'server', sourceType: 'github', githubRepo: 'octocat/manual', githubBranch: 'main', githubLastCommit: 'old', autoDeploy: false, agentId: 'codex', prompt: 'Deploy' }
+    ] }),
+    publicGithubIntegration: () => ({ connected: true }), githubToken: async () => 'token',
+    aiDeploymentsFromSettings: (settings) => settings.aiDeployments, startingAiDeployments: new Set(), activeAiDeployments: new Map(),
+    githubCommit: async (_token, repository) => repository.endsWith('/docs') ? 'same' : 'new',
+    updateAiDeploymentGithubCommit: async (id, commit) => calls.push(['commit', id, commit]),
+    runAiDeployment: async (id, options) => calls.push(['run', id, options.automatic]),
+    console
+  });
+  const start = mainSource.indexOf('async function checkAutomatedGithubDeployments(');
+  const end = mainSource.indexOf('function emitMcpTerminal(', start);
+  vm.runInContext(`let githubDeploymentCheckRunning = false;\n${mainSource.slice(start, end)}`, context);
+  await context.checkAutomatedGithubDeployments();
+  assert.deepEqual(calls, [['commit', 'changed', 'new'], ['run', 'changed', true]]);
 });
 
 test('confirmation closes before startup finishes and keeps temporary input', async () => {
