@@ -50,6 +50,14 @@ test('restores terminal rendering and keyboard focus after navigation', async ()
   assert.match(source, /if \(event\.type === 'connected'\)[\s\S]*?if \(isVisibleTerminalSession\(terminalSession\)\) restoreTerminalInteraction\(\);/, 'a newly connected terminal receives keyboard focus');
 });
 
+test('routes xterm protocol replies to the session that produced them', async () => {
+  const source = await fs.readFile(path.join(rendererDirectory, 'renderer.js'), 'utf8');
+
+  assert.match(source, /function writeTerminalOutput[\s\S]*?terminalWriteQueue\.push\(entry\);[\s\S]*?terminal\.write\(data, \(\) =>/);
+  assert.match(source, /function isTerminalProtocolResponse[\s\S]*?\[cRn\]/, 'recognizes terminal-generated device, cursor, and status replies');
+  assert.match(source, /const outputSession = terminalWriteQueue\[0\]\?\.session;[\s\S]*?sendTerminalInput\(data, outputSession\.sessionId\)/, 'protocol replies keep their source session after navigation');
+});
+
 test('does not disable remote shell echo when creating the SSH PTY', async () => {
   const mainSource = await fs.readFile(path.join(rendererDirectory, '..', 'main.js'), 'utf8');
   const terminalStart = mainSource.slice(mainSource.indexOf('async function startTerminal'), mainSource.indexOf('function resizeTerminal'));

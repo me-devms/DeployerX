@@ -9,7 +9,7 @@ const https = require('https');
 const os = require('os');
 const net = require('net');
 const tls = require('tls');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const { autoUpdater } = require('electron-updater');
 const nodemailer = require('nodemailer');
@@ -19,10 +19,15 @@ const { assertFirebaseConfig, sanitizeFirebaseConfigForRuntime, validateFirebase
 const { ServerMonitoringSessionManager } = require('./server-monitoring/session-manager');
 const { DeployerXMcpServer } = require('./mcp-server');
 const { listMcpClients, connectMcpClient, disconnectMcpClient, readMcpClientToken } = require('./mcp-clients');
+const { directAgentArguments, parseAgentEvent, buildAgentPrompt, createProjectArchive, normalizeAiDeployment, normalizeAiDeploymentRunOptions, validateAiDeployment } = require('./ai-deployment');
+const { listLocalAgents } = require('./local-agents');
+const { createDeploymentSshBridge, executeDeploymentSsh } = require('./deployment-ssh');
 
 const CODEX_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFSUlEQVR4nM2Ze4hVVRTG7x3TsqzUzIIym4wkdSytQDBnpmjSAqs/svorigR7KNlLykykZEroZSUjWT4qIiJEo6AosCgoreglvaR0pJE0x9IsJpvpFyvXdtasu8+558y9NH0wDOy91jrfOXvttb69b6FQAYDDgQuAm4D7gLnA1cCIwv8JwGjgGeB34vgb+Ai4Bij2JdF+wHzgANmxCajtC7KHAS8ZIl3AWuBaYBxwAjASuAR4EthnbH8GFgNvAtt1rk1X4RGgoeorAaxwX21sGfthwIYcK7ERaKwW2StN4NeAI8rYHwcsAzodqW/Vf43+/97Nd+nmLVaaCls04NfAoDK2c4B2R2IVMDHBZyywUu0CHq+E8BUm0OUpdk3AZvfF3gUmZHxOg3vRmb0l/KwGaIstFTAKWOeIbgNm9OJZZ5tS+YukVh7nqVoVOjTA6sjyN5t5wX5gATAwIeaxWkWGpDz3ZhNvSRaitcDblOJ+Z3eXaxTPAyel1O8bgd1qvweYLS8dse0P/GBWKnkDAudrzbREAm53ti3GpqFMbn5GHF9Ia4/4PGhsxhVSduuvxnA9MCUD4b0J8aSJvOwItmtL3+XGxe4U4ytpE3BZLPgA4CtjNF/HT8xLGDgSWAT8YXz/Ap4AhqrNYOBR1+Jlsy2U/AfGm/FZMcLzjMFSM56LMHAV0Oq+3nZgTIqIet3Zb1W9EnBDIbLbfzRJPjAvYeAs4B2S8V5S49BY09wKW1zsjS80k7e5uSyEu1wL3q3dTv5CVQh2TwPHJ5CW6nCrVhCLyd5Q8i3g1F4QDvhTldehGgsM0TGZwzQEEfr9U3SItHKbUidbAxEi0d2eg/ArwOkxAgKZUxsLSYGphQToSwV8CNSECdG0gh0Rp9xVIg0czHeP9Ukvaz6m4LowuFwHJA8HpBCeV0XCW7SNB3Ros+ihBIGjgZ1qI92vKIP3GsceohwYbuZEu06pEuEWaePazm03/fzQ0nf7PGTmz5WB88xAc+Qhn5p5Cf6ibIJKCRe6xyYB35hnjHQ+dWbuHhkoGrHxU2RZjgEedjt9vxH1FREWALeY2KcVSq8SgrhfHgavNw5rrINxPCPSlapFeFYSYZ3foXNrw0CNHgID5qY89FK3hL0pay05Cf9Wosk1L6VIB6xOUvzale5w6i5r48hFWE80AQs9kcn0xB5tl0ldabge/7sytOZOY5eHsHyYgMbYsSgG6UrTYqTV7xzgfZKxQQVSrhxWqRnUX2vJCUWknHFc7FIE3XSjE0iPidhvlTsNY5OX8NIkYRYM5NwVUGfEuL30O6Die7D6DFVxLiLdlj1pSD0uXPIQdg3ty2hayr2DMWoy4yP0BG270i497rTnOIzuzUC4SfWF3UdnxuIV3NFkUWReznifEIeUxUnRwIV/fRvNC6cRth9lZ1rM0PVazUaridhIzZ5pREmb3mBGj+Mc1AzPOSJ3Opu7Ix/gDd+mk0gvKZF0cbujgHrJ84R52eELIqqs2e92oxg7VKtcVJaoK/YhL+Uety6zc3eM6UafBLyVlIvGdkXeZ4UAsuQBsvT1Gf0m6AWgxWa7gRNafcD0XhHWQI+5LrUy5bg+MXJlKqs0J3YdZfwGmdOyXOX2q4RwUWuhJYEuX7iUlkbynZvv1Mvs1JtHqdHAq1mucvMSl1L2AdkhbXhYmZjjgY+Nz7KqkHUPqVchv1EvXvZpK5by84C7RJS5pzQ/a/VsWKe6e51btRcqSoUKXqjWaepy6NArspJa/1+SLuqPiZtco8BAxLjU3VF9RjQGPRDMUD0tvwxJ+5W06nGVkBf/APLOOieCuT2TAAAAAElFTkSuQmCC';
 const { RdpSessionManager } = require('./rdp-session');
 const { VncSessionManager } = require('./vnc-session');
+const { createVncKeyboard } = require('./vnc-keyboard');
+const { registerVncFileIpc } = require('./vnc-local-files');
 const { BackupAuditStore, StructuredLogStore } = require('./backup-manager/audit');
 const { BackupJobService } = require('./backup-manager/backup-job');
 const { BackupControlDatabase } = require('./backup-manager/control-database');
@@ -202,6 +207,8 @@ const STORE_FILE = 'projects.json';
 const SETTINGS_FILE = 'settings.json';
 const MCP_TOKEN_FILE = 'mcp-token.enc';
 const MCP_AUTOSTART_ARGUMENT = '--mcp-autostart';
+const MCP_LOGIN_ITEM_NAME = 'DeployerX MCP';
+const UPTIME_WORKER_LOGIN_ITEM_NAME = 'DeployerX Uptime Worker';
 const APP_ICON = path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'deployerx-logo.ico' : 'deployerx-logo.png');
 const DATABASE_MANAGER_PACKAGED_SMOKE_ARGUMENT = '--database-manager-packaged-smoke';
 const DATABASE_MANAGER_PACKAGED_SMOKE_RELEASE_ARGUMENT = '--database-manager-packaged-smoke-release=';
@@ -216,6 +223,9 @@ const databaseAccessFallbackWindows = new Map();
 let databaseManagerPackagedSmokePublished = false;
 let rdpSessionManager;
 let vncSessionManager;
+let vncKeyboard;
+const vncLocalFiles = registerVncFileIpc({ ipcMain, dialog, clipboard,
+  getWindow: () => mainWindow, getSession: () => vncSessionManager?.session });
 let vncRestoreWindowState = null;
 let serverMonitoringRestoreWindowState = null;
 let mainWindowFullscreenOwner = null;
@@ -228,6 +238,7 @@ let mcpRestorePromise = null;
 let mcpHealthTimer = null;
 let mcpClientRendererCache = null;
 const activeDeployments = new Map();
+const activeAiDeployments = new Map();
 const activeTerminals = new Map();
 const mcpSshConnections = new Map();
 const activeFtpSessions = new Map();
@@ -3658,7 +3669,12 @@ async function getUptimeServiceStatusV2() {
 async function setWorkerAutostartEnabled(enabled) {
   if (enabled) return ensureWorkerAutostartEnabled();
   if (process.platform === 'win32' || process.platform === 'darwin') {
-    app.setLoginItemSettings(buildLoginItemSettings({ enabled: false, execPath: process.execPath, args: buildWorkerArgs() }));
+    app.setLoginItemSettings(buildLoginItemSettings({
+      enabled: false,
+      execPath: process.execPath,
+      args: buildWorkerArgs(),
+      name: process.platform === 'win32' ? UPTIME_WORKER_LOGIN_ITEM_NAME : ''
+    }));
   } else {
     const autostartPath = path.join(os.homedir(), '.config', 'autostart', 'deployerx-uptime-worker.desktop');
     await fs.rm(autostartPath, { force: true });
@@ -4180,6 +4196,7 @@ function defaultSettings() {
     cloudWorkspaceCache: null,
     cloudWorkspaceCaches: {},
     mcpIntegration: null,
+    aiDeployments: [],
     projectLocalSettings: {},
     uptimeMonitoring: { autostartEnabled: true, maximumConcurrency: 8 }
   };
@@ -5560,6 +5577,124 @@ function workspaceControlCloudDocument(type, record) {
   };
 }
 
+function aiDeploymentsFromSettings(settings = {}) {
+  return (Array.isArray(settings.aiDeployments) ? settings.aiDeployments : [])
+    .map(normalizeAiDeployment)
+    .filter((deployment) => deployment.id && deployment.name);
+}
+
+let aiDeploymentSettingsQueue = Promise.resolve();
+function queueAiDeploymentSettings(operation) {
+  const pending = aiDeploymentSettingsQueue.then(operation);
+  aiDeploymentSettingsQueue = pending.catch(() => {});
+  return pending;
+}
+function listAiDeployments() { return queueAiDeploymentSettings(readAiDeployments); }
+function saveAiDeployment(input) { return queueAiDeploymentSettings(() => saveAiDeploymentSettings(input)); }
+function deleteAiDeployment(id) { return queueAiDeploymentSettings(() => deleteAiDeploymentSettings(id)); }
+function updateAiDeploymentStatus(...args) { return queueAiDeploymentSettings(() => writeAiDeploymentStatus(...args)); }
+
+async function readAiDeployments() {
+  const settings = await readSettings();
+  const activeIds = new Set([...activeAiDeployments.values()].map((run) => run.deploymentId));
+  let changed = false;
+  const deployments = aiDeploymentsFromSettings(settings).map((deployment) => {
+    if (activeIds.has(deployment.id)) {
+      const [runId, active] = [...activeAiDeployments.entries()].find(([, run]) => run.deploymentId === deployment.id);
+      return { ...deployment, runs: deployment.runs.map((run) => run.id === runId ? { ...run, log: active.log, percent: active.percent, message: active.label, sessionId: active.sessionId } : run) };
+    }
+    if (deployment.status !== 'running') return deployment;
+    changed = true;
+    const interruptedAt = nowIso();
+    const interruption = `[${interruptedAt}] ERROR Deployment was interrupted before it completed.`;
+    const interruptedLog = `${deployment.log}${deployment.log ? '\n' : ''}${interruption}`;
+    return normalizeAiDeployment({
+      ...deployment,
+      status: 'failed',
+      lastMessage: 'Deployment was interrupted before it completed.',
+      log: interruptedLog,
+      runs: deployment.runs.map((run, index) => index || run.status !== 'running' ? run : {
+        ...run,
+        status: 'failed',
+        completedAt: interruptedAt,
+        message: 'Deployment was interrupted before it completed.',
+        log: interruptedLog
+      }),
+      updatedAt: interruptedAt
+    });
+  });
+  if (changed) await writeSettings({ ...settings, aiDeployments: deployments });
+  return deployments;
+}
+
+async function saveAiDeploymentSettings(input = {}) {
+  const deployment = validateAiDeployment(input);
+  const settings = await readSettings();
+  const deployments = aiDeploymentsFromSettings(settings);
+  const existingIndex = deployments.findIndex((item) => item.id === deployment.id);
+  const timestamp = nowIso();
+  const saved = normalizeAiDeployment({
+    ...deployment,
+    id: deployment.id || createId('ai-deployment'),
+    createdAt: existingIndex >= 0 ? deployments[existingIndex].createdAt : timestamp,
+    updatedAt: timestamp
+  });
+  if (existingIndex >= 0) deployments[existingIndex] = saved;
+  else deployments.unshift(saved);
+  await writeSettings({ ...settings, aiDeployments: deployments });
+  return saved;
+}
+
+async function deleteAiDeploymentSettings(id) {
+  const deploymentId = String(id || '').trim();
+  if (!deploymentId) throw new Error('Deployment is required.');
+  if ([...activeAiDeployments.values()].some((run) => run.deploymentId === deploymentId)) {
+    throw new Error('Stop the running deployment before deleting it.');
+  }
+  const settings = await readSettings();
+  const deployments = aiDeploymentsFromSettings(settings);
+  const nextDeployments = deployments.filter((item) => item.id !== deploymentId);
+  if (nextDeployments.length === deployments.length) throw new Error('Deployment was not found.');
+  await writeSettings({ ...settings, aiDeployments: nextDeployments });
+  return true;
+}
+
+async function writeAiDeploymentStatus(id, status, message = '', log, runId = '') {
+  const settings = await readSettings();
+  const deployments = aiDeploymentsFromSettings(settings);
+  const index = deployments.findIndex((item) => item.id === String(id || ''));
+  if (index < 0) return null;
+  const timestamp = nowIso();
+  const runs = [...deployments[index].runs];
+  const savedRunIndex = runs.findIndex((run) => run.id === String(runId || ''));
+  if (runId) {
+    const savedRun = savedRunIndex >= 0 ? runs[savedRunIndex] : null;
+    const nextRun = {
+      id: runId,
+      startedAt: savedRun?.startedAt || timestamp,
+      completedAt: status === 'running' ? '' : timestamp,
+      status,
+      message,
+      sessionId: activeAiDeployments.get(runId)?.sessionId || savedRun?.sessionId || '',
+      percent: status === 'successful' ? 100 : activeAiDeployments.get(runId)?.percent || savedRun?.percent || 0,
+      log: log === undefined ? savedRun?.log || '' : log
+    };
+    if (savedRunIndex >= 0) runs[savedRunIndex] = nextRun;
+    else runs.unshift(nextRun);
+  }
+  deployments[index] = normalizeAiDeployment({
+    ...deployments[index],
+    status,
+    lastRunAt: status === 'running' ? timestamp : deployments[index].lastRunAt,
+    lastMessage: message,
+    log: log === undefined ? deployments[index].log : log,
+    runs,
+    updatedAt: timestamp
+  });
+  await writeSettings({ ...settings, aiDeployments: deployments });
+  return deployments[index];
+}
+
 function workspaceControlCloudRecord(document) {
   if (!document?.encryptedPayload || !cloudUnlock.key || !SHARED_CONTROL_ENTITY_TYPES.includes(document.entityType)) return null;
   try {
@@ -5883,12 +6018,14 @@ function mcpLinuxAutostartEntry() {
 
 async function setMcpAutostartEnabled(enabled) {
   if (process.platform === 'win32' || process.platform === 'darwin') {
-    app.setLoginItemSettings(buildLoginItemSettings({
+    const loginItem = buildLoginItemSettings({
       enabled,
       execPath: process.execPath,
-      args: buildMcpAutostartArgs()
-    }));
-    return Boolean(app.getLoginItemSettings().openAtLogin);
+      args: buildMcpAutostartArgs(),
+      name: process.platform === 'win32' ? MCP_LOGIN_ITEM_NAME : ''
+    });
+    app.setLoginItemSettings(loginItem);
+    return Boolean(app.getLoginItemSettings({ path: loginItem.path, args: loginItem.args }).openAtLogin);
   }
   const autostartDir = path.join(os.homedir(), '.config', 'autostart');
   const autostartPath = path.join(autostartDir, 'deployerx-mcp.desktop');
@@ -6121,16 +6258,18 @@ async function writeUptimeCloudRecord(context, collection, record, documentId = 
 async function syncUptimeTransitionToCloud(context, transition = {}) {
   const settings = await readSettings();
   if (settings.mode !== 'cloud') return;
-  const writes = [];
-  if (transition.monitor) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.monitors, transition.monitor));
+  let currentWindow = null;
   if (transition.check) {
     const database = getUptimeControlDatabaseV2();
     const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const checks = await database.listChecks(context.workspaceId, transition.check.monitorId, { from, limit: 100000 });
     const windows = uptimeCheckWindows(transition.check.monitorId, transition.check.probeId, checks);
-    const currentWindow = windows.find((window) => window.hour === String(transition.check.completedAt || '').slice(0, 13));
-    if (currentWindow) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.checks, currentWindow));
+    currentWindow = windows.find((window) => window.hour === String(transition.check.completedAt || '').slice(0, 13));
   }
+  // Finish async preparation before starting writes so Promise.all handles every rejection immediately.
+  const writes = [];
+  if (transition.monitor) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.monitors, transition.monitor));
+  if (currentWindow) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.checks, currentWindow));
   if (transition.incident) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.incidents, transition.incident));
   if (transition.maintenance) writes.push(writeUptimeCloudRecord(context, UPTIME_CLOUD_COLLECTIONS.maintenance, transition.maintenance));
   await Promise.all(writes);
@@ -6601,7 +6740,7 @@ async function listMcpClientsForRenderer() {
   if (mcpClientRendererCache) return mcpClientRendererCache;
   mcpClientRendererCache = Promise.resolve().then(async () => {
     const clients = await listMcpClients();
-    return Promise.all(clients.map(async ({ configPath, iconPath, format, installed, ...client }) => {
+    return Promise.all(clients.map(async ({ configPath, iconPath, commandPath, commandArgs, format, installed, ...client }) => {
       let icon = client.id === 'codex'
         ? CODEX_ICON_DATA_URL
         : client.id === 'opencode'
@@ -6615,7 +6754,7 @@ async function listMcpClientsForRenderer() {
           if (image && !image.isEmpty()) icon = image.toDataURL();
         } catch { /* Keep the bundled fallback logo when file icon extraction fails. */ }
       }
-      return { ...client, icon };
+      return { ...client, installed, runnable: Boolean(commandPath && ['codex', 'claude-code', 'gemini', 'opencode'].includes(client.id)), icon };
     }));
   }).catch((error) => {
     mcpClientRendererCache = null;
@@ -7003,8 +7142,14 @@ async function isLinuxAutostartEnabled() {
 async function ensureWorkerAutostartEnabled() {
   const args = buildWorkerArgs();
   if (process.platform === 'win32' || process.platform === 'darwin') {
-    app.setLoginItemSettings(buildLoginItemSettings({ enabled: true, execPath: process.execPath, args }));
-    uptimeWorkerState.autostartEnabled = Boolean(app.getLoginItemSettings().openAtLogin);
+    const loginItem = buildLoginItemSettings({
+      enabled: true,
+      execPath: process.execPath,
+      args,
+      name: process.platform === 'win32' ? UPTIME_WORKER_LOGIN_ITEM_NAME : ''
+    });
+    app.setLoginItemSettings(loginItem);
+    uptimeWorkerState.autostartEnabled = Boolean(app.getLoginItemSettings({ path: loginItem.path, args: loginItem.args }).openAtLogin);
     return uptimeWorkerState.autostartEnabled;
   }
 
@@ -7019,7 +7164,13 @@ async function ensureWorkerAutostartEnabled() {
 
 async function resolveWorkerAutostartEnabled() {
   if (process.platform === 'win32' || process.platform === 'darwin') {
-    return Boolean(app.getLoginItemSettings().openAtLogin);
+    const loginItem = buildLoginItemSettings({
+      enabled: true,
+      execPath: process.execPath,
+      args: buildWorkerArgs(),
+      name: process.platform === 'win32' ? UPTIME_WORKER_LOGIN_ITEM_NAME : ''
+    });
+    return Boolean(app.getLoginItemSettings({ path: loginItem.path, args: loginItem.args }).openAtLogin);
   }
   return isLinuxAutostartEnabled();
 }
@@ -8171,9 +8322,19 @@ function createWindow(options = {}) {
 
   vncSessionManager = new VncSessionManager({
     onEvent: (event) => {
+      if (event.type === 'proxy-stopped') vncLocalFiles.closeSession(event.sessionId);
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send('vnc:event', event);
     }
+  });
+  vncKeyboard = createVncKeyboard(mainWindow, {
+    onKey: (key) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('vnc:key', key); },
+    onError: (message) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('vnc:keyboard-error', message); }
+  });
+  mainWindow.on('blur', () => vncKeyboard?.setEnabled(false));
+  mainWindow.webContents.on('render-process-gone', () => {
+    vncKeyboard?.setEnabled(false);
+    vncSessionManager?.closeAll().catch(() => {});
   });
   rdpSessionManager = new RdpSessionManager({
     onEvent: (event) => {
@@ -8212,6 +8373,9 @@ function createWindow(options = {}) {
     }
   });
   mainWindow.on('closed', () => {
+    vncLocalFiles.closeSession();
+    vncKeyboard?.close();
+    vncKeyboard = null;
     serverMonitoringSessionManager.stopAll();
     rdpSessionManager?.closeAll().catch(() => {});
     vncSessionManager?.closeAll().catch(() => {});
@@ -8625,17 +8789,13 @@ function isPlainFtpPort(value) {
   return port === 21;
 }
 
-function toFtpConnectionConfig(project) {
+function toFtpConnectionConfig(project, protocol = 'auto') {
   const ssh = project.ssh || {};
   const ftp = project.ftp || {};
   const sshPort = normalizedConnectionPort(ssh.port, 22) || 22;
   const ftpPort = normalizedConnectionPort(ftp.port, 0);
-  const plainFtpEndpoint = isPlainFtpPort(ftpPort);
-  const hasFtpKey = String(ftp.privateKey || '').trim() !== '';
-  const hasFtpPassword = String(ftp.password || '').trim() !== '';
-  const hasSshKey = String(ssh.privateKey || '').trim() !== '';
-  const hasSshPassword = String(ssh.password || '').trim() !== '';
-  let authType = ssh.authType || 'password';
+  const useSsh = protocol !== 'ftp' && String(ssh.host || '').trim() !== '';
+  const plainFtpEndpoint = protocol === 'ftp' || (!useSsh && isPlainFtpPort(ftpPort));
 
   if (plainFtpEndpoint) {
     return {
@@ -8648,26 +8808,22 @@ function toFtpConnectionConfig(project) {
     };
   }
 
-  if (ftp.authType === 'key') authType = hasFtpKey || hasSshKey ? 'key' : hasSshPassword ? 'password' : 'key';
-  else if (ftp.authType === 'password') authType = hasFtpPassword || hasSshPassword ? 'password' : hasSshKey ? 'key' : 'password';
-  else if (hasFtpKey) authType = 'key';
-  else if (hasFtpPassword) authType = 'password';
+  const source = useSsh ? ssh : ftp;
+  const authType = source.authType === 'key' || (!source.authType && source.privateKey) ? 'key' : 'password';
 
   const config = {
     protocol: 'sftp',
-    host: ftp.host || ssh.host,
-    port: ftpPort || sshPort || 22,
-    username: ftp.username || ssh.username,
+    host: source.host,
+    port: useSsh ? sshPort : ftpPort || 22,
+    username: source.username,
     readyTimeout: Number(ssh.timeout || 20000)
   };
 
   if (authType === 'key') {
-    config.privateKey = ftp.privateKey || ssh.privateKey;
-    if (ftp.passphrase || ssh.passphrase) {
-      config.passphrase = ftp.passphrase || ssh.passphrase;
-    }
+    config.privateKey = source.privateKey;
+    if (source.passphrase) config.passphrase = source.passphrase;
   } else {
-    config.password = ftp.password || ssh.password;
+    config.password = source.password;
   }
 
   return config;
@@ -9168,6 +9324,260 @@ async function executeDeployment(project, upload, runId) {
   });
 }
 
+function emitAiDeployment(runId, type, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('ai-deployment:event', { runId, type, payload });
+  }
+}
+
+function sftpRealpath(sftp, remotePath) {
+  return new Promise((resolve, reject) => {
+    sftp.realpath(remotePath, (error, resolvedPath) => error ? reject(error) : resolve(resolvedPath));
+  });
+}
+
+async function uploadAiDeploymentArchive(connection, localArchivePath, archiveName, onProgress = () => {}) {
+  let sftp;
+  try {
+    sftp = await openSftpChannel(connection);
+    const homePath = await sftpRealpath(sftp, '.');
+    const deployerxPath = joinRemotePath(homePath, '.deployerx');
+    const uploadPath = joinRemotePath(deployerxPath, 'uploads');
+    await sftpEnsureMkdir(sftp, deployerxPath);
+    await sftpEnsureMkdir(sftp, uploadPath);
+    const remoteArchivePath = joinRemotePath(uploadPath, archiveName);
+    await sftpFastPut(sftp, localArchivePath, remoteArchivePath, {
+      step: (transferredBytes, _chunkBytes, totalBytes) => onProgress(transferredBytes, totalBytes)
+    });
+    return remoteArchivePath;
+  } finally {
+    sftp?.end?.();
+  }
+}
+
+const startingAiDeployments = new Set();
+async function runAiDeployment(deploymentId, options = {}) {
+  const id = String(deploymentId || '');
+  if (startingAiDeployments.has(id)) throw new Error('This deployment is already starting.');
+  startingAiDeployments.add(id);
+  try { return await prepareAiDeployment(id, options); }
+  finally { startingAiDeployments.delete(id); }
+}
+
+async function prepareAiDeployment(deploymentId, options = {}) {
+  const storedDeployment = (await listAiDeployments()).find((item) => item.id === String(deploymentId || ''));
+  if (!storedDeployment) throw new Error('Deployment was not found.');
+  const deployment = validateAiDeployment(storedDeployment);
+  if ([...activeAiDeployments.values()].some((run) => run.deploymentId === deployment.id)) {
+    throw new Error('This deployment is already running.');
+  }
+
+  const store = await readCurrentStore();
+  const project = (store.projects || []).find((item) => String(item.id) === deployment.projectId);
+  if (!project) throw new Error('Selected server is no longer available.');
+  if (['vnc', 'rdp'].includes(project.serverType)) throw new Error('AI deployment requires an SSH-capable server.');
+
+  const agent = (await listLocalAgents()).find((item) => item.id === deployment.agentId);
+  if (!agent?.installed) throw new Error('Selected agent is not installed.');
+  if (!agent.commandPath) throw new Error('Selected agent does not provide a supported command-line runner.');
+
+  const runOptions = normalizeAiDeploymentRunOptions(options);
+  const temporaryFiles = [];
+  for (const filePath of runOptions.temporaryFiles) {
+    const resolvedPath = path.resolve(filePath);
+    const stats = await fs.stat(resolvedPath).catch(() => null);
+    if (!stats?.isFile()) throw new Error(`Temporary file is unavailable: ${path.basename(resolvedPath) || 'file'}`);
+    temporaryFiles.push({ localPath: resolvedPath, name: path.basename(resolvedPath) });
+  }
+
+  const runId = createId('ai-run');
+  const run = { child: null, connection: null, deploymentId: deployment.id, stopped: false, stdout: '', stderr: '', log: '', percent: 2, label: 'Preparing project files.' };
+  const appendRunLog = (message, level = 'INFO') => {
+    const value = String(message || '').trimEnd();
+    if (!value) return;
+    run.log = `${run.log}${run.log ? '\n' : ''}[${nowIso()}] ${level} ${value}`.slice(-100000);
+    emitAiDeployment(runId, 'log', { deploymentId: deployment.id, message: value, level });
+  };
+  appendRunLog(`Deployment started: ${deployment.name}`);
+  appendRunLog(`Server: ${project.name || deployment.projectId}`);
+  appendRunLog(`Local folder: ${deployment.localPath}`);
+  appendRunLog(`Server folder: ${deployment.remotePath || 'Agent decides from instructions'}`);
+  if (runOptions.temporaryPrompt) appendRunLog('Using a temporary prompt for this run.');
+  if (temporaryFiles.length) appendRunLog(`Temporary files: ${temporaryFiles.length}`);
+  appendRunLog('Preparing project files.');
+  activeAiDeployments.set(runId, run);
+  let running;
+  try {
+    running = await updateAiDeploymentStatus(deployment.id, 'running', 'Preparing project files.', run.log, runId);
+  } catch (error) {
+    activeAiDeployments.delete(runId);
+    throw error;
+  }
+  emitAiDeployment(runId, 'started', { deployment: running, percent: 2 });
+  const progress = (percent, label) => {
+    Object.assign(run, { percent, label });
+    emitAiDeployment(runId, 'progress', { deploymentId: deployment.id, percent, label });
+  };
+  let settled = false;
+  const finalize = async (status, message) => {
+    if (settled) return;
+    settled = true;
+    appendRunLog(
+      status === 'successful' ? 'Deployment completed successfully.' : `Deployment failed: ${message || 'Unknown error.'}`,
+      status === 'successful' ? 'SUCCESS' : 'ERROR'
+    );
+    const saved = await updateAiDeploymentStatus(deployment.id, status, message, run.log, runId).catch(() => null);
+    activeAiDeployments.delete(runId);
+    emitAiDeployment(runId, status === 'successful' ? 'done' : 'failed', {
+      deployment: saved,
+      deploymentId: deployment.id,
+      message
+    });
+  };
+
+  const stagingDirectory = path.join(app.getPath('temp'), 'DeployerX', 'ai-deployments', runId);
+  const archiveName = `${path.basename(deployment.localPath).replace(/[^a-z0-9._-]+/gi, '-') || 'project'}-${Date.now()}.zip`;
+  const localArchivePath = path.join(stagingDirectory, archiveName);
+  const execute = async () => {
+    let bridge;
+    let networkAccess;
+    try {
+      appendRunLog('Compressing local project folder.');
+      progress(5, 'Compressing local project folder…');
+      await createProjectArchive(deployment.localPath, localArchivePath);
+      appendRunLog(`Project ZIP created: ${archiveName}`);
+      if (run.stopped) throw new Error('Deployment stopped.');
+      appendRunLog('Uploading project ZIP to server.');
+      progress(30, 'Uploading project ZIP to server…');
+      const connection = new Client();
+      run.connection = connection;
+      await new Promise((resolve, reject) => {
+        connection.once('ready', resolve);
+        connection.on('error', reject);
+        connection.once('close', () => reject(new Error('Deployment SSH connection closed.')));
+        connectClientWithProjectRoute(connection, project, toConnectionConfig(project), { protocol: 'ssh' })
+          .then((access) => { networkAccess = access; if (run.stopped) connection.end(); }, reject);
+      });
+      if (run.stopped) throw new Error('Deployment stopped.');
+      let lastUploadPercent = 30;
+      const remoteArchivePath = await uploadAiDeploymentArchive(connection, localArchivePath, archiveName, (transferredBytes, totalBytes) => {
+        const uploaded = totalBytes > 0 ? transferredBytes / totalBytes : 0;
+        const percent = 30 + Math.round(Math.min(1, uploaded) * 40);
+        if (percent === lastUploadPercent) return;
+        lastUploadPercent = percent;
+        progress(percent, 'Uploading project ZIP to server…');
+      });
+      appendRunLog(`Project ZIP uploaded: ${remoteArchivePath}`);
+      if (run.stopped) throw new Error('Deployment stopped.');
+      const uploadedTemporaryFiles = [];
+      for (const [index, file] of temporaryFiles.entries()) {
+        if (run.stopped) throw new Error('Deployment stopped.');
+        progress(70 + Math.round(((index + 1) / temporaryFiles.length) * 2), `Uploading temporary files (${index + 1}/${temporaryFiles.length})…`);
+        const safeName = file.name.replace(/[^a-z0-9._-]+/gi, '-') || `attachment-${index + 1}`;
+        const remotePath = await uploadAiDeploymentArchive(connection, file.localPath, `${runId}-${index + 1}-${safeName}`);
+        uploadedTemporaryFiles.push({ name: file.name, remotePath });
+        appendRunLog(`Temporary file uploaded: ${file.name}`);
+      }
+      appendRunLog(`Starting ${agent.name || agent.id} deployment agent.`);
+      progress(72, 'Starting AI deployment agent…');
+      bridge = await createDeploymentSshBridge((command, timeoutMs, onOutput) => {
+        if (run.stopped) throw new Error('Deployment stopped.');
+        appendRunLog(`$ ${command}`, 'SSH');
+        return executeDeploymentSsh(connection, command, timeoutMs, (stream, output) => {
+          appendRunLog(output, stream === 'stderr' ? 'SSH ERROR' : 'SSH');
+          onOutput(stream, output);
+        });
+      });
+      const helperPath = path.join(stagingDirectory, 'deployment-ssh.cjs');
+      await fs.copyFile(path.join(__dirname, 'deployment-ssh.js'), helperPath);
+      // A per-run capability file also works when the agent filters shell environment variables.
+      await fs.writeFile(path.join(stagingDirectory, '.deployment-ssh.json'), JSON.stringify(bridge.env), { mode: 0o600 });
+      const shellQuote = (value) => process.platform === 'win32'
+        ? `'${String(value).replace(/'/g, "''")}'` : `'${String(value).replace(/'/g, `'\\''`)}'`;
+      const invocation = `${shellQuote(process.execPath)} ${shellQuote(helperPath)}`;
+      const sshCommand = process.platform === 'win32'
+        ? `PowerShell: $env:ELECTRON_RUN_AS_NODE='1'; & ${invocation}\nBash: ELECTRON_RUN_AS_NODE=1 '${process.execPath.replace(/\\/g, '/')}' '${helperPath.replace(/\\/g, '/')}'`
+        : `ELECTRON_RUN_AS_NODE=1 ${invocation}`;
+      const prompt = buildAgentPrompt(deployment, project, remoteArchivePath, {
+        temporaryPrompt: runOptions.temporaryPrompt,
+        temporaryFiles: uploadedTemporaryFiles,
+        sshCommand
+      });
+      const args = await directAgentArguments(agent, prompt);
+      if (run.stopped) throw new Error('Deployment stopped.');
+      const child = spawn(agent.commandPath, [...(agent.commandArgs || []), ...args], {
+        cwd: stagingDirectory,
+        env: { ...process.env, ...bridge.env, ELECTRON_RUN_AS_NODE: '1' },
+        windowsHide: true,
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      run.child = child;
+      appendRunLog('Deployment agent started.');
+      progress(75, 'AI agent is deploying and verifying the project…');
+      const collect = (key, data, type) => {
+        const value = String(data || '');
+        run[key] = `${run[key]}${value}`.slice(-2000);
+        appendRunLog(value, type === 'error' ? 'ERROR' : 'AGENT');
+      };
+      let pendingOutput = '';
+      const structured = ['codex', 'claude-code'].includes(agent.id);
+      const consumeLine = (line) => {
+        if (!line.trim()) return;
+        const event = parseAgentEvent(line);
+        if (event.sessionId) {
+          run.sessionId = event.sessionId;
+          appendRunLog(`Agent session: ${event.sessionId}`);
+          emitAiDeployment(runId, 'session', { deploymentId: deployment.id, sessionId: event.sessionId });
+        }
+        if (event.error) { run.agentError = event.error; collect('stderr', event.error, 'error'); }
+        if (event.text) collect('stdout', event.text, 'log');
+        if (event.result) run.result = event.result;
+      };
+      child.stdout?.setEncoding('utf8');
+      child.stdout?.on('data', (data) => {
+        if (!structured) return collect('stdout', data, 'log');
+        pendingOutput += data;
+        let newline;
+        while ((newline = pendingOutput.indexOf('\n')) >= 0) {
+          consumeLine(pendingOutput.slice(0, newline));
+          pendingOutput = pendingOutput.slice(newline + 1);
+        }
+        if (pendingOutput.length > 1000000) { consumeLine(pendingOutput); pendingOutput = ''; }
+      });
+      child.stderr?.on('data', (data) => collect('stderr', data, 'error'));
+      const code = await new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', resolve);
+        child.stdin.on('error', (error) => { if (error.code !== 'EPIPE') reject(error); });
+        child.stdin.end(structured ? prompt : undefined);
+      });
+      if (structured) consumeLine(pendingOutput);
+      if (run.stopped) await finalize('failed', 'Deployment stopped.');
+      else if (code === 0 && !run.agentError) await finalize('successful', String(run.result || run.stdout || 'Deployment completed.').slice(-2000));
+      else await finalize('failed', String(run.agentError || run.stderr || run.stdout || `Agent exited with code ${code}.`).slice(-2000));
+    } catch (error) {
+      await finalize('failed', error.message || 'Deployment failed.');
+    } finally {
+      bridge?.close();
+      run.connection?.end();
+      await networkAccess?.release().catch(() => {});
+      await fs.rm(stagingDirectory, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+  execute().catch((error) => console.error('AI deployment cleanup failed:', error.message));
+  return { runId, deployment: running };
+}
+
+function stopAiDeployment(runId) {
+  const run = activeAiDeployments.get(String(runId || ''));
+  if (!run) return false;
+  run.stopped = true;
+  run.child?.kill();
+  run.connection?.end();
+  return true;
+}
+
 function emitMcpTerminal(project, type, payload, sessionId = '') {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('mcp-terminal:event', {
@@ -9266,7 +9676,17 @@ async function executeManagedMcpSshCommand(project, command, timeoutMs, { onOutp
   if (validationError) throw new Error(validationError);
   const { connection, reused, terminalSessionId, entry, terminalEntry } = await managedMcpSshConnection(project);
   const sessionId = `mcp-${Date.now()}-${crypto.randomUUID()}`;
+  let mirrorEndedWithCarriageReturn = false;
   const mirror = (type, payload) => {
+    // Exec output has no PTY to translate LF into terminal CRLF; preserve CR across chunks.
+    if (typeof payload === 'string' && payload.length) {
+      const text = payload;
+      payload = text.replace(/\n/g, (newline, offset) => {
+        const hasCarriageReturn = offset === 0 ? mirrorEndedWithCarriageReturn : text[offset - 1] === '\r';
+        return hasCarriageReturn ? newline : '\r\n';
+      });
+      mirrorEndedWithCarriageReturn = text.endsWith('\r');
+    }
     if (terminalSessionId) emitTerminal(terminalSessionId, type, payload);
     else emitMcpTerminal(project, type, payload, sessionId);
   };
@@ -9839,10 +10259,10 @@ function ftpSessionOrThrow(sessionId) {
 }
 
 async function connectPlainFtp(project, sessionId) {
-  const validationError = validateConnectionProject(project);
+  const validationError = validateConnectionProject({ ...project, ssh: {} });
   if (validationError) throw new Error(validationError);
   const ftp = new FtpClient(20000);
-  const config = toFtpConnectionConfig(project);
+  const config = toFtpConnectionConfig(project, 'ftp');
   activeFtpSessions.set(sessionId, { ftp, sftp: null, connection: null, networkAccess: null });
   try {
     await ftp.access(config);
@@ -9855,13 +10275,14 @@ async function connectPlainFtp(project, sessionId) {
 }
 
 function connectSftp(project, sessionId) {
-  const validationError = validateConnectionProject(project);
+  const useSsh = Boolean(String(project?.ssh?.host || '').trim());
+  const validationError = validateConnectionProject(project, { requireSsh: useSsh });
   if (validationError) throw new Error(validationError);
 
   const connection = new Client();
   const ftpState = { connection, sftp: null, networkAccess: null };
   activeFtpSessions.set(sessionId, ftpState);
-  const config = toFtpConnectionConfig(project);
+  const config = toFtpConnectionConfig(project, 'sftp');
 
   return (async () => {
     try {
@@ -9899,8 +10320,9 @@ function connectSftp(project, sessionId) {
   })();
 }
 
-function connectFtp(project, sessionId) {
-  return isPlainFtpPort(project?.ftp?.port)
+function connectFtp(project, sessionId, protocol = 'auto') {
+  const usePlainFtp = protocol === 'ftp' || (protocol === 'auto' && !projectHasSshDetails(project) && isPlainFtpPort(project?.ftp?.port));
+  return usePlainFtp
     ? connectPlainFtp(project, sessionId)
     : connectSftp(project, sessionId);
 }
@@ -10365,6 +10787,9 @@ function emergencyStop() {
   for (const runId of [...activeDeployments.keys()]) {
     stopDeployment(runId);
   }
+  for (const runId of [...activeAiDeployments.keys()]) {
+    stopAiDeployment(runId);
+  }
   for (const sessionId of [...activeTerminals.keys()]) {
     stopTerminal(sessionId);
   }
@@ -10442,6 +10867,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isAppQuitting = true;
+  for (const runId of activeAiDeployments.keys()) stopAiDeployment(runId);
+  activeAiDeployments.clear();
   if (updateInstallRequested || startupFailureHandled || updateState.status === 'downloaded') {
     stopDetachedUptimeWorker({ force: true }).catch(() => {});
     cleanupDeployerXProcesses({ includeCurrentExecutable: true }).catch(() => {});
@@ -10990,6 +11417,7 @@ ipcMain.handle('database-manager:local-resources:bind', wrapDatabaseManagerIpc(a
 }));
 
 ipcMain.handle('vnc:start', async (_event, payload = {}) => {
+  vncKeyboard?.setEnabled(false);
   if (!vncSessionManager) throw new Error('VNC is not ready.');
   const projectId = String(payload.projectId || '');
   const vnc = payload?.vnc && typeof payload.vnc === 'object' ? payload.vnc : {};
@@ -11050,11 +11478,17 @@ ipcMain.handle('rdp:stop', async (_event, sessionId) => {
 });
 
 ipcMain.handle('vnc:stop', async (_event, sessionId) => {
+  if (vncSessionManager?.session?.id === sessionId) vncKeyboard?.setEnabled(false);
   const stopped = vncSessionManager?.stop(sessionId) || false;
   const networkAccess = activeVncNetworkSessions.get(sessionId);
   activeVncNetworkSessions.delete(sessionId);
   await networkAccess?.release?.().catch(() => {});
   return stopped;
+});
+
+ipcMain.on('vnc:keyboard-focus', (event, enabled) => {
+  if (event.sender !== mainWindow?.webContents) return;
+  vncKeyboard?.setEnabled(Boolean(enabled && vncSessionManager?.session && mainWindow.isFocused()));
 });
 
 function transitionMainWindowFullscreen(enabled) {
@@ -13835,6 +14269,26 @@ ipcMain.handle('mcp-integration:connect-client', async (_event, clientId) => con
 ipcMain.handle('mcp-integration:disconnect-client', async (_event, clientId) => disconnectMcpClientIntegration(clientId));
 ipcMain.handle('mcp-integration:connect-all', async () => connectAllMcpClientsIntegration());
 ipcMain.handle('mcp-integration:disconnect', async () => disconnectMcpIntegration());
+ipcMain.handle('ai-deployments:agents', async () => listLocalAgents());
+ipcMain.handle('ai-deployments:list', async () => listAiDeployments());
+ipcMain.handle('ai-deployments:save', async (_event, payload = {}) => saveAiDeployment(payload));
+ipcMain.handle('ai-deployments:delete', async (_event, id) => deleteAiDeployment(id));
+ipcMain.handle('ai-deployments:select-temporary-files', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Attach Temporary Deployment Files',
+    properties: ['openFile', 'multiSelections']
+  });
+  if (result.canceled) return [];
+  return Promise.all(result.filePaths.map(async (filePath) => {
+    const stats = await fs.stat(filePath);
+    return { path: filePath, name: path.basename(filePath), size: stats.size };
+  }));
+});
+ipcMain.handle('ai-deployments:run', async (_event, payload = {}) => {
+  const request = typeof payload === 'string' ? { id: payload } : payload;
+  return runAiDeployment(request.id, request);
+});
+ipcMain.handle('ai-deployments:stop', async (_event, runId) => stopAiDeployment(runId));
 
 ipcMain.handle('auth:changePassword', async (_event, payload = {}) => {
   const currentPassword = String(payload.currentPassword || '');
@@ -14688,7 +15142,7 @@ ipcMain.handle('local:delete', async (_event, payload = {}) => deleteLocalEntry(
 ipcMain.handle('ftp:connect', async (_event, payload) => {
   const sessionId = payload.sessionId || `${Date.now()}`;
   try {
-    const result = await connectFtp(payload.project, sessionId);
+    const result = await connectFtp(payload.project, sessionId, payload.protocol);
     return { ok: true, ...result };
   } catch (error) {
     return {

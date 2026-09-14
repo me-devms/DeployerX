@@ -21,14 +21,15 @@ function isWorkerLockLeaseActive(record, {
   return Number(now) - updatedAtMs <= Number(leaseMs);
 }
 
-function buildLoginItemSettings({ enabled, execPath, args } = {}) {
+function buildLoginItemSettings({ enabled, execPath, args, name } = {}) {
   const normalizedExecPath = String(execPath || '').trim();
   if (!normalizedExecPath) throw new TypeError('The executable path is required for worker autostart.');
   return {
     openAtLogin: Boolean(enabled),
     openAsHidden: true,
     path: normalizedExecPath,
-    args: Array.isArray(args) ? args.map((argument) => String(argument)) : []
+    args: Array.isArray(args) ? args.map((argument) => String(argument)) : [],
+    ...(name ? { name: String(name) } : {})
   };
 }
 

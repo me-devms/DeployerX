@@ -10,6 +10,7 @@ const CLIENT_DEFINITIONS = [
   { id: 'codex', name: 'Codex', format: 'toml', commands: ['codex'], relativePath: ['.codex', 'config.toml'], description: 'OpenAI Codex app and CLI.' },
   { id: 'claude', name: 'Claude Desktop', format: 'json-mcpServers', relativePath: ['AppData', 'Roaming', 'Claude', 'claude_desktop_config.json'], description: 'Anthropic Claude Desktop.' },
   { id: 'claude-code', name: 'Claude Code', format: 'json-mcpServers', commands: ['claude'], relativePath: ['.claude.json'], description: 'Anthropic Claude Code CLI.' },
+  { id: 'gemini', name: 'Gemini CLI', format: 'json-mcpServers', commands: ['gemini'], relativePath: ['.gemini', 'settings.json'], description: 'Google Gemini CLI.' },
   { id: 'opencode', name: 'OpenCode', format: 'json-mcp', commands: ['opencode'], relativePath: ['.config', 'opencode', 'opencode.json'], description: 'OpenCode local agent.' },
   { id: 'cursor', name: 'Cursor', format: 'json-mcpServers', commands: ['cursor'], relativePath: ['AppData', 'Roaming', 'Cursor', 'User', 'mcp.json'], description: 'Cursor code editor.' },
   { id: 'windsurf', name: 'Windsurf', format: 'json-mcpServers', commands: ['windsurf'], relativePath: ['.codeium', 'windsurf', 'mcp_config.json'], description: 'Windsurf code editor.' },
@@ -74,6 +75,47 @@ async function findCommand(commands = []) {
     } catch { /* Continue through supported command names. */ }
   }
   return '';
+}
+
+function expandWindowsShimPath(value, directory) {
+  return path.normalize(String(value || '')
+    .replace(/%~?dp0%?/gi, directory)
+    .replace(/^\\+/, path.parse(directory).root));
+}
+
+async function windowsShimRunner(shimPath) {
+  let source = '';
+  try { source = await fs.readFile(shimPath, 'utf8'); } catch { return null; }
+  const directory = path.dirname(shimPath);
+  for (const line of source.split(/\r?\n/).filter((item) => /%\*/.test(item))) {
+    const tokens = [...line.matchAll(/"([^"]+)"/g)].map((match) => expandWindowsShimPath(match[1], directory));
+    const executable = tokens[0];
+    if (!/\.(?:exe|com)$/i.test(executable || '') || !await exists(executable)) continue;
+    const prefixArgs = [];
+    for (const token of tokens.slice(1)) {
+      if (/\.(?:js|cjs|mjs)$/i.test(token) && await exists(token)) prefixArgs.push(token);
+    }
+    return { commandPath: executable, commandArgs: prefixArgs };
+  }
+  return null;
+}
+
+async function findCommandRunner(commands = []) {
+  const finder = process.platform === 'win32' ? 'where.exe' : 'which';
+  for (const command of commands) {
+    try {
+      const { stdout } = await execFileAsync(finder, [command], { windowsHide: true, timeout: 3000 });
+      const candidates = String(stdout || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+      if (process.platform !== 'win32' && candidates[0]) return { commandPath: candidates[0], commandArgs: [] };
+      const executable = candidates.find((item) => /\.(?:exe|com)$/i.test(item));
+      if (executable) return { commandPath: executable, commandArgs: [] };
+      for (const shimPath of candidates.filter((item) => /\.(?:cmd|bat)$/i.test(item))) {
+        const runner = await windowsShimRunner(shimPath);
+        if (runner) return runner;
+      }
+    } catch { /* Continue through supported command names. */ }
+  }
+  return { commandPath: '', commandArgs: [] };
 }
 
 async function findKnownInstall(definition) {
@@ -203,9 +245,12 @@ async function listMcpClients() {
   const clients = await Promise.all(CLIENT_DEFINITIONS.map(async (definition) => {
     const configPath = definitionPath(definition);
     const configExists = await exists(configPath);
-    const executablePath = await findKnownInstall(definition);
+    const [executablePath, commandRunner] = await Promise.all([
+      findKnownInstall(definition),
+      findCommandRunner(definition.commands)
+    ]);
     const extension = await findExtensionAsset(definition.extensionPrefixes);
-    const installed = configExists || Boolean(executablePath || extension.installPath);
+    const installed = configExists || Boolean(executablePath || commandRunner.commandPath || extension.installPath);
     return {
       id: definition.id,
       name: definition.name,
@@ -214,6 +259,7 @@ async function listMcpClients() {
       format: definition.format,
       installed,
       connected: installed && await configConnected(definition, configPath),
+      ...commandRunner,
       iconPath: extension.iconPath || executablePath || ''
     };
   }));
@@ -288,4 +334,4 @@ async function disconnectMcpClient(clientId) {
   return { id: definition.id, name: definition.name, disconnected };
 }
 
-module.exports = { listMcpClients, connectMcpClient, disconnectMcpClient, readMcpClientToken, CLIENT_DEFINITIONS };
+module.exports = { listMcpClients, connectMcpClient, disconnectMcpClient, readMcpClientToken, CLIENT_DEFINITIONS, findCommandRunner };

@@ -17,13 +17,14 @@ test('builds packaged and development worker arguments', () => {
   assert.throws(() => buildWorkerLaunchArgs({ isPackaged: false }), /application path/i);
 });
 
-test('builds explicit enabled and disabled login-item settings', () => {
+test('builds explicit named login-item settings', () => {
   const args = ['C:\\DeployerX Source', '--uptime-worker'];
-  assert.deepEqual(buildLoginItemSettings({ enabled: true, execPath: 'C:\\Electron.exe', args }), {
+  assert.deepEqual(buildLoginItemSettings({ enabled: true, execPath: 'C:\\Electron.exe', args, name: 'DeployerX Uptime Worker' }), {
     openAtLogin: true,
     openAsHidden: true,
     path: 'C:\\Electron.exe',
-    args
+    args,
+    name: 'DeployerX Uptime Worker'
   });
   assert.equal(buildLoginItemSettings({ enabled: false, execPath: 'C:\\DeployerX.exe', args: ['--uptime-worker'] }).openAtLogin, false);
 });

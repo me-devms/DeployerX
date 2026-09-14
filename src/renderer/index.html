@@ -339,6 +339,12 @@
             </svg>
             <span>Overview</span>
           </button>
+          <button id="aiDeploymentsButton" class="top-nav-action" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-rocket"></use>
+            </svg>
+            <span>Deployment</span>
+          </button>
           <button id="serversButton" class="top-nav-action" type="button">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-server"></use>
@@ -843,6 +849,332 @@
 
             <section class="uptime-panel" data-uptime-panel="maintenance"><div class="uptime-panel-heading uptime-panel-heading-actions-only"><button id="uptimeAddMaintenanceButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg>Schedule Maintenance</button></div><div class="uptime-table-card uptime-maintenance-card"><div id="uptimeMaintenanceList" class="uptime-maintenance-list"></div><div id="uptimeMaintenanceEmpty" class="uptime-empty-state hidden"><strong>No Maintenance Windows</strong><span>Schedule planned work to protect availability calculations.</span></div></div></section>
           </div>
+        </section>
+
+        <section id="aiDeploymentsView" class="view hidden ai-deployments-view" aria-labelledby="aiDeploymentsHeading">
+          <div id="aiDeploymentListPage">
+            <header class="view-header ai-deployment-view-header">
+              <div>
+                <h1 id="aiDeploymentsHeading" tabindex="-1">Deployments</h1>
+                <p class="header-copy">Create, run, and manage AI-powered project deployments.</p>
+              </div>
+              <button id="aiDeploymentStartButton" class="button solid" type="button">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>
+                Start Deployment
+              </button>
+            </header>
+
+            <div class="ai-deployment-content">
+              <section class="ai-deployment-panel" aria-label="Deployments">
+                <div class="ai-deployment-toolbar">
+                  <label class="ai-deployment-search" for="aiDeploymentSearch">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-search"></use></svg>
+                    <input id="aiDeploymentSearch" type="search" placeholder="Search deployments" autocomplete="off" />
+                  </label>
+                  <section class="ai-deployment-stats" aria-label="Deployment summary">
+                    <article><span>Total</span><strong id="aiDeploymentTotal">0</strong></article>
+                    <article><span>Running</span><strong id="aiDeploymentRunning">0</strong></article>
+                    <article><span>Successful</span><strong id="aiDeploymentSuccessful">0</strong></article>
+                    <article><span>Failed</span><strong id="aiDeploymentFailed">0</strong></article>
+                  </section>
+                  <div class="ai-deployment-filter-menu">
+                    <button id="aiDeploymentFilterButton" class="button outline compact" type="button" aria-expanded="false" aria-controls="aiDeploymentFilterPanel">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-filter"></use></svg>
+                      Filters
+                      <span id="aiDeploymentFilterCount" class="ai-deployment-filter-count hidden">0</span>
+                    </button>
+                    <div id="aiDeploymentFilterPanel" class="ai-deployment-filter-panel hidden">
+                      <fieldset>
+                        <legend>Servers</legend>
+                        <div id="aiDeploymentServerFilterOptions" class="ai-deployment-filter-options"></div>
+                      </fieldset>
+                      <fieldset>
+                        <legend>Status</legend>
+                        <div id="aiDeploymentStatusFilterOptions" class="ai-deployment-filter-options">
+                          <label><input type="checkbox" value="running" data-ai-deployment-status-filter /> <span>Running</span></label>
+                          <label><input type="checkbox" value="successful" data-ai-deployment-status-filter /> <span>Successful</span></label>
+                          <label><input type="checkbox" value="failed" data-ai-deployment-status-filter /> <span>Failed</span></label>
+                          <label><input type="checkbox" value="never-run" data-ai-deployment-status-filter /> <span>Never run</span></label>
+                        </div>
+                      </fieldset>
+                      <div class="ai-deployment-filter-footer">
+                        <small>No selection shows all.</small>
+                        <button id="aiDeploymentClearFiltersButton" class="button plain compact" type="button">Clear</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="aiDeploymentTableWrap" class="ai-deployment-table-wrap">
+                  <table class="ai-deployment-table">
+                    <caption class="sr-only">Saved external deployments</caption>
+                    <colgroup>
+                      <col class="ai-deployment-col-number" />
+                      <col class="ai-deployment-col-name" />
+                      <col class="ai-deployment-col-server" />
+                      <col class="ai-deployment-col-folder" />
+                      <col class="ai-deployment-col-agent" />
+                      <col class="ai-deployment-col-last-run" />
+                      <col class="ai-deployment-col-status" />
+                      <col class="ai-deployment-col-actions" />
+                    </colgroup>
+                    <thead><tr><th scope="col">#</th><th scope="col">Deployment</th><th scope="col">Server</th><th scope="col">Local folder</th><th scope="col">Agent</th><th scope="col">Last run</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+                    <tbody id="aiDeploymentTableBody"></tbody>
+                  </table>
+                </div>
+                <div id="aiDeploymentEmpty" class="ai-deployment-empty hidden">
+                  <span class="ai-deployment-empty-icon" aria-hidden="true">
+                    <svg class="button-icon" viewBox="0 0 24 24" focusable="false"><use href="#icon-rocket"></use></svg>
+                  </span>
+                  <strong>No deployments found</strong>
+                  <p>Create a deployment or change the current filters.</p>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div id="aiDeploymentFormPage" class="hidden">
+            <header class="view-header ai-deployment-form-header">
+              <div class="ai-deployment-form-title">
+                <button id="aiDeploymentBackButton" class="button plain compact icon-only ai-deployment-back" type="button" aria-label="Back to deployments" title="Back to deployments">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>
+                </button>
+                <div class="ai-deployment-form-title-copy">
+                  <h1 id="aiDeploymentFormHeading" tabindex="-1">Start Deployment</h1>
+                  <p class="header-copy">Configure a target and let an installed AI agent handle the deployment.</p>
+                </div>
+              </div>
+            </header>
+
+            <form id="aiDeploymentForm" class="ai-deployment-form" novalidate>
+              <section class="ai-deployment-form-card" aria-labelledby="aiDeploymentConfigurationHeading">
+                <h2 id="aiDeploymentConfigurationHeading">Deployment configuration</h2>
+                <div id="aiDeploymentFormError" class="form-error hidden" role="alert" tabindex="-1"></div>
+
+                <div class="ai-deployment-field-grid">
+                  <div class="field">
+                    <label for="aiDeploymentProject">Target server <span aria-hidden="true">*</span></label>
+                    <select id="aiDeploymentProject" required data-project-dropdown-search="true" data-search-placeholder="Search servers..." data-search-empty="No servers found." aria-describedby="aiDeploymentProjectHint"></select>
+                    <small id="aiDeploymentProjectHint">Choose an SSH-capable server.</small>
+                  </div>
+                  <div class="field">
+                    <label for="aiDeploymentLocalPath">Local project folder <span aria-hidden="true">*</span></label>
+                    <div class="ai-deployment-folder-field">
+                      <input id="aiDeploymentLocalPath" type="text" required maxlength="1024" placeholder="Choose a local folder" aria-describedby="aiDeploymentLocalPathHint" />
+                      <button id="aiDeploymentBrowseButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg>
+                        Browse
+                      </button>
+                    </div>
+                    <small id="aiDeploymentLocalPathHint">The folder is compressed as a ZIP and uploaded to the selected server before the agent starts.</small>
+                  </div>
+                  <div class="field ai-deployment-field-wide">
+                    <label for="aiDeploymentRemotePath">Server deployment folder <small>Optional</small></label>
+                    <div class="ai-deployment-folder-field">
+                      <input id="aiDeploymentRemotePath" type="text" maxlength="1024" placeholder="/var/www/project" aria-describedby="aiDeploymentRemotePathHint" />
+                      <button id="aiDeploymentRemoteBrowseButton" class="button outline" type="button">
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg>
+                        Browse server
+                      </button>
+                    </div>
+                    <small id="aiDeploymentRemotePathHint">Leave blank to let the agent choose a destination from your prompt and instructions.</small>
+                  </div>
+                </div>
+
+                <div class="ai-deployment-identity-grid">
+                  <label class="field" for="aiDeploymentName">
+                    <span>Deployment name <span aria-hidden="true">*</span></span>
+                    <input id="aiDeploymentName" type="text" required maxlength="120" autocomplete="off" />
+                  </label>
+
+                  <div class="field">
+                    <label for="aiDeploymentSavedPrompt">Saved prompt</label>
+                    <div class="ai-deployment-saved-prompt-field">
+                      <select id="aiDeploymentSavedPrompt"><option value="">Start with a new prompt</option></select>
+                      <button id="aiDeploymentDeletePromptButton" class="button plain danger compact icon-only" type="button" aria-label="Delete selected saved prompt" title="Delete selected saved prompt" disabled>
+                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="ai-deployment-copy-grid">
+                  <div class="field">
+                    <div class="ai-deployment-field-label">
+                      <label for="aiDeploymentPrompt">Deployment prompt <span aria-hidden="true">*</span></label>
+                      <button id="aiDeploymentClearPromptButton" class="button plain compact" type="button">Clear</button>
+                    </div>
+                    <textarea id="aiDeploymentPrompt" rows="6" required maxlength="8000" aria-describedby="aiDeploymentPromptHint"></textarea>
+                    <small id="aiDeploymentPromptHint">Saved automatically with this deployment for future reuse.</small>
+                  </div>
+
+                  <div class="field">
+                    <div class="ai-deployment-field-label">
+                      <label for="aiDeploymentInstructions">Instructions</label>
+                      <button id="aiDeploymentClearInstructionsButton" class="button plain compact" type="button">Clear</button>
+                    </div>
+                    <textarea id="aiDeploymentInstructions" rows="6" maxlength="8000" aria-describedby="aiDeploymentInstructionsHint"></textarea>
+                    <small id="aiDeploymentInstructionsHint">These instructions are reused until changed.</small>
+                  </div>
+                </div>
+
+                <label class="field" for="aiDeploymentAgent">
+                  <span>Deployment agent <span aria-hidden="true">*</span></span>
+                  <select id="aiDeploymentAgent" required aria-describedby="aiDeploymentAgentHint"></select>
+                  <small id="aiDeploymentAgentHint">Select a local CLI agent. Each deployment starts its own session using that agent's saved sign-in. Detection refreshes when you open Deployments.</small>
+                </label>
+
+                <details class="ai-deployment-advanced">
+                  <summary>Advanced options</summary>
+                  <label class="ai-deployment-checkbox" for="aiDeploymentRollback">
+                    <input id="aiDeploymentRollback" type="checkbox" checked />
+                    <span><strong>Create rollback point</strong><small>Ask the agent to create a safe restore point before changes.</small></span>
+                  </label>
+                </details>
+              </section>
+
+              <aside class="ai-deployment-summary" aria-labelledby="aiDeploymentSummaryHeading">
+                <h2 id="aiDeploymentSummaryHeading">Deployment summary</h2>
+                <dl>
+                  <div><dt>Server</dt><dd id="aiDeploymentSummaryServer">Not selected</dd></div>
+                  <div><dt>Local folder</dt><dd id="aiDeploymentSummaryFolder">Not selected</dd></div>
+                  <div><dt>Server folder</dt><dd id="aiDeploymentSummaryRemotePath">Not selected</dd></div>
+                  <div><dt>Agent</dt><dd id="aiDeploymentSummaryAgent">Not selected</dd></div>
+                </dl>
+                <div class="ai-deployment-preflight">
+                  <h3>Preflight checks</h3>
+                  <ul>
+                    <li id="aiDeploymentCheckServer">Server selected</li>
+                    <li id="aiDeploymentCheckFolder">Local folder selected</li>
+                    <li id="aiDeploymentCheckAgent">Agent ready</li>
+                    <li id="aiDeploymentCheckPrompt">Prompt saved</li>
+                  </ul>
+                </div>
+                <div class="ai-deployment-form-actions">
+                  <button id="aiDeploymentCancelButton" class="button outline" type="button">Cancel</button>
+                  <button id="aiDeploymentSubmitButton" class="button solid" type="submit">
+                    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-rocket"></use></svg>
+                    <span>Save &amp; Deploy</span>
+                  </button>
+                </div>
+              </aside>
+            </form>
+          </div>
+
+          <dialog id="aiDeploymentFolderDialog" class="ai-deployment-folder-dialog" aria-labelledby="aiDeploymentFolderHeading">
+            <header class="ai-deployment-folder-dialog-header">
+              <div>
+                <h2 id="aiDeploymentFolderHeading">Select server folder</h2>
+                <p id="aiDeploymentFolderPath">/</p>
+              </div>
+              <button id="aiDeploymentFolderCloseButton" class="button plain compact icon-only" type="button" aria-label="Close server folder selector">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg>
+              </button>
+            </header>
+            <div id="aiDeploymentFolderError" class="form-error hidden" role="alert"></div>
+            <div class="ai-deployment-folder-toolbar">
+              <button id="aiDeploymentFolderUpButton" class="button outline compact" type="button">Up one level</button>
+              <label class="ai-deployment-folder-protocol" for="aiDeploymentFolderProtocol">
+                <span>Connection</span>
+                <select id="aiDeploymentFolderProtocol" aria-label="Server folder connection"></select>
+              </label>
+            </div>
+            <div id="aiDeploymentFolderList" class="ai-deployment-folder-list"></div>
+            <footer class="ai-deployment-folder-dialog-actions">
+              <button id="aiDeploymentFolderCancelButton" class="button outline" type="button">Cancel</button>
+              <span class="spacer"></span>
+              <button id="aiDeploymentFolderSelectButton" class="button solid" type="button">Select this folder</button>
+            </footer>
+          </dialog>
+
+          <dialog id="aiDeploymentRunDialog" class="ai-deployment-run-dialog" aria-labelledby="aiDeploymentRunHeading" aria-describedby="aiDeploymentRunDescription">
+            <form id="aiDeploymentRunForm" class="ai-deployment-run-form">
+              <header class="ai-deployment-run-dialog-header">
+                <div>
+                  <h2 id="aiDeploymentRunHeading">Run deployment</h2>
+                  <p id="aiDeploymentRunDescription">Optional changes apply only to this run.</p>
+                </div>
+                <button id="aiDeploymentRunCloseButton" class="button plain compact icon-only" type="button" aria-label="Close run deployment dialog">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg>
+                </button>
+              </header>
+              <div class="ai-deployment-run-body">
+                <div id="aiDeploymentRunError" class="form-error hidden" role="alert" tabindex="-1"></div>
+                <label class="field" for="aiDeploymentTemporaryPrompt">
+                  <span>Temporary prompt <small>Optional</small></span>
+                  <textarea id="aiDeploymentTemporaryPrompt" rows="7" maxlength="8000" aria-describedby="aiDeploymentTemporaryPromptHint"></textarea>
+                  <small id="aiDeploymentTemporaryPromptHint">Starts with the saved prompt. Changes are not saved to the deployment.</small>
+                </label>
+                <section class="ai-deployment-run-files" aria-labelledby="aiDeploymentTemporaryFilesHeading">
+                  <div class="ai-deployment-run-files-heading">
+                    <div>
+                      <h3 id="aiDeploymentTemporaryFilesHeading">Temporary files <small>Optional</small></h3>
+                      <p>Attach files for the agent to use during this run only.</p>
+                    </div>
+                    <button id="aiDeploymentAttachFilesButton" class="button outline" type="button">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-file"></use></svg>
+                      Attach files
+                    </button>
+                  </div>
+                  <p id="aiDeploymentTemporaryFilesEmpty" class="ai-deployment-run-files-empty">No temporary files attached.</p>
+                  <ul id="aiDeploymentTemporaryFilesList" class="ai-deployment-run-files-list hidden" aria-live="polite"></ul>
+                </section>
+              </div>
+              <footer class="ai-deployment-run-dialog-actions">
+                <button id="aiDeploymentRunCancelButton" class="button outline" type="button">Cancel</button>
+                <button id="aiDeploymentRunNowButton" class="button solid" type="submit">
+                  <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-play"></use></svg>
+                  <span>Run now</span>
+                </button>
+              </footer>
+            </form>
+          </dialog>
+
+          <dialog id="aiDeploymentLogDialog" class="ai-deployment-log-dialog ai-deployment-log-history-dialog" aria-labelledby="aiDeploymentLogHeading" aria-describedby="aiDeploymentLogMeta">
+            <header class="ai-deployment-log-dialog-header">
+              <div>
+                <h2 id="aiDeploymentLogHeading">Deployment logs</h2>
+                <p id="aiDeploymentLogMeta"></p>
+              </div>
+              <button id="aiDeploymentLogCloseButton" class="button plain compact icon-only" type="button" aria-label="Close deployment logs">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg>
+              </button>
+            </header>
+            <div class="ai-deployment-log-history-body">
+              <p id="aiDeploymentLogHistorySummary" class="ai-deployment-log-history-summary" aria-live="polite"></p>
+              <ol id="aiDeploymentLogHistory" class="ai-deployment-log-history"></ol>
+              <p id="aiDeploymentLogHistoryEmpty" class="ai-deployment-log-history-empty">No deployment runs available yet.</p>
+            </div>
+            <footer class="ai-deployment-log-dialog-actions">
+              <button id="aiDeploymentLogDoneButton" class="button solid" type="button">Done</button>
+            </footer>
+          </dialog>
+
+          <dialog id="aiDeploymentLogDetailDialog" class="ai-deployment-log-dialog" aria-labelledby="aiDeploymentLogDetailHeading" aria-describedby="aiDeploymentLogDetailMeta">
+            <header class="ai-deployment-log-dialog-header">
+              <div>
+                <h2 id="aiDeploymentLogDetailHeading">Deployment run log</h2>
+                <p id="aiDeploymentLogDetailMeta"></p>
+              </div>
+              <button id="aiDeploymentLogDetailCloseButton" class="button plain compact icon-only" type="button" aria-label="Close deployment session">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg>
+              </button>
+            </header>
+            <div id="aiDeploymentStatus" class="ai-deployment-progress hidden" role="status" aria-live="polite" aria-atomic="true">
+              <div class="ai-deployment-progress-copy">
+                <strong id="aiDeploymentProgressLabel">Starting deployment…</strong>
+                <span id="aiDeploymentProgressPercent">0%</span>
+              </div>
+              <div id="aiDeploymentProgressTrack" class="ai-deployment-progress-track" role="progressbar" aria-label="Deployment progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <span id="aiDeploymentProgressBar"></span>
+              </div>
+            </div>
+            <pre id="aiDeploymentLogContent" tabindex="0">No deployment log available yet.</pre>
+            <footer class="ai-deployment-log-dialog-actions">
+              <button id="aiDeploymentLogDetailDoneButton" class="button solid" type="button">Close</button>
+            </footer>
+          </dialog>
+
         </section>
 
         <section id="backupManagerView" class="view hidden backup-manager-view">

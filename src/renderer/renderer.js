@@ -432,6 +432,23 @@ const state = {
   },
   projects: [],
   templates: [],
+  aiDeployments: {
+    items: [],
+    agents: [],
+    serverFilters: new Set(),
+    statusFilters: new Set(),
+    editingId: '',
+    logDeploymentId: '',
+    logRunId: '',
+    runDeploymentId: '',
+    temporaryFiles: [],
+    runSubmitting: false,
+    loading: false,
+    runs: new Map(),
+    folderSessionId: '',
+    folderPath: '/',
+    folderParentPath: ''
+  },
   databaseManager: {
     profiles: [],
     plugins: { items: [], loading: false, error: '', filter: 'all', search: '' },
@@ -651,6 +668,20 @@ terminal.loadAddon(fitAddon);
 const builtInVariableNames = new Set(['project_name', 'server_group', 'server_type', 'ssh_host', 'ssh_port', 'ssh_username']);
 const templateCategories = ['Server', 'Laravel', 'Node.js', 'Database', 'Docker', 'Maintenance', 'Security', 'Hosting', 'Web Server', 'Cache', 'Control Panel', 'PaaS'];
 const terminalReplayLimit = 160000;
+const terminalWriteQueue = [];
+
+function writeTerminalOutput(data, session = null) {
+  const entry = { session };
+  terminalWriteQueue.push(entry);
+  terminal.write(data, () => {
+    const index = terminalWriteQueue.indexOf(entry);
+    if (index >= 0) terminalWriteQueue.splice(index, 1);
+  });
+}
+
+function isTerminalProtocolResponse(data) {
+  return /^(?:\x1b(?:\[[?>]?[0-9;]*[cRn]|\[[?>]?[0-9;]*\$y|\[(?:4|6|8);[0-9;]*t|\][^\x07]*(?:\x07|\x1b\\)|P[\s\S]*?\x1b\\))+$/.test(String(data || ''));
+}
 
 function blankTerminalUploadState() {
   return {
@@ -1561,7 +1592,7 @@ function applyTerminalSessionToState(projectId) {
 function renderVisibleTerminalSession(session = getTerminalSession()) {
   terminal.reset();
   terminal.clear();
-  terminal.write(session?.output || 'Ready.\r\n');
+  writeTerminalOutput(session?.output || 'Ready.\r\n', session);
   renderTerminalTabs(session?.projectId);
 }
 
@@ -3078,6 +3109,94 @@ const els = {
   topProfileMenuButton: document.getElementById('topProfileMenuButton'),
   topProfileLogoutButton: document.getElementById('topProfileLogoutButton'),
   dashboardButton: document.getElementById('dashboardButton'),
+  aiDeploymentsButton: document.getElementById('aiDeploymentsButton'),
+  aiDeploymentsView: document.getElementById('aiDeploymentsView'),
+  aiDeploymentsHeading: document.getElementById('aiDeploymentsHeading'),
+  aiDeploymentListPage: document.getElementById('aiDeploymentListPage'),
+  aiDeploymentFormPage: document.getElementById('aiDeploymentFormPage'),
+  aiDeploymentStartButton: document.getElementById('aiDeploymentStartButton'),
+  aiDeploymentBackButton: document.getElementById('aiDeploymentBackButton'),
+  aiDeploymentCancelButton: document.getElementById('aiDeploymentCancelButton'),
+  aiDeploymentFormHeading: document.getElementById('aiDeploymentFormHeading'),
+  aiDeploymentForm: document.getElementById('aiDeploymentForm'),
+  aiDeploymentFormError: document.getElementById('aiDeploymentFormError'),
+  aiDeploymentProject: document.getElementById('aiDeploymentProject'),
+  aiDeploymentLocalPath: document.getElementById('aiDeploymentLocalPath'),
+  aiDeploymentBrowseButton: document.getElementById('aiDeploymentBrowseButton'),
+  aiDeploymentRemotePath: document.getElementById('aiDeploymentRemotePath'),
+  aiDeploymentRemoteBrowseButton: document.getElementById('aiDeploymentRemoteBrowseButton'),
+  aiDeploymentName: document.getElementById('aiDeploymentName'),
+  aiDeploymentSavedPrompt: document.getElementById('aiDeploymentSavedPrompt'),
+  aiDeploymentDeletePromptButton: document.getElementById('aiDeploymentDeletePromptButton'),
+  aiDeploymentPrompt: document.getElementById('aiDeploymentPrompt'),
+  aiDeploymentClearPromptButton: document.getElementById('aiDeploymentClearPromptButton'),
+  aiDeploymentInstructions: document.getElementById('aiDeploymentInstructions'),
+  aiDeploymentClearInstructionsButton: document.getElementById('aiDeploymentClearInstructionsButton'),
+  aiDeploymentAgent: document.getElementById('aiDeploymentAgent'),
+  aiDeploymentRollback: document.getElementById('aiDeploymentRollback'),
+  aiDeploymentSubmitButton: document.getElementById('aiDeploymentSubmitButton'),
+  aiDeploymentSearch: document.getElementById('aiDeploymentSearch'),
+  aiDeploymentFilterButton: document.getElementById('aiDeploymentFilterButton'),
+  aiDeploymentFilterCount: document.getElementById('aiDeploymentFilterCount'),
+  aiDeploymentFilterPanel: document.getElementById('aiDeploymentFilterPanel'),
+  aiDeploymentServerFilterOptions: document.getElementById('aiDeploymentServerFilterOptions'),
+  aiDeploymentStatusFilterOptions: document.getElementById('aiDeploymentStatusFilterOptions'),
+  aiDeploymentClearFiltersButton: document.getElementById('aiDeploymentClearFiltersButton'),
+  aiDeploymentTableWrap: document.getElementById('aiDeploymentTableWrap'),
+  aiDeploymentTableBody: document.getElementById('aiDeploymentTableBody'),
+  aiDeploymentEmpty: document.getElementById('aiDeploymentEmpty'),
+  aiDeploymentStatus: document.getElementById('aiDeploymentStatus'),
+  aiDeploymentProgressLabel: document.getElementById('aiDeploymentProgressLabel'),
+  aiDeploymentProgressPercent: document.getElementById('aiDeploymentProgressPercent'),
+  aiDeploymentProgressTrack: document.getElementById('aiDeploymentProgressTrack'),
+  aiDeploymentProgressBar: document.getElementById('aiDeploymentProgressBar'),
+  aiDeploymentTotal: document.getElementById('aiDeploymentTotal'),
+  aiDeploymentRunning: document.getElementById('aiDeploymentRunning'),
+  aiDeploymentSuccessful: document.getElementById('aiDeploymentSuccessful'),
+  aiDeploymentFailed: document.getElementById('aiDeploymentFailed'),
+  aiDeploymentSummaryServer: document.getElementById('aiDeploymentSummaryServer'),
+  aiDeploymentSummaryFolder: document.getElementById('aiDeploymentSummaryFolder'),
+  aiDeploymentSummaryRemotePath: document.getElementById('aiDeploymentSummaryRemotePath'),
+  aiDeploymentSummaryAgent: document.getElementById('aiDeploymentSummaryAgent'),
+  aiDeploymentCheckServer: document.getElementById('aiDeploymentCheckServer'),
+  aiDeploymentCheckFolder: document.getElementById('aiDeploymentCheckFolder'),
+  aiDeploymentCheckAgent: document.getElementById('aiDeploymentCheckAgent'),
+  aiDeploymentCheckPrompt: document.getElementById('aiDeploymentCheckPrompt'),
+  aiDeploymentFolderDialog: document.getElementById('aiDeploymentFolderDialog'),
+  aiDeploymentFolderPath: document.getElementById('aiDeploymentFolderPath'),
+  aiDeploymentFolderList: document.getElementById('aiDeploymentFolderList'),
+  aiDeploymentFolderError: document.getElementById('aiDeploymentFolderError'),
+  aiDeploymentFolderCloseButton: document.getElementById('aiDeploymentFolderCloseButton'),
+  aiDeploymentFolderCancelButton: document.getElementById('aiDeploymentFolderCancelButton'),
+  aiDeploymentFolderUpButton: document.getElementById('aiDeploymentFolderUpButton'),
+  aiDeploymentFolderProtocol: document.getElementById('aiDeploymentFolderProtocol'),
+  aiDeploymentFolderSelectButton: document.getElementById('aiDeploymentFolderSelectButton'),
+  aiDeploymentRunDialog: document.getElementById('aiDeploymentRunDialog'),
+  aiDeploymentRunForm: document.getElementById('aiDeploymentRunForm'),
+  aiDeploymentRunHeading: document.getElementById('aiDeploymentRunHeading'),
+  aiDeploymentRunDescription: document.getElementById('aiDeploymentRunDescription'),
+  aiDeploymentRunError: document.getElementById('aiDeploymentRunError'),
+  aiDeploymentTemporaryPrompt: document.getElementById('aiDeploymentTemporaryPrompt'),
+  aiDeploymentAttachFilesButton: document.getElementById('aiDeploymentAttachFilesButton'),
+  aiDeploymentTemporaryFilesEmpty: document.getElementById('aiDeploymentTemporaryFilesEmpty'),
+  aiDeploymentTemporaryFilesList: document.getElementById('aiDeploymentTemporaryFilesList'),
+  aiDeploymentRunCloseButton: document.getElementById('aiDeploymentRunCloseButton'),
+  aiDeploymentRunCancelButton: document.getElementById('aiDeploymentRunCancelButton'),
+  aiDeploymentRunNowButton: document.getElementById('aiDeploymentRunNowButton'),
+  aiDeploymentLogDialog: document.getElementById('aiDeploymentLogDialog'),
+  aiDeploymentLogHeading: document.getElementById('aiDeploymentLogHeading'),
+  aiDeploymentLogMeta: document.getElementById('aiDeploymentLogMeta'),
+  aiDeploymentLogHistorySummary: document.getElementById('aiDeploymentLogHistorySummary'),
+  aiDeploymentLogHistory: document.getElementById('aiDeploymentLogHistory'),
+  aiDeploymentLogHistoryEmpty: document.getElementById('aiDeploymentLogHistoryEmpty'),
+  aiDeploymentLogContent: document.getElementById('aiDeploymentLogContent'),
+  aiDeploymentLogCloseButton: document.getElementById('aiDeploymentLogCloseButton'),
+  aiDeploymentLogDoneButton: document.getElementById('aiDeploymentLogDoneButton'),
+  aiDeploymentLogDetailDialog: document.getElementById('aiDeploymentLogDetailDialog'),
+  aiDeploymentLogDetailHeading: document.getElementById('aiDeploymentLogDetailHeading'),
+  aiDeploymentLogDetailMeta: document.getElementById('aiDeploymentLogDetailMeta'),
+  aiDeploymentLogDetailCloseButton: document.getElementById('aiDeploymentLogDetailCloseButton'),
+  aiDeploymentLogDetailDoneButton: document.getElementById('aiDeploymentLogDetailDoneButton'),
   uptimeButton: document.getElementById('uptimeButton'),
   serverMonitoringButton: document.getElementById('serverMonitoringButton'),
   serversButton: document.getElementById('serversButton'),
@@ -5883,10 +6002,30 @@ function renderProjectDropdown(controller) {
   button.setAttribute('aria-label', `${controller.name}: ${selected?.textContent || 'Select option'}`);
   button.setAttribute('aria-invalid', select.matches(':invalid') ? 'true' : 'false');
   if (!openProjectDropdown || openProjectDropdown !== controller) return;
-  controller.menu.innerHTML = options.map((option) => {
+  const optionMarkup = options.map((option) => {
     const isSelected = option === selected;
     return `<button class="workspace-switcher-option" type="button" role="option" data-project-dropdown-value="${escapeHtml(option.value)}" aria-selected="${isSelected}" tabindex="-1" ${option.disabled ? 'disabled' : ''}><span>${escapeHtml(option.textContent)}</span>${isSelected ? icon('check') : ''}</button>`;
   }).join('');
+  const searchMarkup = controller.searchable
+    ? `<div class="project-dropdown-search"><input class="project-dropdown-search-input" type="search" value="${escapeHtml(controller.searchQuery)}" placeholder="${escapeHtml(select.dataset.searchPlaceholder || 'Search options...')}" aria-label="${escapeHtml(select.dataset.searchPlaceholder || 'Search options')}" aria-controls="${controller.optionsId}" autocomplete="off" data-project-dropdown-search-input /></div>`
+    : '';
+  const emptyMarkup = controller.searchable
+    ? `<div class="project-dropdown-empty hidden" role="status">${escapeHtml(select.dataset.searchEmpty || 'No matching options.')}</div>`
+    : '';
+  controller.menu.innerHTML = `${searchMarkup}<div id="${controller.optionsId}" role="listbox" aria-label="${escapeHtml(controller.name)}">${optionMarkup}</div>${emptyMarkup}`;
+  filterProjectDropdownOptions(controller);
+}
+
+function filterProjectDropdownOptions(controller) {
+  const query = controller.searchQuery.trim().toLowerCase();
+  const options = Array.from(controller.menu.querySelectorAll('.workspace-switcher-option'));
+  let visibleOptions = 0;
+  for (const option of options) {
+    const visible = !query || option.textContent.toLowerCase().includes(query);
+    option.hidden = !visible;
+    if (visible) visibleOptions += 1;
+  }
+  controller.menu.querySelector('.project-dropdown-empty')?.classList.toggle('hidden', visibleOptions > 0);
 }
 
 function closeProjectDropdown({ focusTrigger = false } = {}) {
@@ -5900,6 +6039,7 @@ function closeProjectDropdown({ focusTrigger = false } = {}) {
   controller.menu.style.removeProperty('left');
   controller.menu.style.removeProperty('width');
   controller.menu.style.removeProperty('max-height');
+  controller.searchQuery = '';
   openProjectDropdown = null;
   if (focusTrigger && controller.wrapper.isConnected) controller.button.focus();
 }
@@ -5908,7 +6048,8 @@ function positionProjectDropdown(controller) {
   const rect = controller.button.getBoundingClientRect();
   const viewportGap = 8;
   const menuGap = 6;
-  const width = Math.min(Math.max(rect.width, 180), window.innerWidth - viewportGap * 2);
+  const minimumWidth = controller.wrapper.closest('.ai-deployment-filter') ? rect.width : 180;
+  const width = Math.min(Math.max(rect.width, minimumWidth), window.innerWidth - viewportGap * 2);
   const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - viewportGap - menuGap);
   const spaceAbove = Math.max(0, rect.top - viewportGap - menuGap);
   const opensUp = spaceBelow < 180 && spaceAbove > spaceBelow;
@@ -5931,9 +6072,10 @@ function openEnhancedProjectDropdown(controller, { focusLast = false } = {}) {
   renderProjectDropdown(controller);
   positionProjectDropdown(controller);
   requestAnimationFrame(() => {
+    const search = controller.menu.querySelector('[data-project-dropdown-search-input]');
     const options = Array.from(controller.menu.querySelectorAll('.workspace-switcher-option:not(:disabled)'));
     const selected = controller.menu.querySelector('[aria-selected="true"]:not(:disabled)');
-    (focusLast ? options.at(-1) : selected || options[0])?.focus();
+    (search || (focusLast ? options.at(-1) : selected || options[0]))?.focus();
   });
 }
 
@@ -5943,6 +6085,7 @@ function enhanceProjectDropdown(select) {
   select.dataset.projectDropdownEnhanced = 'true';
   const id = select.id || `projectDropdown${++projectDropdownId}`;
   const menuId = `${id}ComponentMenu`;
+  const optionsId = `${menuId}Options`;
   const wrapper = document.createElement('div');
   wrapper.className = 'project-dropdown top-workspace-switcher';
   wrapper.dataset.selectId = id;
@@ -5951,7 +6094,7 @@ function enhanceProjectDropdown(select) {
   button.type = 'button';
   button.setAttribute('aria-haspopup', 'listbox');
   button.setAttribute('aria-expanded', 'false');
-  button.setAttribute('aria-controls', menuId);
+  button.setAttribute('aria-controls', optionsId);
   const label = document.createElement('span');
   label.className = 'workspace-switcher-label';
   const chevron = document.createElement('span');
@@ -5961,14 +6104,23 @@ function enhanceProjectDropdown(select) {
   const menu = document.createElement('div');
   menu.id = menuId;
   menu.className = 'workspace-switcher-menu project-dropdown-menu hidden';
-  menu.setAttribute('role', 'listbox');
-  menu.setAttribute('aria-label', projectDropdownName(select));
   select.before(wrapper);
   wrapper.append(select, button, menu);
   select.classList.add('project-dropdown-native');
   const originalTabIndex = select.getAttribute('tabindex');
   select.tabIndex = -1;
-  const controller = { select, wrapper, button, label, menu, name: projectDropdownName(select), originalTabIndex };
+  const controller = {
+    select,
+    wrapper,
+    button,
+    label,
+    menu,
+    name: projectDropdownName(select),
+    optionsId,
+    originalTabIndex,
+    searchable: select.dataset.projectDropdownSearch === 'true',
+    searchQuery: ''
+  };
 
   const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
   if (valueDescriptor?.get && valueDescriptor?.set) {
@@ -6000,8 +6152,26 @@ function enhanceProjectDropdown(select) {
     renderProjectDropdown(controller);
     closeProjectDropdown({ focusTrigger: true });
   });
+  menu.addEventListener('input', (event) => {
+    if (!event.target.matches('[data-project-dropdown-search-input]')) return;
+    controller.searchQuery = event.target.value;
+    filterProjectDropdownOptions(controller);
+  });
   menu.addEventListener('keydown', (event) => {
-    const options = Array.from(menu.querySelectorAll('.workspace-switcher-option:not(:disabled)'));
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      if (event.key === 'Escape') event.preventDefault();
+      closeProjectDropdown({ focusTrigger: event.key === 'Escape' });
+      return;
+    }
+    const options = Array.from(menu.querySelectorAll('.workspace-switcher-option:not(:disabled):not([hidden])'));
+    const search = menu.querySelector('[data-project-dropdown-search-input]');
+    if (document.activeElement === search) {
+      if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key) || !options.length) return;
+      event.preventDefault();
+      if (event.key === 'Enter') options[0].click();
+      else (event.key === 'ArrowDown' ? options[0] : options.at(-1)).focus();
+      return;
+    }
     if (!options.length) return;
     const currentIndex = options.indexOf(document.activeElement);
     let nextIndex = currentIndex;
@@ -6012,10 +6182,6 @@ function enhanceProjectDropdown(select) {
     else if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       document.activeElement?.click();
-      return;
-    } else if (event.key === 'Escape' || event.key === 'Tab') {
-      if (event.key === 'Escape') event.preventDefault();
-      closeProjectDropdown({ focusTrigger: event.key === 'Escape' });
       return;
     } else return;
     event.preventDefault();
@@ -6224,7 +6390,7 @@ function renderUptimeMonitorTable() {
     const groupLabel = uptimeGroupHierarchyLabel(monitor);
     const groupHeader = previousGroup === groupKey ? '' : `<tr class="uptime-group-row"><th colspan="7"><span>${escapeHtml(groupLabel)}</span><small>${escapeHtml(String(groupCounts.get(groupKey) || 0))} monitors</small></th></tr>`;
     previousGroup = groupKey;
-    return `${groupHeader}<tr class="${monitor.id === state.uptime.selectedMonitorId ? 'is-active' : ''}" data-uptime-monitor-row="${escapeHtml(monitor.id)}"><td><input type="checkbox" data-uptime-monitor-select="${escapeHtml(monitor.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(monitor.name)}" /></td><td><button class="uptime-monitor-name" type="button" data-uptime-select-monitor="${escapeHtml(monitor.id)}"><strong>${escapeHtml(monitor.name)}</strong><small>${escapeHtml([monitor.group, ...(monitor.tags || [])].filter(Boolean).join(' · ') || 'Ungrouped')}</small></button></td><td><span class="uptime-status-pill status-${escapeHtml(status)}">${escapeHtml(uptimeStatusLabel(status))}</span></td><td class="uptime-target-cell">${escapeHtml(uptimeTarget(monitor))}</td><td>${escapeHtml(formatDateTime(monitor.runtime?.lastCheckAt))}</td><td>${escapeHtml(formatLatency(monitor.runtime?.lastLatencyMs))}</td><td><button class="button plain compact icon-only" type="button" data-uptime-run-monitor="${escapeHtml(monitor.id)}" title="Run now" aria-label="Run ${escapeHtml(monitor.name)} now"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg></button><button class="button plain compact icon-only" type="button" data-uptime-edit-monitor="${escapeHtml(monitor.id)}" title="Edit" aria-label="Edit ${escapeHtml(monitor.name)}"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button></td></tr>`;
+    return `${groupHeader}<tr class="${monitor.id === state.uptime.selectedMonitorId ? 'is-active' : ''}" data-uptime-monitor-row="${escapeHtml(monitor.id)}"><td><input type="checkbox" data-uptime-monitor-select="${escapeHtml(monitor.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(monitor.name)}" /></td><td><button class="uptime-monitor-name" type="button" data-uptime-select-monitor="${escapeHtml(monitor.id)}"><strong>${escapeHtml(monitor.name)}</strong><small>${escapeHtml([monitor.group, ...(monitor.tags || [])].filter(Boolean).join(' · ') || 'Ungrouped')}</small></button></td><td><span class="uptime-status-pill status-${escapeHtml(status)}">${escapeHtml(uptimeStatusLabel(status))}</span></td><td class="uptime-target-cell">${escapeHtml(uptimeTarget(monitor))}</td><td>${escapeHtml(formatDateTime(monitor.runtime?.lastCheckAt))}</td><td>${escapeHtml(formatLatency(monitor.runtime?.lastLatencyMs))}</td><td><div class="uptime-row-actions"><button class="button plain compact icon-only" type="button" data-uptime-run-monitor="${escapeHtml(monitor.id)}" title="Run now" aria-label="Run ${escapeHtml(monitor.name)} now"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-play"></use></svg></button><button class="button plain compact icon-only" type="button" data-uptime-edit-monitor="${escapeHtml(monitor.id)}" title="Edit" aria-label="Edit ${escapeHtml(monitor.name)}"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-edit"></use></svg></button></div></td></tr>`;
   }).join('');
   const selectedCount = state.uptime.selectedMonitorIds.size;
   els.uptimeRunSelectedButton.disabled = selectedCount === 0;
@@ -6877,7 +7043,8 @@ async function connectRdp() {
     };
     const client = protocol === 'rdp'
       ? clientModule.createIronRdpClient({ canvas: els.rdpCanvas, loadWasm: () => window.deployerx.loadRdpWasm(), ...callbacks })
-      : clientModule.createVncClient({ target: els.vncCanvas, ...callbacks });
+      : clientModule.createVncClient({ target: els.vncCanvas, ...callbacks,
+          isActive: () => state.currentView === 'project' && state.rdpProjectId === state.activeProject?.id && state.rdpStatus === 'connected' });
     activeRdpClient = client;
     await client.connect(protocol === 'rdp' ? {
       destination: response.destination,
@@ -11074,6 +11241,9 @@ function showView(view) {
     setBackupManagerTab(state.backupManagerTab);
     loadBackupJobs().catch((error) => showAlert(error.message || 'Could not load backup jobs.'));
   }
+  if (view === 'ai-deployments') {
+    loadAiDeploymentWorkspace().catch((error) => showAlert(error.message || 'Could not load deployments.'));
+  }
   if (view === 'database') {
     setDatabaseManagerTab(state.databaseManager.activeTab);
     if (!IS_DATABASE_ACCESS_WINDOW) {
@@ -11088,12 +11258,13 @@ function showView(view) {
   const isUptime = view === 'uptime';
   const isServers = view === 'servers';
   const isBackup = view === 'backup';
+  const isAiDeployments = view === 'ai-deployments';
   const isDatabase = view === 'database';
   const isProject = view === 'project';
   const isSshFile = view === 'ssh-file';
   const isProfile = view === 'profile';
   const isTeam = view === 'team';
-  const isFullPageView = isProfile || isSshFile || isTeam;
+  const isFullPageView = isProfile || isSshFile || isTeam || isAiDeployments;
   if (!isServerMonitoring && els.appShell?.classList.contains('server-monitoring-fullscreen')) {
     setServerMonitoringFullscreen(false).catch(() => applyServerMonitoringFullscreen(false));
   }
@@ -11113,12 +11284,16 @@ function showView(view) {
   els.uptimeView.classList.toggle('hidden', !isUptime);
   els.serversView.classList.toggle('hidden', !isServers);
   els.backupManagerView.classList.toggle('hidden', !isBackup);
+  els.aiDeploymentsView.classList.toggle('hidden', !isAiDeployments);
   els.databaseManagerView.classList.toggle('hidden', !isDatabase);
   els.projectView.classList.toggle('hidden', !isProject);
   els.sshFileView.classList.toggle('hidden', !isSshFile);
   els.profileView.classList.toggle('hidden', !isProfile);
   els.teamView.classList.toggle('hidden', !isTeam);
   els.dashboardButton.classList.toggle('active', isDashboard);
+  els.aiDeploymentsButton.classList.toggle('active', isAiDeployments);
+  if (isAiDeployments) els.aiDeploymentsButton.setAttribute('aria-current', 'page');
+  else els.aiDeploymentsButton.removeAttribute('aria-current');
   els.serverMonitoringButton.classList.toggle('active', isServerMonitoring);
   els.uptimeButton.classList.toggle('active', isUptime);
   els.serversButton.classList.toggle('active', isServers);
@@ -11146,6 +11321,597 @@ function showView(view) {
     if (state.activeProjectTab === 'ssh') restoreTerminalInteraction();
     }
   }
+}
+
+function aiDeploymentProject(id) {
+  return state.projects.find((project) => String(project.id) === String(id || '')) || null;
+}
+
+function aiDeploymentAgent(id) {
+  return state.aiDeployments.agents.find((agent) => agent.id === String(id || '')) || null;
+}
+
+function aiDeploymentStatusLabel(status) {
+  return ({
+    running: 'Running',
+    successful: 'Successful',
+    failed: 'Failed',
+    'never-run': 'Never run'
+  })[status] || 'Never run';
+}
+
+function setAiDeploymentProgress(label, percent = 0, status = 'running') {
+  const value = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+  els.aiDeploymentStatus.classList.toggle('hidden', !label);
+  els.aiDeploymentStatus.dataset.state = status;
+  els.aiDeploymentProgressLabel.textContent = label;
+  els.aiDeploymentProgressPercent.textContent = `${value}%`;
+  els.aiDeploymentProgressBar.style.width = `${value}%`;
+  els.aiDeploymentProgressTrack.setAttribute('aria-valuenow', String(value));
+}
+
+function aiDeploymentActionButtons(deployment) {
+  const name = escapeHtml(deployment.name);
+  const id = escapeHtml(deployment.id);
+  const running = deployment.status === 'running';
+  return `<div class="ai-deployment-actions">
+    <button class="button outline compact" type="button" data-ai-deployment-run="${id}" aria-label="Run ${name}" ${running ? 'disabled' : ''}>${icon('play')}<span>Run</span></button>
+    <button class="button outline compact" type="button" data-ai-deployment-view="${id}" aria-label="View session for ${name}" ${deployment.runs?.length ? '' : 'disabled'}>${icon('eye')}<span>View</span></button>
+    <button class="button outline compact" type="button" data-ai-deployment-log="${id}" aria-label="View log for ${name}">${icon('file')}<span>Logs</span></button>
+    <button class="button plain compact icon-only" type="button" data-ai-deployment-edit="${id}" aria-label="Edit ${name}" title="Edit" ${running ? 'disabled' : ''}>${icon('edit')}</button>
+    <button class="button plain compact icon-only" type="button" data-ai-deployment-duplicate="${id}" aria-label="Duplicate ${name}" title="Duplicate">${icon('copy')}</button>
+    <button class="button plain danger compact icon-only" type="button" data-ai-deployment-delete="${id}" aria-label="Delete ${name}" title="Delete" ${running ? 'disabled' : ''}>${icon('trash')}</button>
+  </div>`;
+}
+
+function filteredAiDeployments() {
+  const query = els.aiDeploymentSearch.value.trim().toLowerCase();
+  const serverIds = state.aiDeployments.serverFilters;
+  const statuses = state.aiDeployments.statusFilters;
+  return state.aiDeployments.items.filter((deployment) => {
+    const project = aiDeploymentProject(deployment.projectId);
+    const agent = aiDeploymentAgent(deployment.agentId);
+    const searchable = [deployment.name, deployment.localPath, deployment.remotePath, project?.name, agent?.name, deployment.prompt]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return (!query || searchable.includes(query))
+      && (!serverIds.size || serverIds.has(String(deployment.projectId)))
+      && (!statuses.size || statuses.has(deployment.status));
+  });
+}
+
+function renderAiDeploymentFilters() {
+  const projectIds = [...new Set(state.aiDeployments.items.map((deployment) => String(deployment.projectId)))];
+  state.aiDeployments.serverFilters = new Set([...state.aiDeployments.serverFilters].filter((projectId) => projectIds.includes(projectId)));
+  els.aiDeploymentServerFilterOptions.innerHTML = projectIds.length ? projectIds.map((projectId) => {
+    const project = aiDeploymentProject(projectId);
+    const checked = state.aiDeployments.serverFilters.has(projectId) ? ' checked' : '';
+    return `<label><input type="checkbox" value="${escapeHtml(projectId)}" data-ai-deployment-server-filter${checked} /> <span title="${escapeHtml(project?.name || 'Unavailable server')}">${escapeHtml(project?.name || 'Unavailable server')}</span></label>`;
+  }).join('') : '<span class="ai-deployment-filter-empty">No servers available</span>';
+  els.aiDeploymentStatusFilterOptions.querySelectorAll('[data-ai-deployment-status-filter]').forEach((checkbox) => {
+    checkbox.checked = state.aiDeployments.statusFilters.has(checkbox.value);
+  });
+  const count = state.aiDeployments.serverFilters.size + state.aiDeployments.statusFilters.size;
+  els.aiDeploymentFilterCount.textContent = String(count);
+  els.aiDeploymentFilterCount.classList.toggle('hidden', count === 0);
+  els.aiDeploymentFilterButton.classList.toggle('has-filters', count > 0);
+  els.aiDeploymentClearFiltersButton.disabled = count === 0;
+}
+
+function setAiDeploymentFilterPanelOpen(open, { restoreFocus = false } = {}) {
+  els.aiDeploymentFilterPanel.classList.toggle('hidden', !open);
+  els.aiDeploymentFilterButton.setAttribute('aria-expanded', String(open));
+  if (!open && restoreFocus) els.aiDeploymentFilterButton.focus();
+}
+
+function renderAiDeployments() {
+  const items = filteredAiDeployments();
+  const totals = state.aiDeployments.items.reduce((summary, item) => {
+    summary[item.status] = (summary[item.status] || 0) + 1;
+    return summary;
+  }, {});
+  els.aiDeploymentTotal.textContent = String(state.aiDeployments.items.length);
+  els.aiDeploymentRunning.textContent = String(totals.running || 0);
+  els.aiDeploymentSuccessful.textContent = String(totals.successful || 0);
+  els.aiDeploymentFailed.textContent = String(totals.failed || 0);
+
+  els.aiDeploymentTableBody.innerHTML = items.map((deployment, index) => {
+    const project = aiDeploymentProject(deployment.projectId);
+    const agent = aiDeploymentAgent(deployment.agentId);
+    return `<tr>
+      <td>${index + 1}</td>
+      <td><div class="ai-deployment-name-cell"><strong>${escapeHtml(deployment.name)}</strong></div></td>
+      <td>${escapeHtml(project?.name || 'Unavailable')}</td>
+      <td class="ai-deployment-path" title="${escapeHtml(deployment.localPath)}">${escapeHtml(deployment.localPath)}</td>
+      <td>${escapeHtml(agent?.name || deployment.agentId)}</td>
+      <td>${escapeHtml(deployment.lastRunAt ? formatDateTime(deployment.lastRunAt) : 'Never')}</td>
+      <td><span class="ai-deployment-status-pill status-${escapeHtml(deployment.status)}">${escapeHtml(aiDeploymentStatusLabel(deployment.status))}</span></td>
+      <td>${aiDeploymentActionButtons(deployment)}</td>
+    </tr>`;
+  }).join('');
+
+  els.aiDeploymentTableWrap.classList.toggle('hidden', !items.length);
+  els.aiDeploymentEmpty.classList.toggle('hidden', items.length > 0);
+}
+
+function renderAiDeploymentFormOptions(selected = {}) {
+  const projects = state.projects.filter((project) => !['vnc', 'rdp'].includes(project.serverType) && project.ssh?.host && project.ssh?.username);
+  els.aiDeploymentProject.innerHTML = '<option value="">Select server</option>' + projects.map((project) => (
+    `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name || project.ssh?.host || 'Server')}</option>`
+  )).join('');
+
+  const agents = state.aiDeployments.agents;
+  els.aiDeploymentAgent.innerHTML = '<option value="">Select agent</option>' + agents.map((agent) => {
+    const ready = agent.runnable;
+    const detail = !ready ? 'CLI not found' : `${agent.active ? 'Active locally' : 'Installed locally'}${agent.version ? ` · ${agent.version}` : ''}`;
+    return `<option value="${escapeHtml(agent.id)}" ${ready ? '' : 'disabled'}>${escapeHtml(agent.name)} — ${escapeHtml(detail)}</option>`;
+  }).join('');
+
+  const reusable = state.aiDeployments.items.filter((deployment) => deployment.prompt && deployment.promptReusable !== false);
+  els.aiDeploymentSavedPrompt.innerHTML = '<option value="">Start with a new prompt</option>' + reusable.map((deployment) => (
+    `<option value="${escapeHtml(deployment.id)}">${escapeHtml(deployment.name)}</option>`
+  )).join('');
+
+  if (selected.projectId && projects.some((project) => String(project.id) === selected.projectId)) els.aiDeploymentProject.value = selected.projectId;
+  if (selected.agentId && agents.some((agent) => agent.id === selected.agentId && agent.runnable)) els.aiDeploymentAgent.value = selected.agentId;
+}
+
+function updateAiDeploymentSummary() {
+  const project = aiDeploymentProject(els.aiDeploymentProject.value);
+  const agent = aiDeploymentAgent(els.aiDeploymentAgent.value);
+  const localPath = els.aiDeploymentLocalPath.value.trim();
+  const remotePath = els.aiDeploymentRemotePath.value.trim();
+  const hasPrompt = Boolean(els.aiDeploymentPrompt.value.trim());
+  els.aiDeploymentSummaryServer.textContent = project?.name || 'Not selected';
+  els.aiDeploymentSummaryFolder.textContent = localPath || 'Not selected';
+  els.aiDeploymentSummaryRemotePath.textContent = remotePath || 'Agent decides';
+  els.aiDeploymentSummaryAgent.textContent = agent?.name || 'Not selected';
+  els.aiDeploymentCheckServer.classList.toggle('complete', Boolean(project));
+  els.aiDeploymentCheckFolder.classList.toggle('complete', Boolean(localPath));
+  els.aiDeploymentCheckAgent.classList.toggle('complete', Boolean(agent?.runnable));
+  els.aiDeploymentCheckPrompt.classList.toggle('complete', hasPrompt);
+  els.aiDeploymentDeletePromptButton.disabled = !state.aiDeployments.items.some((deployment) => deployment.id === els.aiDeploymentSavedPrompt.value && deployment.promptReusable !== false);
+  els.aiDeploymentClearPromptButton.disabled = !hasPrompt;
+  els.aiDeploymentClearInstructionsButton.disabled = !els.aiDeploymentInstructions.value.trim();
+}
+
+function closeAiDeploymentForm() {
+  state.aiDeployments.editingId = '';
+  els.aiDeploymentFormPage.classList.add('hidden');
+  els.aiDeploymentListPage.classList.remove('hidden');
+  renderAiDeployments();
+  requestAnimationFrame(() => els.aiDeploymentStartButton.focus());
+}
+
+function openAiDeploymentForm(deployment = null) {
+  const recent = state.aiDeployments.items[0] || {};
+  const editing = Boolean(deployment);
+  state.aiDeployments.editingId = deployment?.id || '';
+  els.aiDeploymentRollback.checked = deployment ? deployment.createRollback !== false : true;
+  renderAiDeploymentFormOptions(deployment || { agentId: recent.agentId });
+  els.aiDeploymentName.value = deployment?.name || '';
+  els.aiDeploymentLocalPath.value = deployment?.localPath || '';
+  els.aiDeploymentRemotePath.value = deployment?.remotePath || '';
+  els.aiDeploymentPrompt.value = deployment?.prompt || '';
+  els.aiDeploymentInstructions.value = deployment?.instructions || '';
+  els.aiDeploymentFormHeading.textContent = editing ? 'Edit Deployment' : 'Start Deployment';
+  els.aiDeploymentSubmitButton.querySelector('span').textContent = editing ? 'Save Changes' : 'Save & Deploy';
+  els.aiDeploymentForm.querySelectorAll('[aria-invalid="true"]').forEach((field) => field.removeAttribute('aria-invalid'));
+  els.aiDeploymentFormError.classList.add('hidden');
+  els.aiDeploymentFormError.textContent = '';
+  els.aiDeploymentListPage.classList.add('hidden');
+  els.aiDeploymentFormPage.classList.remove('hidden');
+  updateAiDeploymentSummary();
+  requestAnimationFrame(() => els.aiDeploymentFormHeading.focus());
+}
+
+function aiDeploymentFormValue() {
+  const existing = state.aiDeployments.items.find((item) => item.id === state.aiDeployments.editingId) || {};
+  return {
+    ...existing,
+    id: state.aiDeployments.editingId,
+    name: els.aiDeploymentName.value,
+    projectId: els.aiDeploymentProject.value,
+    localPath: els.aiDeploymentLocalPath.value,
+    remotePath: els.aiDeploymentRemotePath.value,
+    agentId: els.aiDeploymentAgent.value,
+    prompt: els.aiDeploymentPrompt.value,
+    instructions: els.aiDeploymentInstructions.value,
+    promptReusable: true,
+    createRollback: els.aiDeploymentRollback.checked
+  };
+}
+
+function validateAiDeploymentForm() {
+  const invalid = [...els.aiDeploymentForm.querySelectorAll('input:invalid, select:invalid, textarea:invalid')];
+  els.aiDeploymentForm.querySelectorAll('input, select, textarea').forEach((field) => field.toggleAttribute('aria-invalid', invalid.includes(field)));
+  if (!invalid.length) {
+    els.aiDeploymentFormError.classList.add('hidden');
+    return true;
+  }
+  els.aiDeploymentFormError.textContent = 'Complete every required field before saving the deployment.';
+  els.aiDeploymentFormError.classList.remove('hidden');
+  els.aiDeploymentFormError.focus();
+  requestAnimationFrame(() => invalid[0].focus());
+  return false;
+}
+
+async function submitAiDeployment(event) {
+  event.preventDefault();
+  if (!validateAiDeploymentForm()) return;
+  const editing = Boolean(state.aiDeployments.editingId);
+  const value = aiDeploymentFormValue();
+  els.aiDeploymentSubmitButton.disabled = true;
+  try {
+    const saved = await window.deployerx.saveAiDeployment(value);
+    const index = state.aiDeployments.items.findIndex((item) => item.id === saved.id);
+    if (index >= 0) state.aiDeployments.items[index] = saved;
+    else state.aiDeployments.items.unshift(saved);
+    renderAiDeploymentFilters();
+    closeAiDeploymentForm();
+    if (editing) showToast('Deployment saved.');
+    else await startSavedAiDeployment(saved.id);
+  } catch (error) {
+    els.aiDeploymentFormError.textContent = error.message || 'Could not save deployment.';
+    els.aiDeploymentFormError.classList.remove('hidden');
+    els.aiDeploymentFormError.focus();
+  } finally {
+    els.aiDeploymentSubmitButton.disabled = false;
+  }
+}
+
+async function startSavedAiDeployment(id, runOptions = {}) {
+  const deployment = state.aiDeployments.items.find((item) => item.id === id);
+  if (!deployment || deployment.status === 'running') return;
+  const previousStatus = deployment.status;
+  deployment.status = 'running';
+  renderAiDeployments();
+  try {
+    const result = await window.deployerx.runAiDeployment(id, runOptions);
+    const index = state.aiDeployments.items.findIndex((item) => item.id === id);
+    // Events can arrive before the IPC acknowledgement; never overwrite newer run state.
+    if (result.deployment && index >= 0 && !state.aiDeployments.items[index].runs?.some((run) => run.id === result.runId)) {
+      state.aiDeployments.items[index] = result.deployment;
+      state.aiDeployments.runs.set(result.runId, id);
+    }
+    renderAiDeployments();
+    return true;
+  } catch (error) {
+    deployment.status = previousStatus;
+    renderAiDeployments();
+    showAlert(String(error.message || 'Could not start deployment.').slice(0, 240));
+    return false;
+  }
+}
+
+function renderAiDeploymentTemporaryFiles() {
+  const files = state.aiDeployments.temporaryFiles;
+  els.aiDeploymentTemporaryFilesEmpty.classList.toggle('hidden', files.length > 0);
+  els.aiDeploymentTemporaryFilesList.classList.toggle('hidden', files.length === 0);
+  els.aiDeploymentTemporaryFilesList.innerHTML = files.map((file, index) => `<li class="ai-deployment-run-file">
+    ${icon('file')}
+    <span class="ai-deployment-run-file-copy"><strong title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</strong><small>${escapeHtml(formatByteCount(file.size))}</small></span>
+    <button class="button plain compact icon-only" type="button" data-ai-deployment-temp-file-remove="${index}" aria-label="Remove ${escapeHtml(file.name)}" title="Remove">${icon('x')}</button>
+  </li>`).join('');
+}
+
+function openAiDeploymentRunDialog(id) {
+  const deployment = state.aiDeployments.items.find((item) => item.id === id);
+  if (!deployment) return;
+  state.aiDeployments.runDeploymentId = id;
+  state.aiDeployments.temporaryFiles = [];
+  state.aiDeployments.runSubmitting = false;
+  els.aiDeploymentRunHeading.textContent = `Run ${deployment.name}`;
+  els.aiDeploymentRunDescription.textContent = `${aiDeploymentProject(deployment.projectId)?.name || 'Selected server'} • Optional changes apply only to this run.`;
+  els.aiDeploymentTemporaryPrompt.value = deployment.prompt || '';
+  els.aiDeploymentRunError.textContent = '';
+  els.aiDeploymentRunError.classList.add('hidden');
+  renderAiDeploymentTemporaryFiles();
+  els.aiDeploymentRunDialog.showModal();
+  requestAnimationFrame(() => els.aiDeploymentTemporaryPrompt.focus());
+}
+
+function closeAiDeploymentRunDialog({ force = false } = {}) {
+  if (state.aiDeployments.runSubmitting && !force) return;
+  state.aiDeployments.runDeploymentId = '';
+  state.aiDeployments.temporaryFiles = [];
+  state.aiDeployments.runSubmitting = false;
+  if (els.aiDeploymentRunDialog.open) els.aiDeploymentRunDialog.close();
+}
+
+async function attachAiDeploymentTemporaryFiles() {
+  const selected = await window.deployerx.selectAiDeploymentTemporaryFiles();
+  if (!selected?.length) return;
+  const files = new Map(state.aiDeployments.temporaryFiles.map((file) => [file.path, file]));
+  selected.forEach((file) => files.set(file.path, file));
+  if (files.size > 20) {
+    els.aiDeploymentRunError.textContent = 'Attach up to 20 temporary files.';
+    els.aiDeploymentRunError.classList.remove('hidden');
+    els.aiDeploymentRunError.focus();
+    return;
+  }
+  state.aiDeployments.temporaryFiles = [...files.values()];
+  els.aiDeploymentRunError.classList.add('hidden');
+  renderAiDeploymentTemporaryFiles();
+}
+
+async function submitAiDeploymentRun(event) {
+  event.preventDefault();
+  const id = state.aiDeployments.runDeploymentId;
+  if (!id || state.aiDeployments.runSubmitting) return;
+  state.aiDeployments.runSubmitting = true;
+  const options = {
+    temporaryPrompt: els.aiDeploymentTemporaryPrompt.value,
+    temporaryFiles: state.aiDeployments.temporaryFiles.map((file) => file.path)
+  };
+  closeAiDeploymentRunDialog({ force: true });
+  await startSavedAiDeployment(id, options);
+}
+
+async function duplicateAiDeployment(id) {
+  const deployment = state.aiDeployments.items.find((item) => item.id === id);
+  if (!deployment) return;
+  const copy = await window.deployerx.saveAiDeployment({
+    ...deployment,
+    id: '',
+    name: `${deployment.name} Copy`,
+    status: 'never-run',
+    createdAt: '',
+    updatedAt: '',
+    lastRunAt: '',
+    lastMessage: '',
+    log: '',
+    runs: []
+  });
+  state.aiDeployments.items.unshift(copy);
+  renderAiDeploymentFilters();
+  renderAiDeployments();
+  showToast('Deployment duplicated.');
+}
+
+async function deleteSavedAiDeployment(id) {
+  const deployment = state.aiDeployments.items.find((item) => item.id === id);
+  if (!deployment) return;
+  if (!await confirmDangerousAction(`Delete ${deployment.name}?`, 'The saved prompt and instructions will be removed. This action cannot be undone.', 'Delete')) return;
+  await window.deployerx.deleteAiDeployment(id);
+  state.aiDeployments.items = state.aiDeployments.items.filter((item) => item.id !== id);
+  renderAiDeploymentFilters();
+  renderAiDeployments();
+  showToast('Deployment deleted.');
+}
+
+async function deleteSelectedAiDeploymentPrompt() {
+  const deployment = state.aiDeployments.items.find((item) => item.id === els.aiDeploymentSavedPrompt.value);
+  if (!deployment) return;
+  const confirmed = await confirmDangerousAction(
+    `Delete ${deployment.name} saved prompt?`,
+    'This removes it from the Saved prompt list. The deployment remains available.',
+    'Delete prompt'
+  );
+  if (!confirmed) return;
+  els.aiDeploymentDeletePromptButton.disabled = true;
+  try {
+    const saved = await window.deployerx.saveAiDeployment({ ...deployment, promptReusable: false });
+    const index = state.aiDeployments.items.findIndex((item) => item.id === saved.id);
+    if (index >= 0) state.aiDeployments.items[index] = saved;
+    const selected = { projectId: els.aiDeploymentProject.value, agentId: els.aiDeploymentAgent.value };
+    els.aiDeploymentPrompt.value = '';
+    els.aiDeploymentInstructions.value = '';
+    renderAiDeploymentFormOptions(selected);
+    updateAiDeploymentSummary();
+    showToast('Saved prompt deleted.');
+    requestAnimationFrame(() => document.querySelector('[data-select-id="aiDeploymentSavedPrompt"] .workspace-switcher-trigger')?.focus());
+  } catch (error) {
+    showAlert(error.message || 'Could not delete the saved prompt.');
+  } finally {
+    updateAiDeploymentSummary();
+  }
+}
+
+function renderAiDeploymentLog() {
+  const deployment = state.aiDeployments.items.find((item) => item.id === state.aiDeployments.logDeploymentId);
+  if (!deployment) return;
+  const project = aiDeploymentProject(deployment.projectId);
+  const runs = Array.isArray(deployment.runs) ? deployment.runs : [];
+  els.aiDeploymentLogHeading.textContent = `${deployment.name} logs`;
+  els.aiDeploymentLogMeta.textContent = [
+    project?.name || 'Unavailable server',
+    deployment.remotePath
+  ].filter(Boolean).join(' • ');
+  els.aiDeploymentLogHistorySummary.textContent = `${runs.length} ${runs.length === 1 ? 'deployment run' : 'deployment runs'} — newest first`;
+  els.aiDeploymentLogHistory.classList.toggle('hidden', !runs.length);
+  els.aiDeploymentLogHistoryEmpty.classList.toggle('hidden', Boolean(runs.length));
+  els.aiDeploymentLogHistory.innerHTML = runs.map((run) => {
+    const started = new Date(run.startedAt);
+    const date = Number.isNaN(started.getTime()) ? 'Unknown date' : started.toLocaleDateString();
+    const time = Number.isNaN(started.getTime()) ? 'Unknown time' : started.toLocaleTimeString();
+    const status = aiDeploymentStatusLabel(run.status);
+    return `<li><button class="ai-deployment-log-run" type="button" data-ai-deployment-log-run="${escapeHtml(run.id)}" aria-label="View ${status.toLowerCase()} deployment log from ${escapeHtml(`${date} ${time}`)}">
+      <span class="ai-deployment-log-run-date"><strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong><small>${escapeHtml(run.message || 'No completion message')}</small></span>
+      <span class="ai-deployment-log-run-status" data-state="${escapeHtml(run.status)}">${escapeHtml(status)}</span>
+      ${icon('chevron-right')}
+    </button></li>`;
+  }).join('');
+}
+
+function renderAiDeploymentLogDetail() {
+  const deployment = state.aiDeployments.items.find((item) => item.id === state.aiDeployments.logDeploymentId);
+  const run = deployment?.runs?.find((item) => item.id === state.aiDeployments.logRunId);
+  if (!deployment || !run) return;
+  const project = aiDeploymentProject(deployment.projectId);
+  els.aiDeploymentLogDetailHeading.textContent = `${deployment.name} session`;
+  els.aiDeploymentLogDetailMeta.textContent = [
+    formatDateTime(run.startedAt),
+    aiDeploymentStatusLabel(run.status),
+    project?.name || 'Unavailable server',
+    run.sessionId ? `Agent session: ${run.sessionId}` : ''
+  ].filter(Boolean).join(' • ');
+  setAiDeploymentProgress(run.status === 'running' ? run.message || 'Deployment is running…' : aiDeploymentStatusLabel(run.status), run.percent || (run.status === 'successful' ? 100 : 0), run.status);
+  els.aiDeploymentLogContent.textContent = run.log || 'No deployment log available yet.';
+  els.aiDeploymentLogContent.scrollTop = els.aiDeploymentLogContent.scrollHeight;
+}
+
+function openAiDeploymentLog(id) {
+  state.aiDeployments.logDeploymentId = id;
+  state.aiDeployments.logRunId = '';
+  renderAiDeploymentLog();
+  els.aiDeploymentLogDialog.showModal();
+  requestAnimationFrame(() => (els.aiDeploymentLogHistory.querySelector('button') || els.aiDeploymentLogCloseButton).focus());
+}
+
+function openAiDeploymentLogDetail(runId) {
+  state.aiDeployments.logRunId = runId;
+  renderAiDeploymentLogDetail();
+  els.aiDeploymentLogDetailDialog.showModal();
+  requestAnimationFrame(() => els.aiDeploymentLogContent.focus());
+}
+
+function closeAiDeploymentLogDetail() {
+  const runId = state.aiDeployments.logRunId;
+  state.aiDeployments.logRunId = '';
+  if (els.aiDeploymentLogDetailDialog.open) els.aiDeploymentLogDetailDialog.close();
+  requestAnimationFrame(() => {
+    if (els.aiDeploymentLogDialog.open) els.aiDeploymentLogHistory.querySelector(`[data-ai-deployment-log-run="${CSS.escape(runId)}"]`)?.focus();
+    else els.aiDeploymentTableBody.querySelector(`[data-ai-deployment-view="${CSS.escape(state.aiDeployments.logDeploymentId)}"]`)?.focus();
+  });
+}
+
+function closeAiDeploymentLog() {
+  if (els.aiDeploymentLogDetailDialog.open) els.aiDeploymentLogDetailDialog.close();
+  state.aiDeployments.logDeploymentId = '';
+  state.aiDeployments.logRunId = '';
+  if (els.aiDeploymentLogDialog.open) els.aiDeploymentLogDialog.close();
+}
+
+function openAiDeploymentSession(id) {
+  const deployment = state.aiDeployments.items.find((item) => item.id === id);
+  const run = deployment?.runs?.find((item) => item.status === 'running') || deployment?.runs?.[0];
+  if (!run) return;
+  state.aiDeployments.logDeploymentId = id;
+  openAiDeploymentLogDetail(run.id);
+}
+
+function handleAiDeploymentAction(event) {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const runId = button.dataset.aiDeploymentRun;
+  const logId = button.dataset.aiDeploymentLog;
+  const viewId = button.dataset.aiDeploymentView;
+  const editId = button.dataset.aiDeploymentEdit;
+  const duplicateId = button.dataset.aiDeploymentDuplicate;
+  const deleteId = button.dataset.aiDeploymentDelete;
+  if (runId) openAiDeploymentRunDialog(runId);
+  else if (viewId) openAiDeploymentSession(viewId);
+  else if (logId) openAiDeploymentLog(logId);
+  else if (editId) openAiDeploymentForm(state.aiDeployments.items.find((item) => item.id === editId));
+  else if (duplicateId) duplicateAiDeployment(duplicateId).catch((error) => showAlert(error.message));
+  else if (deleteId) deleteSavedAiDeployment(deleteId).catch((error) => showAlert(error.message));
+}
+
+async function loadAiDeploymentWorkspace() {
+  if (state.aiDeployments.loading) return;
+  state.aiDeployments.loading = true;
+  try {
+    const [items, agents] = await Promise.all([
+      window.deployerx.listAiDeployments(),
+      window.deployerx.listLocalAgents()
+    ]);
+    state.aiDeployments.items = items || [];
+    state.aiDeployments.agents = agents || [];
+    renderAiDeploymentFilters();
+    renderAiDeployments();
+  } finally {
+    state.aiDeployments.loading = false;
+  }
+}
+
+async function openAiDeploymentLocalFolderBrowser() {
+  const localPath = await window.deployerx.selectLocalFolder(els.aiDeploymentLocalPath.value.trim());
+  if (!localPath) return;
+  els.aiDeploymentLocalPath.value = localPath;
+  els.aiDeploymentLocalPath.removeAttribute('aria-invalid');
+  updateAiDeploymentSummary();
+}
+
+function showAiDeploymentFolderError(message = '') {
+  els.aiDeploymentFolderError.textContent = message;
+  els.aiDeploymentFolderError.classList.toggle('hidden', !message);
+}
+
+async function loadAiDeploymentFolder(path = '/') {
+  if (!state.aiDeployments.folderSessionId) return;
+  els.aiDeploymentFolderList.innerHTML = '<div class="settings-muted">Loading folders…</div>';
+  els.aiDeploymentFolderSelectButton.disabled = true;
+  showAiDeploymentFolderError();
+  try {
+    const result = await window.deployerx.ftpList({ sessionId: state.aiDeployments.folderSessionId, path });
+    state.aiDeployments.folderPath = result.path;
+    state.aiDeployments.folderParentPath = result.parentPath;
+    els.aiDeploymentFolderPath.textContent = result.path;
+    els.aiDeploymentFolderSelectButton.disabled = false;
+    els.aiDeploymentFolderUpButton.disabled = !result.parentPath || result.parentPath === result.path;
+    const folders = (result.items || []).filter((item) => item.type === 'directory');
+    els.aiDeploymentFolderList.innerHTML = folders.length
+      ? folders.map((folder) => `<button class="ai-deployment-folder-item" type="button" data-ai-deployment-folder="${escapeHtml(folder.path)}">${icon('folder-open')}<span>${escapeHtml(folder.name)}</span></button>`).join('')
+      : '<div class="ai-deployment-folder-empty">No subfolders. Select this folder or go up one level.</div>';
+  } catch (error) {
+    els.aiDeploymentFolderList.innerHTML = '';
+    els.aiDeploymentFolderSelectButton.disabled = true;
+    showAiDeploymentFolderError(error.message || 'Could not read this server folder.');
+  }
+}
+
+async function connectAiDeploymentFolderBrowser(project) {
+  const previousSessionId = state.aiDeployments.folderSessionId;
+  const sessionId = `ai-folder-${Date.now()}`;
+  state.aiDeployments.folderSessionId = sessionId;
+  if (previousSessionId) await window.deployerx.ftpDisconnect(previousSessionId).catch(() => {});
+  els.aiDeploymentFolderList.innerHTML = '<div class="settings-muted">Connecting to server…</div>';
+  els.aiDeploymentFolderSelectButton.disabled = true;
+  els.aiDeploymentFolderProtocol.disabled = true;
+  showAiDeploymentFolderError();
+  const result = await window.deployerx.ftpConnect({
+    sessionId,
+    project,
+    protocol: els.aiDeploymentFolderProtocol.value
+  });
+  els.aiDeploymentFolderProtocol.disabled = false;
+  if (!result.ok) {
+    showAiDeploymentFolderError(result.error?.message || 'Could not connect to the server folder browser.');
+    els.aiDeploymentFolderList.innerHTML = '';
+    return;
+  }
+  await loadAiDeploymentFolder(state.aiDeployments.folderPath);
+}
+
+async function openAiDeploymentRemoteFolderBrowser() {
+  const project = aiDeploymentProject(els.aiDeploymentProject.value);
+  if (!project) {
+    els.aiDeploymentProject.setAttribute('aria-invalid', 'true');
+    els.aiDeploymentProject.focus();
+    showAlert('Select a server before browsing its folders.');
+    return;
+  }
+  state.aiDeployments.folderPath = els.aiDeploymentRemotePath.value.trim() || '/';
+  state.aiDeployments.folderParentPath = '';
+  const hasSsh = Boolean(project.ssh?.host && project.ssh?.username);
+  const hasFtp = Boolean(project.ftp?.host && project.ftp?.username && project.ftp?.password);
+  els.aiDeploymentFolderProtocol.innerHTML = [
+    hasSsh ? '<option value="sftp">SFTP using SSH</option>' : '',
+    hasFtp ? '<option value="ftp">FTP using FTP details</option>' : ''
+  ].join('');
+  els.aiDeploymentFolderProtocol.value = hasSsh ? 'sftp' : 'ftp';
+  els.aiDeploymentFolderPath.textContent = state.aiDeployments.folderPath;
+  els.aiDeploymentFolderDialog.showModal();
+  await connectAiDeploymentFolderBrowser(project);
+}
+
+async function closeAiDeploymentRemoteFolderBrowser() {
+  const sessionId = state.aiDeployments.folderSessionId;
+  state.aiDeployments.folderSessionId = '';
+  if (els.aiDeploymentFolderDialog.open) els.aiDeploymentFolderDialog.close();
+  if (sessionId) await window.deployerx.ftpDisconnect(sessionId).catch(() => {});
 }
 
 function setProjectTab(tab) {
@@ -20687,7 +21453,7 @@ function setSidebarCollapsed(collapsed, { persist = true } = {}) {
 
 function syncSidebarForView(view = state.currentView) {
   if (els.sidebarToggleButton) els.sidebarToggleButton.disabled = false;
-  if (['profile', 'ssh-file', 'team'].includes(view)) {
+  if (['profile', 'ssh-file', 'team', 'ai-deployments'].includes(view)) {
     setSidebarCollapsed(true, { persist: false });
     return;
   }
@@ -20882,12 +21648,12 @@ function setTerminalSessionStatus(session, text, connected = session?.connected)
 
 function appendTerminalSessionOutput(session, data) {
   if (!session) {
-    terminal.write(data);
+    writeTerminalOutput(data);
     return;
   }
 
   session.output = `${session.output || ''}${String(data ?? '')}`.slice(-terminalReplayLimit);
-  if (isVisibleTerminalSession(session)) terminal.write(data);
+  if (isVisibleTerminalSession(session)) writeTerminalOutput(data, session);
 }
 
 function fitTerminal() {
@@ -26771,6 +27537,134 @@ async function emergencyStop() {
 }
 
 els.dashboardButton.addEventListener('click', () => showView('dashboard'));
+els.aiDeploymentsButton.addEventListener('click', () => {
+  state.aiDeployments.editingId = '';
+  els.aiDeploymentFormPage.classList.add('hidden');
+  els.aiDeploymentListPage.classList.remove('hidden');
+  showView('ai-deployments');
+});
+els.aiDeploymentStartButton.addEventListener('click', () => openAiDeploymentForm());
+els.aiDeploymentBackButton.addEventListener('click', closeAiDeploymentForm);
+els.aiDeploymentCancelButton.addEventListener('click', closeAiDeploymentForm);
+els.aiDeploymentForm.addEventListener('submit', submitAiDeployment);
+els.aiDeploymentBrowseButton.addEventListener('click', () => {
+  openAiDeploymentLocalFolderBrowser().catch((error) => showAlert(error.message || 'Could not open the local folder browser.'));
+});
+els.aiDeploymentRemoteBrowseButton.addEventListener('click', () => {
+  openAiDeploymentRemoteFolderBrowser().catch((error) => showAiDeploymentFolderError(error.message || 'Could not open the server folder browser.'));
+});
+els.aiDeploymentForm.addEventListener('input', (event) => {
+  if (event.target.matches('input, select, textarea')) event.target.removeAttribute('aria-invalid');
+  if ([els.aiDeploymentPrompt, els.aiDeploymentInstructions].includes(event.target)) els.aiDeploymentSavedPrompt.value = '';
+  updateAiDeploymentSummary();
+});
+els.aiDeploymentForm.addEventListener('change', updateAiDeploymentSummary);
+els.aiDeploymentSavedPrompt.addEventListener('change', () => {
+  const saved = state.aiDeployments.items.find((item) => item.id === els.aiDeploymentSavedPrompt.value);
+  els.aiDeploymentPrompt.value = saved?.prompt || '';
+  els.aiDeploymentInstructions.value = saved?.instructions || '';
+  updateAiDeploymentSummary();
+  els.aiDeploymentPrompt.focus();
+});
+els.aiDeploymentDeletePromptButton.addEventListener('click', deleteSelectedAiDeploymentPrompt);
+els.aiDeploymentClearPromptButton.addEventListener('click', () => {
+  els.aiDeploymentSavedPrompt.value = '';
+  els.aiDeploymentPrompt.value = '';
+  updateAiDeploymentSummary();
+  els.aiDeploymentPrompt.focus();
+});
+els.aiDeploymentClearInstructionsButton.addEventListener('click', () => {
+  els.aiDeploymentSavedPrompt.value = '';
+  els.aiDeploymentInstructions.value = '';
+  updateAiDeploymentSummary();
+  els.aiDeploymentInstructions.focus();
+});
+els.aiDeploymentFolderList.addEventListener('click', (event) => {
+  const folder = event.target.closest('[data-ai-deployment-folder]');
+  if (folder) loadAiDeploymentFolder(folder.dataset.aiDeploymentFolder);
+});
+els.aiDeploymentFolderUpButton.addEventListener('click', () => loadAiDeploymentFolder(state.aiDeployments.folderParentPath));
+els.aiDeploymentFolderProtocol.addEventListener('change', () => {
+  const project = aiDeploymentProject(els.aiDeploymentProject.value);
+  if (project) connectAiDeploymentFolderBrowser(project).catch((error) => showAiDeploymentFolderError(error.message || 'Could not connect to the server folder browser.'));
+});
+els.aiDeploymentFolderSelectButton.addEventListener('click', () => {
+  els.aiDeploymentRemotePath.value = state.aiDeployments.folderPath;
+  els.aiDeploymentRemotePath.removeAttribute('aria-invalid');
+  updateAiDeploymentSummary();
+  closeAiDeploymentRemoteFolderBrowser().finally(() => els.aiDeploymentRemotePath.focus());
+});
+els.aiDeploymentFolderCloseButton.addEventListener('click', closeAiDeploymentRemoteFolderBrowser);
+els.aiDeploymentFolderCancelButton.addEventListener('click', closeAiDeploymentRemoteFolderBrowser);
+els.aiDeploymentFolderDialog.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeAiDeploymentRemoteFolderBrowser();
+});
+els.aiDeploymentRunForm.addEventListener('submit', (event) => submitAiDeploymentRun(event).catch((error) => showAlert(error.message || 'Could not start deployment.')));
+els.aiDeploymentAttachFilesButton.addEventListener('click', () => attachAiDeploymentTemporaryFiles().catch((error) => showAlert(error.message || 'Could not attach temporary files.')));
+els.aiDeploymentTemporaryFilesList.addEventListener('click', (event) => {
+  const remove = event.target.closest('[data-ai-deployment-temp-file-remove]');
+  if (!remove) return;
+  state.aiDeployments.temporaryFiles.splice(Number(remove.dataset.aiDeploymentTempFileRemove), 1);
+  renderAiDeploymentTemporaryFiles();
+});
+els.aiDeploymentRunCloseButton.addEventListener('click', () => closeAiDeploymentRunDialog());
+els.aiDeploymentRunCancelButton.addEventListener('click', () => closeAiDeploymentRunDialog());
+els.aiDeploymentRunDialog.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeAiDeploymentRunDialog();
+});
+els.aiDeploymentLogCloseButton.addEventListener('click', closeAiDeploymentLog);
+els.aiDeploymentLogDoneButton.addEventListener('click', closeAiDeploymentLog);
+els.aiDeploymentLogHistory.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-ai-deployment-log-run]');
+  if (button) openAiDeploymentLogDetail(button.dataset.aiDeploymentLogRun);
+});
+els.aiDeploymentLogDialog.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeAiDeploymentLog();
+});
+els.aiDeploymentLogDetailCloseButton.addEventListener('click', closeAiDeploymentLogDetail);
+els.aiDeploymentLogDetailDoneButton.addEventListener('click', closeAiDeploymentLogDetail);
+els.aiDeploymentLogDetailDialog.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeAiDeploymentLogDetail();
+});
+els.aiDeploymentSearch.addEventListener('input', renderAiDeployments);
+els.aiDeploymentFilterButton.addEventListener('click', () => {
+  setAiDeploymentFilterPanelOpen(els.aiDeploymentFilterPanel.classList.contains('hidden'));
+});
+els.aiDeploymentFilterPanel.addEventListener('change', (event) => {
+  const checkbox = event.target instanceof HTMLInputElement ? event.target : null;
+  if (!checkbox) return;
+  const selected = checkbox.matches('[data-ai-deployment-server-filter]')
+    ? state.aiDeployments.serverFilters
+    : checkbox.matches('[data-ai-deployment-status-filter]')
+      ? state.aiDeployments.statusFilters
+      : null;
+  if (!selected) return;
+  if (checkbox.checked) selected.add(checkbox.value);
+  else selected.delete(checkbox.value);
+  renderAiDeploymentFilters();
+  renderAiDeployments();
+});
+els.aiDeploymentClearFiltersButton.addEventListener('click', () => {
+  state.aiDeployments.serverFilters.clear();
+  state.aiDeployments.statusFilters.clear();
+  renderAiDeploymentFilters();
+  renderAiDeployments();
+});
+document.addEventListener('click', (event) => {
+  if (!els.aiDeploymentFilterPanel.classList.contains('hidden') && !event.target.closest('.ai-deployment-filter-menu')) {
+    setAiDeploymentFilterPanelOpen(false);
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !els.aiDeploymentFilterPanel.classList.contains('hidden')) {
+    setAiDeploymentFilterPanelOpen(false, { restoreFocus: true });
+  }
+});
+els.aiDeploymentTableBody.addEventListener('click', handleAiDeploymentAction);
 els.serversButton.addEventListener('click', () => showView('servers'));
 els.topSshButton.addEventListener('click', openTopSshTerminal);
 els.serverMonitoringButton.addEventListener('click', () => showView('server-monitoring'));
@@ -26795,6 +27689,7 @@ document.addEventListener('keydown', (event) => {
     }
     return;
   }
+  if (state.rdpProtocol === 'vnc' && state.rdpStatus === 'connected' && els.vncCanvas.contains(event.target)) return;
   if (event.key === 'Escape' && state.rdpFullscreen) {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -29504,6 +30399,50 @@ window.deployerx?.onDeploymentEvent?.((event) => {
   }
 });
 
+window.deployerx?.onAiDeploymentEvent?.((event) => {
+  const payload = event.payload || {};
+  let deployment = payload.deployment;
+  if (deployment) {
+    const index = state.aiDeployments.items.findIndex((item) => item.id === deployment.id);
+    if (index >= 0) state.aiDeployments.items[index] = deployment;
+    else state.aiDeployments.items.unshift(deployment);
+  }
+
+  if (event.type === 'started') {
+    state.aiDeployments.runs.set(event.runId, deployment?.id || '');
+  } else if (event.type === 'done') {
+    state.aiDeployments.runs.delete(event.runId);
+    showToast(`${deployment?.name || 'Deployment'} completed. View its session for details.`);
+  } else if (event.type === 'failed') {
+    state.aiDeployments.runs.delete(event.runId);
+    showAlert(`${deployment?.name || 'Deployment'} failed. View its session for details.`);
+  }
+
+  deployment ||= state.aiDeployments.items.find((item) => item.id === payload.deploymentId);
+  const run = deployment?.runs?.find((item) => item.id === event.runId);
+  if (run && !payload.deployment) {
+    if (event.type === 'progress') Object.assign(run, { percent: payload.percent, message: payload.label });
+    if (event.type === 'session') run.sessionId = payload.sessionId;
+    if (event.type === 'log' || event.type === 'error') {
+      const line = `[${new Date().toISOString()}] ${payload.level || (event.type === 'error' ? 'ERROR' : 'AGENT')} ${String(payload.message || '').trimEnd()}`;
+      run.log = `${run.log || ''}\n${line}`.slice(-100000);
+    }
+    if (event.type === 'done' || event.type === 'failed') {
+      run.status = deployment.status = event.type === 'done' ? 'successful' : 'failed';
+      run.message = payload.message;
+    }
+  }
+  if (deployment?.id === state.aiDeployments.logDeploymentId) {
+    if (els.aiDeploymentLogDialog.open && ['started', 'done', 'failed'].includes(event.type)) renderAiDeploymentLog();
+    if (els.aiDeploymentLogDetailDialog.open && event.runId === state.aiDeployments.logRunId) renderAiDeploymentLogDetail();
+  }
+
+  if (['started', 'done', 'failed'].includes(event.type)) {
+    renderAiDeploymentFilters();
+    renderAiDeployments();
+  }
+});
+
 window.deployerx?.onVncEvent?.((event) => {
   if (event.type !== 'proxy-error' || state.rdpProtocol !== 'vnc' || state.rdpSessionId !== event.sessionId) return;
   const message = rdpMessage(event.message, 'The local VNC transport failed.');
@@ -29683,7 +30622,7 @@ window.deployerx?.onUptimeNavigate?.((target = {}) => {
 });
 
 terminal.open(els.terminal);
-terminal.write('Ready.\r\n');
+writeTerminalOutput('Ready.\r\n');
 requestAnimationFrame(fitTerminal);
 
 let terminalKeyboardSelection = null;
@@ -29806,6 +30745,13 @@ function handleTerminalKeyboardShortcut(event) {
 // Xterm's keyboard hook runs before its hidden textarea converts Ctrl+V to ^V.
 terminal.attachCustomKeyEventHandler((event) => !handleTerminalKeyboardShortcut(event));
 terminal.onData((data) => {
+  const outputSession = terminalWriteQueue[0]?.session;
+  if (isTerminalProtocolResponse(data) && outputSession) {
+    if (!outputSession.readOnly && outputSession.connected && outputSession.sessionId) {
+      sendTerminalInput(data, outputSession.sessionId).catch(() => {});
+    }
+    return;
+  }
   if (getTerminalSession()?.readOnly) return;
   if (data === '\x03') stopScriptQueue();
   sendTerminalInput(data).catch((error) => appendLog(error.message, 'error'));

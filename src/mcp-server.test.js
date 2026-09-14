@@ -113,6 +113,39 @@ test('MCP delegates SSH to DeployerX without exposing credentials and emits live
   assert.match(failed.result.content[0].text, /\[redacted\]/);
 });
 
+test('MCP contains repeated SSH errors during handshake-timeout cleanup', async () => {
+  const sockets = new Set();
+  const silentSshServer = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
+  await new Promise((resolve, reject) => {
+    silentSshServer.once('error', reject);
+    silentSshServer.listen(0, '127.0.0.1', resolve);
+  });
+  const port = silentSshServer.address().port;
+  const server = new DeployerXMcpServer({
+    getProjects: async () => [{
+      id: 'unresponsive-server',
+      name: 'Unresponsive server',
+      ssh: { host: '127.0.0.1', port, username: 'deploy', password: 'secret', timeout: 1000 }
+    }]
+  });
+
+  try {
+    const response = await server.handleRpc({
+      jsonrpc: '2.0', id: 25, method: 'tools/call',
+      params: { name: 'deployerx_get_server_metrics', arguments: { server_id: 'unresponsive-server' } }
+    });
+    assert.equal(response.result.isError, true);
+    assert.match(response.result.content[0].text, /handshake/i);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => silentSshServer.close(resolve));
+  }
+});
+
 test('MCP Streamable HTTP sends progress and the final tool result as SSE events', async () => {
   const port = await availablePort();
   const server = new DeployerXMcpServer({
@@ -272,6 +305,17 @@ test('desktop restart preserves the MCP token and retries the listener handoff',
   assert.match(disconnect, /tokenEncrypted: current\.tokenEncrypted/);
   assert.doesNotMatch(disconnect, /fs\.rm\(getMcpTokenPath/);
   assert.doesNotMatch(tokenLoader, /catch \(error\)[\s\S]*createMcpToken/);
+});
+
+test('Windows keeps MCP and uptime worker startup entries independent', () => {
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+  const mcpAutostart = main.match(/async function setMcpAutostartEnabled\(enabled\) \{[\s\S]*?\n\}/)?.[0] || '';
+  const workerAutostart = main.match(/async function ensureWorkerAutostartEnabled\(\) \{[\s\S]*?\n\}/)?.[0] || '';
+
+  assert.match(mcpAutostart, /name: process\.platform === 'win32' \? MCP_LOGIN_ITEM_NAME/);
+  assert.match(workerAutostart, /name: process\.platform === 'win32' \? UPTIME_WORKER_LOGIN_ITEM_NAME/);
+  assert.match(mcpAutostart, /getLoginItemSettings\(\{ path: loginItem\.path, args: loginItem\.args \}\)/);
+  assert.match(workerAutostart, /getLoginItemSettings\(\{ path: loginItem\.path, args: loginItem\.args \}\)/);
 });
 
 test('MCP documentation uses a directional disclosure chevron', () => {

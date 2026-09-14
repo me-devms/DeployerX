@@ -69,7 +69,7 @@ test('normalizes legacy and multiple FTP users while mirroring the default user'
   assert.equal(multiple.privateKey, 'private-key');
 });
 
-test('uses direct FTP credentials for port 21 and SSH credentials for SFTP', async () => {
+test('prioritizes SSH for SFTP and allows explicit FTP credentials', async () => {
   const main = await fs.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
   const source = `${readFunction(main, 'normalizedConnectionPort')}\n${readFunction(main, 'isPlainFtpPort')}\n${readFunction(main, 'toFtpConnectionConfig')}\nthis.toFtpConnectionConfig = toFtpConnectionConfig;`;
   const context = {};
@@ -94,11 +94,19 @@ test('uses direct FTP credentials for port 21 and SSH credentials for SFTP', asy
     }
   });
 
-  assert.equal(config.protocol, 'ftp');
-  assert.equal(config.host, 'ftp.example.test');
-  assert.equal(config.port, 21);
-  assert.equal(config.user, 'ftp-user');
-  assert.equal(config.password, 'ftp-secret');
+  assert.equal(config.protocol, 'sftp');
+  assert.equal(config.host, 'ssh.example.test');
+  assert.equal(config.port, 22);
+  assert.equal(config.username, 'root');
+  assert.equal(config.password, 'ssh-secret');
+
+  const explicitFtpConfig = toFtpConnectionConfig({
+    ssh: { host: 'ssh.example.test', port: 22, username: 'root', password: 'ssh-secret' },
+    ftp: { host: 'ftp.example.test', port: 21, username: 'ftp-user', password: 'ftp-secret' }
+  }, 'ftp');
+  assert.equal(explicitFtpConfig.protocol, 'ftp');
+  assert.equal(explicitFtpConfig.host, 'ftp.example.test');
+  assert.equal(explicitFtpConfig.user, 'ftp-user');
 
   const ftpOnlyConfig = toFtpConnectionConfig({
     ssh: {},

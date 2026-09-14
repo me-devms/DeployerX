@@ -63,6 +63,17 @@ contextBridge.exposeInMainWorld('deployerx', {
   disconnectMcpClient: (clientId) => ipcRenderer.invoke('mcp-integration:disconnect-client', String(clientId || '')),
   connectAllMcpClients: () => ipcRenderer.invoke('mcp-integration:connect-all'),
   disconnectMcpIntegration: () => ipcRenderer.invoke('mcp-integration:disconnect'),
+  listAiDeployments: () => ipcRenderer.invoke('ai-deployments:list'),
+  listLocalAgents: () => ipcRenderer.invoke('ai-deployments:agents'),
+  saveAiDeployment: (payload) => ipcRenderer.invoke('ai-deployments:save', payload),
+  deleteAiDeployment: (id) => ipcRenderer.invoke('ai-deployments:delete', String(id || '')),
+  runAiDeployment: (id, options = {}) => ipcRenderer.invoke('ai-deployments:run', {
+    id: String(id || ''),
+    temporaryPrompt: String(options.temporaryPrompt || ''),
+    temporaryFiles: Array.isArray(options.temporaryFiles) ? options.temporaryFiles.map(String) : []
+  }),
+  selectAiDeploymentTemporaryFiles: () => ipcRenderer.invoke('ai-deployments:select-temporary-files'),
+  stopAiDeployment: (runId) => ipcRenderer.invoke('ai-deployments:stop', String(runId || '')),
   setSetupMode: (mode) => ipcRenderer.invoke('setup:setMode', mode),
   selectFirebaseConfig: () => ipcRenderer.invoke('setup:select-firebase-config'),
   register: (payload) => ipcRenderer.invoke('auth:register', payload),
@@ -94,6 +105,22 @@ contextBridge.exposeInMainWorld('deployerx', {
   stopRdp: (sessionId) => ipcRenderer.invoke('rdp:stop', sessionId),
   startVnc: (payload) => ipcRenderer.invoke('vnc:start', payload),
   stopVnc: (sessionId) => ipcRenderer.invoke('vnc:stop', sessionId),
+  setVncKeyboardFocus: (enabled) => ipcRenderer.send('vnc:keyboard-focus', Boolean(enabled)),
+  openVncDownload: (name) => ipcRenderer.invoke('vnc:download-open', name),
+  readVncFile: (id, offset, length) => ipcRenderer.invoke('vnc:file-read', id, offset, length),
+  writeVncFile: (id, bytes) => ipcRenderer.invoke('vnc:file-write', id, bytes),
+  finishVncFile: (id, commit = false) => ipcRenderer.invoke('vnc:file-finish', id, commit),
+  readVncClipboardFiles: () => ipcRenderer.invoke('vnc:clipboard-files'),
+  onVncKey: (callback) => {
+    const handler = (_event, key) => callback(key);
+    ipcRenderer.on('vnc:key', handler);
+    return () => ipcRenderer.removeListener('vnc:key', handler);
+  },
+  onVncKeyboardError: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('vnc:keyboard-error', handler);
+    return () => ipcRenderer.removeListener('vnc:keyboard-error', handler);
+  },
   setVncFullscreen: (payload) => ipcRenderer.invoke('vnc:fullscreen', payload),
   setServerMonitoringFullscreen: (payload) => ipcRenderer.invoke('server-monitoring:fullscreen', payload),
   exportAccount: () => ipcRenderer.invoke('account:export'),
@@ -569,6 +596,11 @@ contextBridge.exposeInMainWorld('deployerx', {
     const handler = (_event, message) => callback(message);
     ipcRenderer.on('deployment:event', handler);
     return () => ipcRenderer.removeListener('deployment:event', handler);
+  },
+  onAiDeploymentEvent: (callback) => {
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on('ai-deployment:event', handler);
+    return () => ipcRenderer.removeListener('ai-deployment:event', handler);
   },
   onTerminalEvent: (callback) => {
     const handler = (_event, message) => callback(message);

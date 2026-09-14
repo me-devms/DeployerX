@@ -32,7 +32,8 @@ test('keeps the VNC surface mounted and resizes it after native fullscreen settl
     main.indexOf('function transitionMainWindowFullscreen(enabled)'),
     main.indexOf("ipcMain.handle('backup:secrets:list'")
   );
-  assert.match(transition, /window\.once\(eventName, finish\)/);
+  assert.match(transition, /const handleTransition = \(\) => finish\(true\)/);
+  assert.match(transition, /window\.once\(eventName, handleTransition\)/);
   assert.match(transition, /window\.setFullScreen\(enabled\)[\s\S]*\[0, 220, 650\]/);
   assert.match(transition, /await transitionMainWindowFullscreen\(false\)/);
   assert.match(transition, /const fullscreen = await transitionMainWindowFullscreen\(true\)/);

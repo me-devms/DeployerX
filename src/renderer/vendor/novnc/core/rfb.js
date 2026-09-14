@@ -21,6 +21,7 @@ import Keyboard from "./input/keyboard.js";
 import GestureHandler from "./input/gesturehandler.js";
 import Cursor from "./util/cursor.js";
 import Websock from "./websock.js";
+import { VncFileTransfer } from '../../../vnc-file-transfer.mjs';
 import KeyTable from "./input/keysym.js";
 import XtScancode from "./input/xtscancodes.js";
 import { encodings } from "./encodings.js";
@@ -529,6 +530,19 @@ export default class RFB extends EventTargetMixin {
         this._canvas.blur();
     }
 
+    releaseKeys() {
+        this._keyboard._allKeysUp();
+    }
+
+    sendPaste() {
+        this._keyboard._interruptAltGrSequence();
+        const held = this._keyboard._keyDownList;
+        const controlHeld = 'ControlLeft' in held || 'ControlRight' in held;
+        if (!controlHeld) this.sendKey(KeyTable.XK_Control_L, 'ControlLeft', true);
+        this.sendKey(0x76, 'KeyV');
+        if (!controlHeld) this.sendKey(KeyTable.XK_Control_L, 'ControlLeft', false);
+    }
+
     clipboardPasteFrom(text) {
         if (this._rfbConnectionState !== 'connected' || this._viewOnly) { return; }
 
@@ -644,6 +658,7 @@ export default class RFB extends EventTargetMixin {
     }
 
     _disconnect() {
+        this.fileTransfer?.close();
         Log.Debug(">> RFB.disconnect");
         this._cursor.detach();
         this._canvas.removeEventListener("gesturestart", this._eventHandlers.handleGesture);
@@ -1637,6 +1652,10 @@ export default class RFB extends EventTargetMixin {
                 }
             }
 
+            // Tight authentication also negotiates file transfer capabilities.
+            if ([securityTypeNone, securityTypeVNCAuth].includes(this._rfbAuthScheme) && types.includes(securityTypeTight)) {
+                this._rfbAuthScheme = securityTypeTight;
+            }
             if (this._rfbAuthScheme === -1) {
                 return this._fail("Unsupported security types (types: " + types + ")");
             }
@@ -2227,14 +2246,13 @@ export default class RFB extends EventTargetMixin {
             const totalMessagesLength = (numServerMessages + numClientMessages + numEncodings) * 16;
             if (this._sock.rQwait('TightVNC extended server init header', totalMessagesLength, 32 + nameLength)) { return false; }
 
-            // we don't actually do anything with the capability information that TIGHT sends,
-            // so we just skip the all of this.
-
-            // TIGHT server message capabilities
-            this._sock.rQskipBytes(16 * numServerMessages);
-
-            // TIGHT client message capabilities
-            this._sock.rQskipBytes(16 * numClientMessages);
+            this.fileTransfer = new VncFileTransfer(this._sock, (message) => this._fail(message));
+            for (let i = 0; i < numServerMessages + numClientMessages; i++) {
+                const code = this._sock.rQshift32();
+                const vendor = this._sock.rQshiftStr(4);
+                const signature = this._sock.rQshiftStr(8);
+                if (vendor === 'TGHT' && signature.startsWith('FT')) this.fileTransfer.capabilities.add(code);
+            }
 
             // TIGHT encoding capabilities
             this._sock.rQskipBytes(16 * numEncodings);
@@ -2654,6 +2672,14 @@ export default class RFB extends EventTargetMixin {
 
             case 250:  // XVP
                 return this._handleXvpMsg();
+
+            case 252: // TightVNC 2.x file transfer
+                try {
+                    if (!this.fileTransfer?.supported) return this._fail('Unnegotiated file transfer message.');
+                    return this.fileTransfer.receive();
+                } catch (error) {
+                    return this._fail(error.message);
+                }
 
             default:
                 this._fail("Unexpected server message (type " + msgType + ")");

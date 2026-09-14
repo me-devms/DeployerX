@@ -466,15 +466,19 @@ function connectionConfig(project, useSftp = false) {
 function connect(project, useSftp = false) {
   return new Promise((resolve, reject) => {
     const client = new Client();
+    let settled = false;
     const fail = (error) => {
+      if (settled) return;
+      settled = true;
       client.end();
       reject(error);
     };
     client.once('ready', () => {
-      client.removeListener('error', fail);
+      if (settled) return;
+      settled = true;
       resolve(client);
     });
-    client.once('error', fail);
+    client.on('error', fail);
     client.connect(connectionConfig(project, useSftp));
   });
 }

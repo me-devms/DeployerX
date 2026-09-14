@@ -1,5 +1,6 @@
 import RFB from './vendor/novnc/core/rfb.js';
 import { resolveVncDisplays } from './vnc-display-layout.mjs';
+import { attachVncFiles } from './vnc-files-ui.mjs';
 
 const VNC_HANDSHAKE_TIMEOUT_MS = 12000;
 
@@ -16,8 +17,9 @@ function securityFailureMessage(event) {
 }
 
 class VncClient {
-  constructor({ target, readClipboard, writeClipboard, onConnected, onEnded, onEscape, onDisplaysChanged }) {
+  constructor({ target, readClipboard, writeClipboard, onConnected, onEnded, onEscape, onDisplaysChanged, isActive = () => true }) {
     this.target = target;
+    this.isActive = isActive;
     this.readClipboard = readClipboard;
     this.writeClipboard = writeClipboard;
     this.onConnected = onConnected;
@@ -37,6 +39,9 @@ class VncClient {
     this.handleMouseDown = this.handleMouseDown.bind(this);
     this.lastClipboardText = '';
     this.hasSyncedLocalClipboard = false;
+    this.syncKeyboardFocus = this.syncKeyboardFocus.bind(this);
+    this.keyboardFocused = false;
+    this.nativeKeys = new Map();
   }
 
   async connect({ proxyUrl, username = '', password = '' }) {
@@ -84,6 +89,9 @@ class VncClient {
     rfb.addEventListener('connect', () => {
       if (this.rfb !== rfb) return;
       this.clearConnectionTimer();
+      this.filePanel = attachVncFiles(this);
+      this.connected = true;
+      this.syncKeyboardFocus();
       this.syncLocalClipboard();
       this.onConnected?.();
     });
@@ -100,6 +108,17 @@ class VncClient {
       }
     });
     window.addEventListener('keydown', this.handleKeyDown, true);
+    window.addEventListener('focus', this.syncKeyboardFocus);
+    window.addEventListener('blur', this.syncKeyboardFocus);
+    document.addEventListener('focusin', this.syncKeyboardFocus);
+    document.addEventListener('focusout', this.syncKeyboardFocus);
+    this.keyboardTimer = setInterval(this.syncKeyboardFocus, 250);
+    this.removeNativeKeyListener = window.deployerx?.onVncKey?.((key) => {
+      if (!this.rfb || (key.down && (!this.keyboardFocused || !this.isActive()))) return;
+      if (key.down) this.nativeKeys.set(key.code, key.keysym);
+      else this.nativeKeys.delete(key.code);
+      this.rfb.sendKey(key.keysym, key.code, key.down);
+    });
     this.target.addEventListener('paste', this.handlePaste);
     this.target.addEventListener('mousedown', this.handleMouseDown, true);
     this.connectionTimer = setTimeout(() => {
@@ -109,11 +128,44 @@ class VncClient {
   }
 
   handleKeyDown(event) {
-    const remoteFocused = this.target === document.activeElement || this.target.contains(document.activeElement);
-    if (remoteFocused && (event.ctrlKey || event.metaKey) && event.code === 'KeyV') this.syncLocalClipboard();
-    if (event.key !== 'Escape' || !this.onEscape?.()) return;
+    const remoteFocused = this.isActive() && (this.target === document.activeElement || this.target.contains(document.activeElement));
+    const pasteShortcut = event.code === 'KeyV' && !event.altKey && !event.shiftKey &&
+      (event.ctrlKey || (event.metaKey && /Mac/.test(navigator.platform)));
+    if (remoteFocused && pasteShortcut) {
+      if (this.filePanel) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!event.repeat && !this.pastePending) {
+          this.pastePending = true;
+          const rfb = this.rfb;
+          this.filePanel.pasteClipboard().then((handled) => {
+            if (handled || this.rfb !== rfb) return;
+            this.syncLocalClipboard();
+            rfb.sendPaste();
+          }).catch((error) => this.filePanel?.report(error)).finally(() => { this.pastePending = false; });
+        }
+        return;
+      }
+      this.syncLocalClipboard();
+    }
+    if (!remoteFocused || event.key !== 'F12' || !event.ctrlKey || !event.altKey || !event.shiftKey || !this.onEscape?.()) return;
+    this.rfb?.releaseKeys();
     event.preventDefault();
     event.stopImmediatePropagation();
+  }
+
+  syncKeyboardFocus() {
+    const visible = this.isActive() && this.target.getClientRects().length > 0;
+    this.filePanel?.setVisible(visible);
+    const focused = Boolean(this.connected && this.rfb && visible && document.hasFocus() &&
+      (this.target === document.activeElement || this.target.contains(document.activeElement)));
+    if (!focused && this.keyboardFocused) {
+      this.rfb?.releaseKeys();
+      for (const [code, keysym] of this.nativeKeys) this.rfb?.sendKey(keysym, code, false);
+      this.nativeKeys.clear();
+    }
+    this.keyboardFocused = focused;
+    window.deployerx?.setVncKeyboardFocus?.(focused);
   }
 
   syncLocalClipboard() {
@@ -192,6 +244,19 @@ class VncClient {
   }
 
   removeInputListeners() {
+    this.connected = false;
+    this.filePanel?.dispose();
+    this.filePanel = null;
+    clearInterval(this.keyboardTimer);
+    window.removeEventListener('focus', this.syncKeyboardFocus);
+    window.removeEventListener('blur', this.syncKeyboardFocus);
+    document.removeEventListener('focusin', this.syncKeyboardFocus);
+    document.removeEventListener('focusout', this.syncKeyboardFocus);
+    window.deployerx?.setVncKeyboardFocus?.(false);
+    this.removeNativeKeyListener?.();
+    this.removeNativeKeyListener = null;
+    this.keyboardFocused = false;
+    this.nativeKeys.clear();
     window.removeEventListener('keydown', this.handleKeyDown, true);
     this.target.removeEventListener('paste', this.handlePaste);
     this.target.removeEventListener('mousedown', this.handleMouseDown, true);
