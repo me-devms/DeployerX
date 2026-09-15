@@ -47,6 +47,11 @@
         <path d="m8 13 4-4 4 4" />
         <path d="M4 3h16" />
       </symbol>
+      <symbol id="icon-layers" viewBox="0 0 24 24">
+        <path d="m12 2 9 5-9 5-9-5 9-5Z" />
+        <path d="m3 12 9 5 9-5" />
+        <path d="m3 17 9 5 9-5" />
+      </symbol>
       <symbol id="icon-folder-plus" viewBox="0 0 24 24">
         <path d="M3 8a3 3 0 0 1 3-3h3l2 2h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8Z" />
         <path d="M12 11v6" />
@@ -339,12 +344,6 @@
             </svg>
             <span>Overview</span>
           </button>
-          <button id="aiDeploymentsButton" class="top-nav-action" type="button">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <use href="#icon-rocket"></use>
-            </svg>
-            <span>Deployment</span>
-          </button>
           <button id="serversButton" class="top-nav-action" type="button">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <use href="#icon-server"></use>
@@ -356,6 +355,12 @@
               <use href="#icon-square-terminal"></use>
             </svg>
             <span>SSH</span>
+          </button>
+          <button id="aiDeploymentsButton" class="top-nav-action" type="button">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <use href="#icon-layers"></use>
+            </svg>
+            <span>Deployment</span>
           </button>
           <button id="serverMonitoringButton" class="top-nav-action" type="button">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -953,11 +958,16 @@
 
                 <div class="field ai-deployment-source-picker">
                   <label for="aiDeploymentSourceType">Source <span aria-hidden="true">*</span></label>
-                  <select id="aiDeploymentSourceType" required aria-describedby="aiDeploymentSourceTypeHint">
-                    <option value="local">This PC</option>
-                    <option value="github">GitHub repository</option>
-                  </select>
+                  <div class="ai-deployment-source-actions">
+                    <select id="aiDeploymentSourceType" required aria-describedby="aiDeploymentSourceTypeHint">
+                      <option value="local">This PC</option>
+                      <option value="github">GitHub repository</option>
+                    </select>
+                    <button id="aiDeploymentFetchRepositoriesButton" class="button outline hidden" type="button">Fetch all repositories</button>
+                    <button id="aiDeploymentReconnectGithubButton" class="button outline hidden" type="button">Reconnect GitHub</button>
+                  </div>
                   <small id="aiDeploymentSourceTypeHint">Choose where DeployerX gets project files.</small>
+                  <small id="aiDeploymentRepositoriesStatus" class="hidden" role="status"></small>
                 </div>
 
                 <div class="ai-deployment-field-grid">
@@ -2219,7 +2229,7 @@
                 <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <use href="#icon-users"></use>
                 </svg>
-                Members
+                Users &amp; Permissions
               </button>
               <button class="settings-nav-item" type="button" data-settings-tab="notifications"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-bell"></use></svg>Notifications</button>
               <button class="settings-nav-item" type="button" data-settings-tab="monitoring"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-rocket"></use></svg>Monitoring</button>
@@ -2349,43 +2359,29 @@
 
               <section id="settingsMembersPanel" class="settings-panel" data-settings-panel="members">
                 <div class="settings-panel-body gated-settings-panel">
-                  <div id="memberInviteCard" class="settings-card">
-                    <h2>Invite Member</h2>
-                    <form id="inviteMemberForm" class="settings-invite-row">
-                      <div id="inviteRoleDropdown" class="top-workspace-switcher invite-role-switcher">
-                        <select id="inviteRoleSelect" class="hidden" tabindex="-1" aria-hidden="true">
-                          <option value="member">Member</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                        <button
-                          id="inviteRoleButton"
-                          class="workspace-switcher-trigger"
-                          type="button"
-                          aria-label="Permission: Member"
-                          aria-haspopup="listbox"
-                          aria-expanded="false"
-                          aria-controls="inviteRoleMenu"
-                        >
-                          <span class="workspace-switcher-icon" aria-hidden="true">
-                            <svg class="button-icon" viewBox="0 0 24 24" focusable="false">
-                              <use href="#icon-users"></use>
-                            </svg>
-                          </span>
-                          <span id="inviteRoleLabel" class="workspace-switcher-label">Member</span>
-                          <span class="workspace-switcher-chevron" aria-hidden="true"></span>
-                        </button>
-                        <div id="inviteRoleMenu" class="workspace-switcher-menu hidden" role="listbox" aria-label="Choose permission"></div>
-                      </div>
-                      <input id="inviteEmail" type="email" autocomplete="off" placeholder="user@company.com" />
-                      <button class="button solid" type="submit">Invite</button>
-                    </form>
-                  </div>
+                  <header class="workspace-users-header">
+                    <div>
+                      <h2>Users &amp; Permissions</h2>
+                      <p>Control workspace roles, server access, and command access.</p>
+                    </div>
+                    <button id="addWorkspaceUserButton" class="button solid" type="button">
+                      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>
+                      Add User
+                    </button>
+                  </header>
+                  <div id="workspaceUserPermissionNotice" class="workspace-access-notice hidden" role="status"></div>
                   <div class="settings-card">
                     <h2>Invites sent to me</h2>
                     <div id="memberIncomingInvitesList" class="team-list" data-incoming-invites-list></div>
                   </div>
-                  <div class="settings-card">
-                    <div id="teamMembersList" class="team-list"></div>
+                  <div class="settings-card workspace-users-table-card">
+                    <div class="workspace-table-heading"><div><h2>Workspace Users</h2><p class="settings-muted">Manage roles and access from one place.</p></div><span id="workspaceUserCount" class="team-role-pill">0 users</span></div>
+                    <div class="workspace-users-table-wrap">
+                      <table class="uptime-table workspace-users-table">
+                        <thead><tr><th>User</th><th>Role</th><th>Modules</th><th>Servers</th><th>Status</th><th class="workspace-user-actions-column">Actions</th></tr></thead>
+                        <tbody id="teamMembersList"></tbody>
+                      </table>
+                    </div>
                   </div>
                   <div id="sentInvitesCard" class="settings-card">
                     <h2>Invites you sent</h2>
@@ -3169,6 +3165,60 @@ tool_timeout_sec = 300</pre>
             </svg>
             Create
           </button>
+        </footer>
+      </form>
+    </div>
+
+    <div id="addWorkspaceUserModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="addWorkspaceUserTitle">
+      <div class="modal-backdrop"></div>
+      <form id="addWorkspaceUserForm" class="modal-card workspace-user-modal-card" novalidate>
+        <header class="modal-header">
+          <div>
+            <h2 id="addWorkspaceUserTitle">Add User</h2>
+            <p id="addWorkspaceUserStepCopy">Choose how to add this user.</p>
+          </div>
+          <button id="addWorkspaceUserCloseButton" class="icon-button" type="button" aria-label="Close">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg>
+          </button>
+        </header>
+        <div class="workspace-user-stepper" aria-label="Add user progress">
+          <span data-add-user-step-indicator="1" class="active">1 <small>Method</small></span>
+          <span data-add-user-step-indicator="2">2 <small>Details</small></span>
+          <span data-add-user-step-indicator="3">3 <small>Access</small></span>
+          <span data-add-user-step-indicator="4">4 <small>Review</small></span>
+        </div>
+        <div class="modal-body workspace-user-modal-body">
+          <div id="addWorkspaceUserError" class="form-error hidden" role="alert" tabindex="-1"></div>
+          <section data-add-user-step="1" class="workspace-user-wizard-step">
+            <fieldset class="workspace-user-methods"><legend>How do you want to add the user?</legend>
+              <label class="workspace-user-method-option"><input id="addWorkspaceUserMethodInvite" type="radio" name="addWorkspaceUserMethod" value="invite" checked /><span><strong>Invite User</strong><small>User receives an invitation and creates a password.</small></span></label>
+              <label class="workspace-user-method-option"><input id="addWorkspaceUserMethodCreate" type="radio" name="addWorkspaceUserMethod" value="create" /><span><strong>Create User</strong><small>Create an account using name, email, and temporary password.</small></span></label>
+            </fieldset>
+          </section>
+          <section data-add-user-step="2" class="workspace-user-wizard-step hidden">
+            <div class="workspace-user-fields">
+              <label id="addWorkspaceUserNameField" class="field hidden"><span>Name</span><input id="addWorkspaceUserName" type="text" autocomplete="off" placeholder="User name" /></label>
+              <label class="field"><span>Email</span><input id="addWorkspaceUserEmail" type="email" autocomplete="off" placeholder="user@company.com" required /></label>
+              <label id="addWorkspaceUserPasswordField" class="field hidden"><span>Temporary password</span><input id="addWorkspaceUserPassword" type="password" autocomplete="new-password" minlength="6" /></label>
+            </div>
+          </section>
+          <section data-add-user-step="3" class="workspace-user-wizard-step hidden">
+            <label class="field"><span>Role</span><select id="addWorkspaceUserRole"><option value="member">Member</option><option value="admin">Admin</option></select></label>
+            <fieldset class="workspace-permission-fieldset"><legend>Permissions</legend><div id="addWorkspaceUserPermissions" class="workspace-permission-grid"></div></fieldset>
+            <div class="workspace-access-scope-grid">
+              <fieldset class="workspace-permission-fieldset"><legend>Visible modules</legend><label class="workspace-scope-all"><input id="addWorkspaceUserAllModules" type="checkbox" checked />All modules</label><div id="addWorkspaceUserModules" class="workspace-scope-options"></div></fieldset>
+              <fieldset class="workspace-permission-fieldset"><legend>Visible servers</legend><label class="workspace-scope-all"><input id="addWorkspaceUserAllServers" type="checkbox" checked />All servers</label><div id="addWorkspaceUserServers" class="workspace-scope-options"></div></fieldset>
+            </div>
+            <label class="field"><span>Blocked saved commands</span><textarea id="addWorkspaceUserBlockedCommands" rows="3" placeholder="sudo docker system prune"></textarea><small>One exact command per line. Remove interactive terminal permission to prevent shell bypass.</small></label>
+          </section>
+          <section data-add-user-step="4" class="workspace-user-wizard-step hidden"><div id="addWorkspaceUserReview" class="workspace-user-review"></div></section>
+        </div>
+        <footer class="modal-footer workspace-user-modal-footer">
+          <button id="addWorkspaceUserCancelButton" class="button outline" type="button">Cancel</button>
+          <span class="modal-spacer"></span>
+          <button id="addWorkspaceUserBackButton" class="button outline hidden" type="button">Back</button>
+          <button id="addWorkspaceUserNextButton" class="button solid" type="button">Next</button>
+          <button id="addWorkspaceUserSubmitButton" class="button solid hidden" type="submit">Send Invite</button>
         </footer>
       </form>
     </div>

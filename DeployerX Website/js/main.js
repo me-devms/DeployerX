@@ -31,39 +31,39 @@
   ];
 
   const releaseFallback = {
-    tag: 'v0.2.9',
-    releaseName: 'DeployerX 0.2.9',
-    releaseDate: '2026-09-14',
-    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.9',
-    body: `## What's new in v0.2.9\n\n- Adds GitHub repositories as deployment sources with encrypted local token storage.\n- Adds automatic deployments when a selected GitHub branch receives a new commit.\n- Adds repository and branch selection throughout deployment setup, summaries, and run logs.`,
+    tag: 'v0.2.10',
+    releaseName: 'DeployerX 0.2.10',
+    releaseDate: '2026-09-15',
+    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.10',
+    body: `## What's new in v0.2.10\n\n- Adds granular workspace permissions, module visibility, server access, and blocked-command policies.\n- Adds guided workspace user creation and invitation flows with access review and audit controls.\n- Keeps encrypted GitHub credentials available across restarts and improves repository reconnect and fetch states.\n- Refines Deployment navigation and hides the VNC files-and-keys launcher.`,
     assets: {
       'windows-portable': {
-        name: 'DeployerX-0.2.9-Portable-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-Portable-x64.exe'
+        name: 'DeployerX-0.2.10-Portable-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.10/DeployerX-0.2.10-Portable-x64.exe'
       },
       'windows-setup': {
-        name: 'DeployerX-0.2.9-Setup-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-Setup-x64.exe'
+        name: 'DeployerX-0.2.10-Setup-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.10/DeployerX-0.2.10-Setup-x64.exe'
       },
       'mac-arm64': {
-        name: 'DeployerX-0.2.9-arm64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-arm64.dmg'
+        name: 'DeployerX-0.2.10-arm64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.10/DeployerX-0.2.10-arm64.dmg'
       },
       'mac-x64': {
-        name: 'DeployerX-0.2.9-x64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-x64.dmg'
+        name: 'DeployerX-0.2.10-x64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.10/DeployerX-0.2.10-x64.dmg'
       },
       'linux-appimage': {
-        name: 'DeployerX-0.2.9-x86_64.AppImage',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-x86_64.AppImage'
+        name: 'DeployerX-0.2.10-x86_64.AppImage',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.10/DeployerX-0.2.10-x86_64.AppImage'
       },
       'linux-deb': {
-        name: 'DeployerX-0.2.9-amd64.deb',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-amd64.deb'
+        name: 'DeployerX-0.2.10-amd64.deb',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.10/DeployerX-0.2.10-amd64.deb'
       },
       'linux-rpm': {
-        name: 'DeployerX-0.2.9-x86_64.rpm',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.9/DeployerX-0.2.9-x86_64.rpm'
+        name: 'DeployerX-0.2.10-x86_64.rpm',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.10/DeployerX-0.2.10-x86_64.rpm'
       }
     }
   };

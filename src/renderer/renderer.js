@@ -429,6 +429,8 @@ const state = {
     members: [],
     teamInvites: [],
     invites: [],
+    permissionCatalog: [],
+    moduleCatalog: [],
     unlocked: false,
     cloudError: ''
   },
@@ -3124,6 +3126,9 @@ const els = {
   aiDeploymentFormError: document.getElementById('aiDeploymentFormError'),
   aiDeploymentProject: document.getElementById('aiDeploymentProject'),
   aiDeploymentSourceType: document.getElementById('aiDeploymentSourceType'),
+  aiDeploymentFetchRepositoriesButton: document.getElementById('aiDeploymentFetchRepositoriesButton'),
+  aiDeploymentReconnectGithubButton: document.getElementById('aiDeploymentReconnectGithubButton'),
+  aiDeploymentRepositoriesStatus: document.getElementById('aiDeploymentRepositoriesStatus'),
   aiDeploymentLocalSourceField: document.getElementById('aiDeploymentLocalSourceField'),
   aiDeploymentLocalPath: document.getElementById('aiDeploymentLocalPath'),
   aiDeploymentBrowseButton: document.getElementById('aiDeploymentBrowseButton'),
@@ -3992,16 +3997,37 @@ const els = {
   switchTeamButton: document.getElementById('switchTeamButton'),
   openCreateTeamButton: document.getElementById('openCreateTeamButton'),
   importLocalToCloudButton: document.getElementById('importLocalToCloudButton'),
-  memberInviteCard: document.getElementById('memberInviteCard'),
+  workspaceUserPermissionNotice: document.getElementById('workspaceUserPermissionNotice'),
+  addWorkspaceUserButton: document.getElementById('addWorkspaceUserButton'),
+  addWorkspaceUserModal: document.getElementById('addWorkspaceUserModal'),
+  addWorkspaceUserForm: document.getElementById('addWorkspaceUserForm'),
+  addWorkspaceUserCloseButton: document.getElementById('addWorkspaceUserCloseButton'),
+  addWorkspaceUserCancelButton: document.getElementById('addWorkspaceUserCancelButton'),
+  addWorkspaceUserBackButton: document.getElementById('addWorkspaceUserBackButton'),
+  addWorkspaceUserNextButton: document.getElementById('addWorkspaceUserNextButton'),
+  addWorkspaceUserSubmitButton: document.getElementById('addWorkspaceUserSubmitButton'),
+  addWorkspaceUserStepCopy: document.getElementById('addWorkspaceUserStepCopy'),
+  addWorkspaceUserSteps: document.querySelectorAll('[data-add-user-step]'),
+  addWorkspaceUserStepIndicators: document.querySelectorAll('[data-add-user-step-indicator]'),
+  addWorkspaceUserError: document.getElementById('addWorkspaceUserError'),
+  addWorkspaceUserMethodInvite: document.getElementById('addWorkspaceUserMethodInvite'),
+  addWorkspaceUserMethodCreate: document.getElementById('addWorkspaceUserMethodCreate'),
+  addWorkspaceUserNameField: document.getElementById('addWorkspaceUserNameField'),
+  addWorkspaceUserName: document.getElementById('addWorkspaceUserName'),
+  addWorkspaceUserEmail: document.getElementById('addWorkspaceUserEmail'),
+  addWorkspaceUserPasswordField: document.getElementById('addWorkspaceUserPasswordField'),
+  addWorkspaceUserPassword: document.getElementById('addWorkspaceUserPassword'),
+  addWorkspaceUserRole: document.getElementById('addWorkspaceUserRole'),
+  addWorkspaceUserPermissions: document.getElementById('addWorkspaceUserPermissions'),
+  addWorkspaceUserAllModules: document.getElementById('addWorkspaceUserAllModules'),
+  addWorkspaceUserModules: document.getElementById('addWorkspaceUserModules'),
+  addWorkspaceUserAllServers: document.getElementById('addWorkspaceUserAllServers'),
+  addWorkspaceUserServers: document.getElementById('addWorkspaceUserServers'),
+  addWorkspaceUserBlockedCommands: document.getElementById('addWorkspaceUserBlockedCommands'),
+  addWorkspaceUserReview: document.getElementById('addWorkspaceUserReview'),
   sentInvitesCard: document.getElementById('sentInvitesCard'),
-  inviteMemberForm: document.getElementById('inviteMemberForm'),
-  inviteRoleDropdown: document.getElementById('inviteRoleDropdown'),
-  inviteRoleSelect: document.getElementById('inviteRoleSelect'),
-  inviteRoleButton: document.getElementById('inviteRoleButton'),
-  inviteRoleLabel: document.getElementById('inviteRoleLabel'),
-  inviteRoleMenu: document.getElementById('inviteRoleMenu'),
-  inviteEmail: document.getElementById('inviteEmail'),
   teamMembersList: document.getElementById('teamMembersList'),
+  workspaceUserCount: document.getElementById('workspaceUserCount'),
   incomingInvitesLists: document.querySelectorAll('[data-incoming-invites-list]'),
   pendingInvitesList: document.getElementById('pendingInvitesList'),
   teamCloudWarning: document.getElementById('teamCloudWarning'),
@@ -11245,6 +11271,30 @@ function showView(view) {
     state.settingsTab = 'templates';
     view = 'team';
   }
+  const moduleByView = {
+    dashboard: 'overview',
+    'ai-deployments': 'deployments',
+    servers: 'hosts',
+    project: 'hosts',
+    'ssh-file': 'ssh',
+    'server-monitoring': 'monitoring',
+    uptime: 'uptime',
+    backup: 'backups'
+  };
+  const viewByModule = {
+    overview: 'dashboard',
+    deployments: 'ai-deployments',
+    hosts: 'servers',
+    ssh: 'servers',
+    monitoring: 'server-monitoring',
+    uptime: 'uptime',
+    backups: 'backup'
+  };
+  const requestedModule = moduleByView[view];
+  if (state.setup.mode === 'cloud' && state.teams.activeTeam && requestedModule && !activeWorkspaceCanModule(requestedModule)) {
+    const fallbackModule = state.teams.moduleCatalog.find((module) => activeWorkspaceCanModule(module.key));
+    view = fallbackModule ? viewByModule[fallbackModule.key] : 'team';
+  }
   if (IS_DATABASE_ACCESS_WINDOW && state.setup.complete && state.setup.mode && view !== 'database') {
     view = 'database';
   }
@@ -11472,6 +11522,15 @@ function renderAiDeploymentFormOptions(selected = {}) {
     `<option value="${escapeHtml(deployment.id)}">${escapeHtml(deployment.name)}</option>`
   )).join('');
 
+  renderAiDeploymentGithubRepositories(selected);
+  const githubOption = els.aiDeploymentSourceType.querySelector('option[value="github"]');
+  if (githubOption) githubOption.disabled = !state.githubIntegration.connected && !state.githubIntegration.needsReconnect && selected.sourceType !== 'github';
+
+  if (selected.projectId && projects.some((project) => String(project.id) === selected.projectId)) els.aiDeploymentProject.value = selected.projectId;
+  if (selected.agentId && agents.some((agent) => agent.id === selected.agentId && agent.runnable)) els.aiDeploymentAgent.value = selected.agentId;
+}
+
+function renderAiDeploymentGithubRepositories(selected = { githubRepo: els.aiDeploymentGithubRepo.value, githubBranch: els.aiDeploymentGithubBranch.value }) {
   const repositories = [...state.githubRepositories];
   if (selected.githubRepo && !repositories.some((repository) => repository.fullName === selected.githubRepo)) {
     repositories.push({ fullName: selected.githubRepo, defaultBranch: selected.githubBranch || 'main', private: false });
@@ -11479,16 +11538,31 @@ function renderAiDeploymentFormOptions(selected = {}) {
   els.aiDeploymentGithubRepo.innerHTML = '<option value="">Select repository</option>' + repositories.map((repository) => (
     `<option value="${escapeHtml(repository.fullName)}" data-default-branch="${escapeHtml(repository.defaultBranch)}">${escapeHtml(repository.fullName)}${repository.private ? ' · Private' : ''}</option>`
   )).join('');
-  const githubOption = els.aiDeploymentSourceType.querySelector('option[value="github"]');
-  if (githubOption) githubOption.disabled = !state.githubIntegration.connected && selected.sourceType !== 'github';
-
-  if (selected.projectId && projects.some((project) => String(project.id) === selected.projectId)) els.aiDeploymentProject.value = selected.projectId;
-  if (selected.agentId && agents.some((agent) => agent.id === selected.agentId && agent.runnable)) els.aiDeploymentAgent.value = selected.agentId;
   if (selected.githubRepo) els.aiDeploymentGithubRepo.value = selected.githubRepo;
+}
+
+async function fetchAiDeploymentGithubRepositories() {
+  return withButtonLoading('ai-deployment-repositories', els.aiDeploymentFetchRepositoriesButton, async () => {
+    els.aiDeploymentRepositoriesStatus.textContent = 'Fetching repositories…';
+    try {
+      await loadGithubIntegration({ repositories: true });
+      renderAiDeploymentGithubRepositories();
+      els.aiDeploymentRepositoriesStatus.textContent = !state.githubIntegration.connected
+        ? state.githubIntegration.error || 'Connect GitHub in Settings → Integrations to fetch repositories.'
+        : state.githubRepositories.length
+          ? `${state.githubRepositories.length} ${state.githubRepositories.length === 1 ? 'repository' : 'repositories'} available.`
+          : 'No repositories available. Check repository access for your GitHub token, then fetch again.';
+    } catch (error) {
+      const message = String(error.message || 'Could not fetch repositories.').replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '');
+      els.aiDeploymentRepositoriesStatus.textContent = `${message} Click Fetch all repositories to retry.`;
+    }
+  });
 }
 
 function updateAiDeploymentSourceFields() {
   const github = els.aiDeploymentSourceType.value === 'github';
+  els.aiDeploymentFetchRepositoriesButton.classList.toggle('hidden', !github);
+  els.aiDeploymentRepositoriesStatus.classList.toggle('hidden', !github && !state.githubIntegration.needsReconnect);
   els.aiDeploymentLocalSourceField.classList.toggle('hidden', github);
   els.aiDeploymentGithubSourceField.classList.toggle('hidden', !github);
   els.aiDeploymentLocalPath.required = !github;
@@ -11502,7 +11576,7 @@ function updateAiDeploymentSummary() {
   const agent = aiDeploymentAgent(els.aiDeploymentAgent.value);
   const github = els.aiDeploymentSourceType.value === 'github';
   const localPath = github
-    ? [els.aiDeploymentGithubRepo.value, els.aiDeploymentGithubBranch.value.trim() || 'main'].filter(Boolean).join(' · ')
+    ? (els.aiDeploymentGithubRepo.value ? `${els.aiDeploymentGithubRepo.value} · ${els.aiDeploymentGithubBranch.value.trim() || 'main'}` : '')
     : els.aiDeploymentLocalPath.value.trim();
   const remotePath = els.aiDeploymentRemotePath.value.trim();
   const hasPrompt = Boolean(els.aiDeploymentPrompt.value.trim());
@@ -11866,10 +11940,7 @@ async function loadAiDeploymentWorkspace() {
   if (state.aiDeployments.loading) return;
   state.aiDeployments.loading = true;
   try {
-    await loadGithubIntegration({ repositories: true }).catch(() => {
-      state.githubIntegration = { connected: false };
-      state.githubRepositories = [];
-    });
+    await fetchAiDeploymentGithubRepositories();
     const [items, agents] = await Promise.all([
       window.deployerx.listAiDeployments(),
       window.deployerx.listLocalAgents()
@@ -21875,6 +21946,8 @@ function applyTeamSnapshot(snapshot = {}) {
   state.teams.members = Array.isArray(snapshot.members) ? snapshot.members : [];
   state.teams.teamInvites = Array.isArray(snapshot.teamInvites) ? snapshot.teamInvites : [];
   state.teams.invites = Array.isArray(snapshot.invites) ? snapshot.invites : [];
+  state.teams.permissionCatalog = Array.isArray(snapshot.permissionCatalog) ? snapshot.permissionCatalog : [];
+  state.teams.moduleCatalog = Array.isArray(snapshot.moduleCatalog) ? snapshot.moduleCatalog : [];
   state.teams.unlocked = Boolean(state.teams.activeTeamId);
   state.teams.cloudError = snapshot.cloudError || '';
   renderTopNotificationsMenu();
@@ -21979,7 +22052,7 @@ function renderSettingsView() {
   if (els.settingsProfileLogoutButton) els.settingsProfileLogoutButton.disabled = !loggedIn;
   if (els.settingsWorkspaceName) els.settingsWorkspaceName.value = activeTeam?.name || 'DeployerX';
   if (els.aboutAppVersion) els.aboutAppVersion.textContent = `Version ${state.app.version}`;
-  if (els.settingsWorkspaceName) els.settingsWorkspaceName.readOnly = Boolean(activeTeam && activeTeam.role !== 'owner');
+  if (els.settingsWorkspaceName) els.settingsWorkspaceName.readOnly = Boolean(activeTeam && !activeWorkspaceCan('workspace.settings.update'));
   if (els.deleteWorkspaceButton) {
     els.deleteWorkspaceButton.disabled = !activeTeam || activeTeam.role !== 'owner';
     els.deleteWorkspaceButton.title = activeTeam?.role === 'owner' ? '' : 'Only the workspace owner can delete this workspace.';
@@ -22041,13 +22114,21 @@ function renderMcpClients(clients = []) {
 }
 
 function renderGithubIntegration() {
+  const githubOption = els.aiDeploymentSourceType.querySelector('option[value="github"]');
+  if (githubOption) githubOption.disabled = !state.githubIntegration.connected && !state.githubIntegration.needsReconnect && els.aiDeploymentSourceType.value !== 'github';
+  els.aiDeploymentReconnectGithubButton.classList.toggle('hidden', !state.githubIntegration.needsReconnect);
+  if (state.githubIntegration.needsReconnect) {
+    els.aiDeploymentRepositoriesStatus.textContent = state.githubIntegration.error;
+    els.aiDeploymentRepositoriesStatus.classList.remove('hidden');
+  }
   if (!els.githubIntegrationStatus) return;
   const integration = state.githubIntegration || { connected: false };
-  els.githubIntegrationStatus.textContent = integration.connected ? 'Connected' : 'Not connected';
-  els.githubIntegrationStatus.dataset.status = integration.connected ? 'up-to-date' : 'idle';
+  els.githubIntegrationStatus.textContent = integration.needsReconnect ? 'Reconnect required' : integration.connected ? 'Connected' : 'Not connected';
+  els.githubIntegrationStatus.dataset.status = integration.needsReconnect ? 'error' : integration.connected ? 'up-to-date' : 'idle';
   els.githubIntegrationDescription.textContent = integration.connected
     ? `Connected as ${integration.name || integration.login}. Repository sources and automatic updates are available.`
-    : 'Connect GitHub to deploy from repositories and enable automatic updates.';
+    : integration.error || 'Connect GitHub to deploy from repositories and enable automatic updates.';
+  els.githubIntegrationConnectButton.textContent = integration.needsReconnect ? 'Reconnect GitHub' : 'Connect GitHub';
   els.githubIntegrationConnectButton.classList.toggle('hidden', integration.connected);
   els.githubIntegrationDisconnectButton.classList.toggle('hidden', !integration.connected);
 }
@@ -22055,9 +22136,8 @@ function renderGithubIntegration() {
 async function loadGithubIntegration({ repositories = false } = {}) {
   state.githubIntegration = await window.deployerx.getGithubIntegration();
   renderGithubIntegration();
-  state.githubRepositories = repositories && state.githubIntegration.connected
-    ? await window.deployerx.listGithubRepositories()
-    : [];
+  if (!state.githubIntegration.connected) state.githubRepositories = [];
+  else if (repositories) state.githubRepositories = await window.deployerx.listGithubRepositories();
   return state.githubIntegration;
 }
 
@@ -22082,6 +22162,10 @@ async function submitGithubIntegration(event) {
     closeGithubIntegrationDialog();
     renderGithubIntegration();
     showToast(`GitHub connected as ${state.githubIntegration.login}`);
+    if (state.currentView === 'ai-deployments') {
+      await fetchAiDeploymentGithubRepositories();
+      updateAiDeploymentSourceFields();
+    }
   } catch (error) {
     els.githubIntegrationError.textContent = error.message || 'Could not connect GitHub.';
     els.githubIntegrationError.classList.remove('hidden');
@@ -22296,6 +22380,8 @@ async function changeProfilePassword() {
     pendingActions.add('profile:password');
     setButtonLoading(els.profilePageChangePasswordButton, true);
     await window.deployerx.changePassword({ currentPassword, newPassword });
+    const snapshot = await window.deployerx.listTeams().catch(() => null);
+    if (snapshot) applyTeamSnapshot(snapshot);
     els.profileCurrentPassword.value = '';
     els.profileNewPassword.value = '';
     els.profileConfirmPassword.value = '';
@@ -22640,57 +22726,118 @@ function workspaceRoleLabel(role) {
   return 'Member';
 }
 
-function closeInviteRoleMenu({ focusTrigger = false } = {}) {
-  els.inviteRoleMenu.classList.add('hidden');
-  els.inviteRoleButton.setAttribute('aria-expanded', 'false');
-  if (focusTrigger) els.inviteRoleButton.focus();
+function activeWorkspaceCan(permission) {
+  const workspace = state.teams.activeTeam;
+  return workspace?.role === 'owner' || (Array.isArray(workspace?.permissions) && workspace.permissions.includes(permission));
 }
 
-function openInviteRoleMenu() {
-  if (els.inviteRoleButton.disabled) return;
-  els.inviteRoleMenu.classList.remove('hidden');
-  els.inviteRoleButton.setAttribute('aria-expanded', 'true');
-  requestAnimationFrame(() => {
-    const selected = els.inviteRoleMenu.querySelector('[aria-selected="true"]');
-    (selected || els.inviteRoleMenu.querySelector('.workspace-switcher-option'))?.focus();
-  });
+function defaultWorkspacePermissions(role) {
+  const keys = state.teams.permissionCatalog.map(({ key }) => key);
+  return role === 'admin' ? keys : keys.filter((key) => key === 'server.view');
 }
 
-function renderInviteRoleDropdown() {
-  const options = Array.from(els.inviteRoleSelect.options);
-  const selected = options.find((option) => option.value === els.inviteRoleSelect.value) || options[0];
-  if (!selected) return;
-
-  els.inviteRoleSelect.value = selected.value;
-  els.inviteRoleLabel.textContent = selected.textContent;
-  els.inviteRoleButton.setAttribute('aria-label', `Permission: ${selected.textContent}`);
-  els.inviteRoleMenu.replaceChildren();
-
-  for (const option of options) {
-    const optionButton = document.createElement('button');
-    const isSelected = option.value === selected.value;
-    optionButton.type = 'button';
-    optionButton.className = 'workspace-switcher-option';
-    optionButton.dataset.inviteRole = option.value;
-    optionButton.setAttribute('role', 'option');
-    optionButton.setAttribute('aria-selected', String(isSelected));
-    optionButton.tabIndex = -1;
-    optionButton.innerHTML = `<span>${escapeHtml(option.textContent)}</span>${isSelected ? icon('check') : ''}`;
-    els.inviteRoleMenu.appendChild(optionButton);
+function renderWorkspacePermissionInputs(container, selectedPermissions = [], { disabled = false, prefix = 'permission' } = {}) {
+  if (!container) return;
+  const selected = new Set(selectedPermissions);
+  const groups = new Map();
+  for (const permission of state.teams.permissionCatalog) {
+    if (!groups.has(permission.group)) groups.set(permission.group, []);
+    groups.get(permission.group).push(permission);
   }
+  container.innerHTML = [...groups.entries()].map(([group, permissions]) => `
+    <div class="workspace-permission-group">
+      <strong>${escapeHtml(group)}</strong>
+      ${permissions.map((permission) => {
+        const inputId = `${prefix}-${permission.key.replace(/[^a-z0-9]+/gi, '-')}`;
+        return `<label class="workspace-permission-option" for="${escapeHtml(inputId)}"><input id="${escapeHtml(inputId)}" type="checkbox" data-workspace-permission="${escapeHtml(permission.key)}" ${selected.has(permission.key) ? 'checked' : ''} ${disabled ? 'disabled' : ''} /><span>${escapeHtml(permission.label)}</span></label>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
 
-  closeInviteRoleMenu();
+function selectedWorkspacePermissions(container) {
+  return [...(container?.querySelectorAll('[data-workspace-permission]:checked') || [])]
+    .map((input) => input.dataset.workspacePermission)
+    .filter(Boolean);
+}
+
+function blockedWorkspaceCommands(value) {
+  return [...new Set(String(value || '').split(/\r?\n/).map((command) => command.trim()).filter(Boolean))].slice(0, 100);
+}
+
+function resetWorkspacePermissionInputs(container, role, prefix) {
+  renderWorkspacePermissionInputs(container, defaultWorkspacePermissions(role), { prefix });
+}
+
+function activeWorkspaceCanModule(moduleId) {
+  const workspace = state.teams.activeTeam;
+  return workspace?.role === 'owner'
+    || !Array.isArray(workspace?.visibleModules)
+    || workspace.visibleModules.includes('*')
+    || workspace.visibleModules.includes(moduleId);
+}
+
+function applyWorkspaceModuleVisibility() {
+  const scoped = state.setup.mode === 'cloud' && Boolean(state.teams.activeTeam);
+  [
+    [els.dashboardButton, 'overview'],
+    [els.aiDeploymentsButton, 'deployments'],
+    [els.serversButton, 'hosts'],
+    [els.topSshButton, 'ssh'],
+    [els.serverMonitoringButton, 'monitoring'],
+    [els.uptimeButton, 'uptime'],
+    [els.topBackupsButton, 'backups']
+  ].forEach(([button, moduleId]) => button?.classList.toggle('hidden', scoped && !activeWorkspaceCanModule(moduleId)));
+}
+
+function renderWorkspaceScopeInputs(container, items, selectedIds, type) {
+  if (!container) return;
+  const selected = new Set(Array.isArray(selectedIds) ? selectedIds : ['*']);
+  container.innerHTML = items.length ? items.map((item) => `
+    <label class="workspace-permission-option">
+      <input type="checkbox" data-workspace-${type}="${escapeHtml(item.key)}" ${selected.has('*') || selected.has(item.key) ? 'checked' : ''} />
+      <span>${escapeHtml(item.label)}</span>
+    </label>
+  `).join('') : '<span class="team-muted">No servers available.</span>';
+}
+
+function selectedWorkspaceScope(container, selector, allControl) {
+  if (allControl?.checked) return ['*'];
+  return [...(container?.querySelectorAll(`${selector}:checked`) || [])].map((input) => input.dataset.workspaceModule || input.dataset.workspaceServer || input.value).filter(Boolean);
+}
+
+function syncWorkspaceScopeAll(allControl, container) {
+  container?.querySelectorAll('input[type="checkbox"]').forEach((input) => { input.disabled = Boolean(allControl?.checked); });
+}
+
+function workspaceScopeLabel(ids, catalog, singular) {
+  if (!Array.isArray(ids) || ids.includes('*')) return `All ${singular}s`;
+  if (!ids.length) return `No ${singular}s`;
+  const labels = new Map(catalog.map((item) => [String(item.key), item.label]));
+  return ids.length === 1 ? labels.get(String(ids[0])) || `1 ${singular}` : `${ids.length} ${singular}s`;
 }
 
 function renderTeamView() {
   const activeTeam = state.teams.activeTeam;
   const activeRole = activeTeam?.role || '';
-  const canManage = activeRole === 'owner';
+  const isWorkspaceOwner = activeRole === 'owner';
+  const canInvite = activeWorkspaceCan('members.invite');
+  const canCreateUser = activeWorkspaceCan('members.create');
+  const canUpdateMembers = activeWorkspaceCan('members.update');
+  const canRemoveMembers = activeWorkspaceCan('members.remove');
+  const canPromoteMembers = activeWorkspaceCan('members.promote');
   const owner = state.teams.members.find((member) => member.role === 'owner');
   renderIncomingInvites();
-  els.memberInviteCard.classList.toggle('hidden', !canManage);
-  els.sentInvitesCard.classList.toggle('hidden', !canManage);
-  if (!canManage) closeInviteRoleMenu();
+  els.sentInvitesCard.classList.toggle('hidden', !canInvite);
+  const missingAddUserAccess = Boolean(activeTeam && !canCreateUser && !canInvite);
+  if (els.workspaceUserPermissionNotice) {
+    els.workspaceUserPermissionNotice.classList.toggle('hidden', !missingAddUserAccess);
+    els.workspaceUserPermissionNotice.innerHTML = missingAddUserAccess
+      ? state.teams.cloudError
+        ? '<strong>Workspace access could not be verified</strong><span>Refresh when Firebase is available. Add-user controls remain visible but disabled.</span>'
+        : '<strong>Add-user access is restricted</strong><span>The workspace owner or an authorized admin must grant Create users or Invite users permission.</span>'
+      : '';
+  }
   els.teamHeaderCopy.innerHTML = activeTeam
     ? `<span class="workspace-card-name">${escapeHtml(activeTeam.name)}</span><span class="team-status-pill unlocked">${escapeHtml(workspaceRoleLabel(activeRole))}</span>`
     : 'Create or accept a workspace invite to start cloud sync.';
@@ -22702,10 +22849,10 @@ function renderTeamView() {
       const ownerLabel = owner?.displayName || owner?.email || '';
       const ownerDetail = ownerLabel ? ` <span>Owner: ${escapeHtml(ownerLabel)}</span>` : '';
       els.teamOwnershipSummary.classList.remove('hidden');
-      els.teamOwnershipSummary.className = `workspace-ownership-summary ${canManage ? 'is-owner' : 'is-member'}`;
-      els.teamOwnershipSummary.innerHTML = canManage
-        ? `<strong>You own this workspace.</strong><span>You can manage members, invites, and workspace settings.</span>`
-        : `<strong>This workspace's owner is different. Your permission is ${escapeHtml(workspaceRoleLabel(activeRole))}.</strong>${ownerDetail}`;
+      els.teamOwnershipSummary.className = `workspace-ownership-summary ${isWorkspaceOwner ? 'is-owner' : 'is-member'}`;
+      els.teamOwnershipSummary.innerHTML = isWorkspaceOwner
+        ? `<strong>You own this workspace.</strong><span>Owner access always includes every permission.</span>`
+        : `<strong>Your role is ${escapeHtml(workspaceRoleLabel(activeRole))}.</strong>${ownerDetail}`;
     }
   }
   els.teamCloudWarning.classList.toggle('hidden', !state.teams.cloudError);
@@ -22732,35 +22879,80 @@ function renderTeamView() {
   els.importLocalToCloudButton.disabled = !state.teams.activeTeamId;
 
   renderTopWorkspaceSwitcher();
-
-  els.inviteRoleButton.disabled = !canManage;
-  els.inviteMemberForm.querySelector('button[type="submit"]').disabled = !canManage || !state.teams.activeTeamId;
-  renderInviteRoleDropdown();
+  els.addWorkspaceUserButton.disabled = !activeTeam;
+  const addAdminOption = els.addWorkspaceUserRole.querySelector('option[value="admin"]');
+  if (addAdminOption) addAdminOption.disabled = !canPromoteMembers;
+  if (!canPromoteMembers && els.addWorkspaceUserRole.value === 'admin') els.addWorkspaceUserRole.value = 'member';
+  applyWorkspaceModuleVisibility();
 
   els.teamMembersList.innerHTML = '';
+  els.workspaceUserCount.textContent = `${state.teams.members.length} ${state.teams.members.length === 1 ? 'user' : 'users'}`;
   if (!state.teams.members.length) {
-    els.teamMembersList.innerHTML = '<div class="team-muted">No members yet.</div>';
+    els.teamMembersList.innerHTML = '<tr><td colspan="6" class="workspace-users-empty">No workspace users yet.</td></tr>';
   } else {
     for (const member of state.teams.members) {
       const isOwner = member.role === 'owner';
+      const isSelf = member.uid === state.auth.session?.uid;
       const roleLabel = workspaceRoleLabel(member.role);
-      const removeButton = canManage && !isOwner
+      const canManageTargetAdmin = member.role !== 'admin' || isWorkspaceOwner || canPromoteMembers;
+      const removeButton = canRemoveMembers && canManageTargetAdmin && !isOwner && !isSelf
         ? `<button class="button plain danger compact" type="button" data-remove-member="${escapeHtml(member.uid)}">Remove</button>`
         : '';
-      const row = document.createElement('div');
-      row.className = 'team-row';
+      const resetButton = isWorkspaceOwner && !isOwner && !isSelf
+        ? `<button class="button outline compact" type="button" data-reset-member-password="${escapeHtml(member.uid)}">Send password reset</button>`
+        : '';
+      const canEdit = canUpdateMembers && canManageTargetAdmin && !isOwner && !isSelf;
+      const canManage = canEdit || resetButton || removeButton;
+      const moduleLabel = workspaceScopeLabel(member.visibleModules, state.teams.moduleCatalog, 'module');
+      const serverCatalog = state.projects.map((project) => ({ key: String(project.id), label: project.name || 'Server' }));
+      const serverLabel = workspaceScopeLabel(member.serverIds, serverCatalog, 'server');
+      const row = document.createElement('tr');
       row.innerHTML = `
-        <span class="team-row-copy">
-          <strong>${escapeHtml(member.displayName || member.email || 'Member')}</strong>
-          <span>${escapeHtml(member.email || '')} - ${escapeHtml(roleLabel)}</span>
-        </span>
-        <span class="team-row-actions">
-          <span class="team-role-pill">${escapeHtml(roleLabel)}</span>
-          ${removeButton}
-        </span>
+        <td><span class="workspace-user-identity"><strong>${escapeHtml(member.displayName || member.email || 'Member')}</strong><small>${escapeHtml(member.email || '')}</small></span></td>
+        <td><span class="team-role-pill">${escapeHtml(roleLabel)}</span></td>
+        <td>${escapeHtml(moduleLabel)}</td>
+        <td>${escapeHtml(serverLabel)}</td>
+        <td><span class="workspace-user-status ${member.mustChangePassword ? 'pending' : ''}">${member.mustChangePassword ? 'Password change required' : 'Active'}</span></td>
+        <td>${canManage ? `<button class="button outline compact" type="button" data-manage-member="${escapeHtml(member.uid)}" aria-expanded="false">Manage</button>` : '<span class="team-muted">—</span>'}</td>
       `;
-      row.querySelector('[data-remove-member]')?.addEventListener('click', removeMember);
       els.teamMembersList.appendChild(row);
+      if (!canManage) continue;
+      const editorRow = document.createElement('tr');
+      editorRow.className = 'workspace-user-editor-row hidden';
+      editorRow.dataset.memberAccessRow = member.uid;
+      editorRow.innerHTML = `<td colspan="6"><form class="workspace-user-access-form" data-member-access-form="${escapeHtml(member.uid)}">
+        ${canEdit ? `
+          <div class="workspace-user-fields"><label class="field"><span>Role</span><select data-member-role><option value="member" ${member.role === 'member' ? 'selected' : ''}>Member</option><option value="admin" ${member.role === 'admin' ? 'selected' : ''} ${!canPromoteMembers ? 'disabled' : ''}>Admin</option></select></label></div>
+          <fieldset class="workspace-permission-fieldset"><legend>Permissions</legend><div class="workspace-permission-grid" data-member-permissions></div></fieldset>
+          <div class="workspace-access-scope-grid">
+            <fieldset class="workspace-permission-fieldset"><legend>Visible modules</legend><label class="workspace-scope-all"><input type="checkbox" data-member-all-modules ${!Array.isArray(member.visibleModules) || member.visibleModules.includes('*') ? 'checked' : ''} />All modules</label><div class="workspace-scope-options" data-member-modules></div></fieldset>
+            <fieldset class="workspace-permission-fieldset"><legend>Visible servers</legend><label class="workspace-scope-all"><input type="checkbox" data-member-all-servers ${!Array.isArray(member.serverIds) || member.serverIds.includes('*') ? 'checked' : ''} />All servers</label><div class="workspace-scope-options" data-member-servers></div></fieldset>
+          </div>
+          <label class="field"><span>Blocked saved commands</span><textarea rows="3" data-member-blocked-commands>${escapeHtml((member.blockedCommands || []).join('\n'))}</textarea><small>Exact matches only. Remove interactive terminal permission to prevent shell bypass.</small></label>
+        ` : ''}
+        <div class="workspace-user-access-actions">${canEdit ? '<button class="button solid compact" type="submit">Save access</button>' : ''}${resetButton}${removeButton}</div>
+      </form></td>`;
+      els.teamMembersList.appendChild(editorRow);
+      const permissionContainer = editorRow.querySelector('[data-member-permissions]');
+      const moduleContainer = editorRow.querySelector('[data-member-modules]');
+      const serverContainer = editorRow.querySelector('[data-member-servers]');
+      const allModules = editorRow.querySelector('[data-member-all-modules]');
+      const allServers = editorRow.querySelector('[data-member-all-servers]');
+      renderWorkspacePermissionInputs(permissionContainer, member.permissions || [], { prefix: `member-${member.uid}` });
+      renderWorkspaceScopeInputs(moduleContainer, state.teams.moduleCatalog, member.visibleModules, 'module');
+      renderWorkspaceScopeInputs(serverContainer, serverCatalog, member.serverIds, 'server');
+      syncWorkspaceScopeAll(allModules, moduleContainer);
+      syncWorkspaceScopeAll(allServers, serverContainer);
+      allModules?.addEventListener('change', () => syncWorkspaceScopeAll(allModules, moduleContainer));
+      allServers?.addEventListener('change', () => syncWorkspaceScopeAll(allServers, serverContainer));
+      row.querySelector('[data-manage-member]')?.addEventListener('click', (event) => {
+        const expanded = !editorRow.classList.toggle('hidden');
+        event.currentTarget.setAttribute('aria-expanded', String(expanded));
+      });
+      editorRow.querySelector('[data-member-role]')?.addEventListener('change', (event) => resetWorkspacePermissionInputs(permissionContainer, event.currentTarget.value, `member-${member.uid}`));
+      editorRow.querySelector('[data-member-access-form]')?.addEventListener('submit', updateMemberAccess);
+      editorRow.querySelector('[data-reset-member-password]')?.addEventListener('click', resetMemberPassword);
+      editorRow.querySelector('[data-remove-member]')?.addEventListener('click', removeMember);
     }
   }
 
@@ -22771,7 +22963,7 @@ function renderTeamView() {
   } else {
     for (const invite of pending) {
       const canAccept = Boolean(invite.personal && invite.teamId && invite.emailLower);
-      const canRevoke = Boolean(!invite.personal && canManage && invite.id);
+      const canRevoke = Boolean(!invite.personal && canInvite && invite.id);
       const actionButton = canAccept
         ? `<button class="button outline compact" type="button" data-accept-invite="${escapeHtml(invite.id)}" data-team-id="${escapeHtml(invite.teamId || '')}">Accept</button>`
         : canRevoke
@@ -22782,7 +22974,7 @@ function renderTeamView() {
       row.innerHTML = `
         <span class="team-row-copy">
           <strong>${escapeHtml(invite.teamName || invite.email || 'Invite')}</strong>
-          <span>${escapeHtml(invite.email || invite.emailLower || '')} - ${escapeHtml(workspaceRoleLabel(invite.role))}</span>
+          <span>${escapeHtml(invite.email || invite.emailLower || '')} - ${escapeHtml(workspaceRoleLabel(invite.role))} - ${(invite.permissions || []).length} permissions</span>
         </span>
         <span class="team-row-actions">
           ${actionButton}
@@ -23015,6 +23207,11 @@ async function enterCloudWorkspace() {
     return;
   }
   setSetupVisibility(false);
+  if (state.teams.activeTeam?.mustChangePassword) {
+    showView('profile');
+    showAlert('Change your temporary password before using this workspace.');
+    return;
+  }
   // Render the workspace immediately after authentication. Project data is a
   // separate cloud read and must not block or fail the login experience.
   showView('dashboard');
@@ -23094,7 +23291,7 @@ async function activateOfflineMode() {
   try {
     const setup = await window.deployerx.setSetupMode('offline');
     state.auth.session = null;
-    state.teams = { teams: [], activeTeamId: '', activeTeam: null, members: [], teamInvites: [], invites: [], unlocked: false, cloudError: '' };
+    state.teams = { teams: [], activeTeamId: '', activeTeam: null, members: [], teamInvites: [], invites: [], permissionCatalog: [], moduleCatalog: [], unlocked: false, cloudError: '' };
     applySetupState(setup);
     setSetupVisibility(false);
     showView('dashboard');
@@ -23225,7 +23422,7 @@ async function logout(confirmFirst = true) {
     await disconnectAllProjectConnections();
     await window.deployerx.logout();
     state.auth.session = null;
-    state.teams = { teams: [], activeTeamId: '', activeTeam: null, members: [], teamInvites: [], invites: [], unlocked: false, cloudError: '' };
+    state.teams = { teams: [], activeTeamId: '', activeTeam: null, members: [], teamInvites: [], invites: [], permissionCatalog: [], moduleCatalog: [], unlocked: false, cloudError: '' };
     resetTerminalView();
     resetWorkspaceData();
     applySetupState({ setupComplete: true, mode: 'cloud', firebase: state.setup.firebase, session: null });
@@ -23385,23 +23582,177 @@ async function switchTeam() {
   await switchWorkspace(els.teamSelect.value, els.switchTeamButton);
 }
 
-async function inviteMember(event) {
+let addWorkspaceUserStep = 1;
+
+function addWorkspaceUserMethod() {
+  return els.addWorkspaceUserMethodCreate.checked ? 'create' : 'invite';
+}
+
+function showAddWorkspaceUserError(message = '') {
+  els.addWorkspaceUserError.textContent = message;
+  els.addWorkspaceUserError.classList.toggle('hidden', !message);
+  if (message) els.addWorkspaceUserError.focus();
+}
+
+function updateAddWorkspaceUserMethodFields() {
+  const creating = addWorkspaceUserMethod() === 'create';
+  els.addWorkspaceUserNameField.classList.toggle('hidden', !creating);
+  els.addWorkspaceUserPasswordField.classList.toggle('hidden', !creating);
+  els.addWorkspaceUserName.required = creating;
+  els.addWorkspaceUserPassword.required = creating;
+}
+
+function addWorkspaceUserAccess() {
+  return {
+    role: els.addWorkspaceUserRole.value,
+    permissions: selectedWorkspacePermissions(els.addWorkspaceUserPermissions),
+    blockedCommands: blockedWorkspaceCommands(els.addWorkspaceUserBlockedCommands.value),
+    visibleModules: selectedWorkspaceScope(els.addWorkspaceUserModules, '[data-workspace-module]', els.addWorkspaceUserAllModules),
+    serverIds: selectedWorkspaceScope(els.addWorkspaceUserServers, '[data-workspace-server]', els.addWorkspaceUserAllServers)
+  };
+}
+
+function renderAddWorkspaceUserReview() {
+  const method = addWorkspaceUserMethod();
+  const access = addWorkspaceUserAccess();
+  const serverCatalog = state.projects.map((project) => ({ key: String(project.id), label: project.name || 'Server' }));
+  els.addWorkspaceUserReview.innerHTML = `
+    <dl>
+      <div><dt>Method</dt><dd>${method === 'create' ? 'Create User' : 'Invite User'}</dd></div>
+      ${method === 'create' ? `<div><dt>Name</dt><dd>${escapeHtml(els.addWorkspaceUserName.value.trim())}</dd></div>` : ''}
+      <div><dt>Email</dt><dd>${escapeHtml(els.addWorkspaceUserEmail.value.trim())}</dd></div>
+      <div><dt>Role</dt><dd>${escapeHtml(workspaceRoleLabel(access.role))}</dd></div>
+      <div><dt>Permissions</dt><dd>${access.permissions.length}</dd></div>
+      <div><dt>Modules</dt><dd>${escapeHtml(workspaceScopeLabel(access.visibleModules, state.teams.moduleCatalog, 'module'))}</dd></div>
+      <div><dt>Servers</dt><dd>${escapeHtml(workspaceScopeLabel(access.serverIds, serverCatalog, 'server'))}</dd></div>
+    </dl>`;
+}
+
+function setAddWorkspaceUserStep(step) {
+  addWorkspaceUserStep = Math.max(1, Math.min(4, step));
+  const copy = ['Choose how to add this user.', 'Enter user details.', 'Choose role and access.', 'Review before saving.'];
+  els.addWorkspaceUserStepCopy.textContent = copy[addWorkspaceUserStep - 1];
+  els.addWorkspaceUserSteps.forEach((section) => section.classList.toggle('hidden', Number(section.dataset.addUserStep) !== addWorkspaceUserStep));
+  els.addWorkspaceUserStepIndicators.forEach((indicator) => {
+    const indicatorStep = Number(indicator.dataset.addUserStepIndicator);
+    indicator.classList.toggle('active', indicatorStep === addWorkspaceUserStep);
+    indicator.classList.toggle('complete', indicatorStep < addWorkspaceUserStep);
+  });
+  els.addWorkspaceUserBackButton.classList.toggle('hidden', addWorkspaceUserStep === 1);
+  els.addWorkspaceUserNextButton.classList.toggle('hidden', addWorkspaceUserStep === 4);
+  els.addWorkspaceUserSubmitButton.classList.toggle('hidden', addWorkspaceUserStep !== 4);
+  els.addWorkspaceUserSubmitButton.textContent = addWorkspaceUserMethod() === 'create' ? 'Create User' : 'Send Invite';
+  showAddWorkspaceUserError();
+  updateAddWorkspaceUserMethodFields();
+  if (addWorkspaceUserStep === 4) renderAddWorkspaceUserReview();
+}
+
+function validateAddWorkspaceUserStep() {
+  if (addWorkspaceUserStep === 1) {
+    if (addWorkspaceUserMethod() === 'create' && !activeWorkspaceCan('members.create')) throw new Error('You do not have permission to create users.');
+    if (addWorkspaceUserMethod() === 'invite' && !activeWorkspaceCan('members.invite')) throw new Error('You do not have permission to invite users.');
+  }
+  if (addWorkspaceUserStep === 2) {
+    const creating = addWorkspaceUserMethod() === 'create';
+    if (creating && !els.addWorkspaceUserName.value.trim()) throw new Error('Name is required.');
+    if (!els.addWorkspaceUserEmail.value.trim() || !els.addWorkspaceUserEmail.checkValidity()) throw new Error('Enter a valid email address.');
+    if (creating && els.addWorkspaceUserPassword.value.length < 6) throw new Error('Temporary password must be at least 6 characters.');
+  }
+}
+
+function openAddWorkspaceUserModal() {
+  const canInvite = activeWorkspaceCan('members.invite');
+  const canCreate = activeWorkspaceCan('members.create');
+  if (!state.teams.activeTeam) return;
+  els.addWorkspaceUserForm.reset();
+  els.addWorkspaceUserMethodInvite.disabled = !canInvite;
+  els.addWorkspaceUserMethodCreate.disabled = !canCreate;
+  els.addWorkspaceUserMethodInvite.checked = canInvite;
+  els.addWorkspaceUserMethodCreate.checked = !canInvite && canCreate;
+  els.addWorkspaceUserRole.value = 'member';
+  const actor = state.teams.activeTeam;
+  const allModules = actor?.role === 'owner' || !Array.isArray(actor?.visibleModules) || actor.visibleModules.includes('*');
+  const allServers = actor?.role === 'owner' || !Array.isArray(actor?.serverIds) || actor.serverIds.includes('*');
+  const availableModules = allModules ? state.teams.moduleCatalog : state.teams.moduleCatalog.filter((module) => actor.visibleModules.includes(module.key));
+  const availableServers = state.projects.map((project) => ({ key: String(project.id), label: project.name || 'Server' }));
+  els.addWorkspaceUserAllModules.checked = allModules;
+  els.addWorkspaceUserAllModules.disabled = !allModules;
+  els.addWorkspaceUserAllServers.checked = allServers;
+  els.addWorkspaceUserAllServers.disabled = !allServers;
+  renderWorkspacePermissionInputs(els.addWorkspaceUserPermissions, defaultWorkspacePermissions('member'), { prefix: 'add-user' });
+  renderWorkspaceScopeInputs(els.addWorkspaceUserModules, availableModules, allModules ? ['*'] : actor.visibleModules, 'module');
+  renderWorkspaceScopeInputs(els.addWorkspaceUserServers, availableServers, allServers ? ['*'] : actor.serverIds, 'server');
+  syncWorkspaceScopeAll(els.addWorkspaceUserAllModules, els.addWorkspaceUserModules);
+  syncWorkspaceScopeAll(els.addWorkspaceUserAllServers, els.addWorkspaceUserServers);
+  setAddWorkspaceUserStep(1);
+  setModalVisible(true, els.addWorkspaceUserModal);
+  if (!canInvite && !canCreate) showAddWorkspaceUserError('Your role cannot add users. Ask the workspace owner to grant access.');
+  requestAnimationFrame(() => (canInvite ? els.addWorkspaceUserMethodInvite : canCreate ? els.addWorkspaceUserMethodCreate : els.addWorkspaceUserCloseButton).focus());
+}
+
+function closeAddWorkspaceUserModal() {
+  setModalVisible(false, els.addWorkspaceUserModal);
+  els.addWorkspaceUserButton.focus();
+}
+
+async function submitAddWorkspaceUser(event) {
   event.preventDefault();
-  const button = els.inviteMemberForm.querySelector('button[type="submit"]');
   try {
-    if (state.teams.activeTeam?.role !== 'owner') throw new Error('Only the workspace owner can invite members.');
-    if (!state.teams.activeTeamId) throw new Error('Select a workspace first.');
-    const snapshot = await withButtonLoading('team:invite', button, () => window.deployerx.inviteTeamMember({
+    validateAddWorkspaceUserStep();
+    const method = addWorkspaceUserMethod();
+    const payload = {
       teamId: state.teams.activeTeamId,
-      email: els.inviteEmail.value.trim(),
-      role: els.inviteRoleSelect.value
+      displayName: els.addWorkspaceUserName.value.trim(),
+      email: els.addWorkspaceUserEmail.value.trim(),
+      password: els.addWorkspaceUserPassword.value,
+      ...addWorkspaceUserAccess()
+    };
+    const snapshot = await withButtonLoading(`team:add-user:${method}`, els.addWorkspaceUserSubmitButton, () => method === 'create'
+      ? window.deployerx.createTeamUser(payload)
+      : window.deployerx.inviteTeamMember(payload));
+    if (!snapshot) return;
+    closeAddWorkspaceUserModal();
+    applyTeamSnapshot(snapshot);
+    showToast(method === 'create' ? 'User created' : 'Invite created');
+  } catch (error) {
+    showAddWorkspaceUserError(error.message || 'Could not add user.');
+  }
+}
+
+async function updateMemberAccess(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const uid = form.dataset.memberAccessForm;
+  const button = event.submitter || form.querySelector('button[type="submit"]');
+  try {
+    const snapshot = await withButtonLoading(`team:update-member:${uid}`, button, () => window.deployerx.updateTeamMember({
+      teamId: state.teams.activeTeamId,
+      uid,
+      role: form.querySelector('[data-member-role]').value,
+      permissions: selectedWorkspacePermissions(form.querySelector('[data-member-permissions]')),
+      blockedCommands: blockedWorkspaceCommands(form.querySelector('[data-member-blocked-commands]')?.value),
+      visibleModules: selectedWorkspaceScope(form.querySelector('[data-member-modules]'), '[data-workspace-module]', form.querySelector('[data-member-all-modules]')),
+      serverIds: selectedWorkspaceScope(form.querySelector('[data-member-servers]'), '[data-workspace-server]', form.querySelector('[data-member-all-servers]'))
     }));
     if (!snapshot) return;
-    els.inviteEmail.value = '';
     applyTeamSnapshot(snapshot);
-    showToast('Invite created');
+    showToast('User access updated');
   } catch (error) {
-    showAlert(error.message || 'Could not invite member.');
+    showAlert(error.message || 'Could not update user access.');
+  }
+}
+
+async function resetMemberPassword(event) {
+  const uid = event.currentTarget.dataset.resetMemberPassword;
+  const member = state.teams.members.find((item) => item.uid === uid);
+  try {
+    await withButtonLoading(`team:reset-password:${uid}`, event.currentTarget, () => window.deployerx.resetTeamMemberPassword({
+      teamId: state.teams.activeTeamId,
+      uid
+    }));
+    showToast(`Password reset sent to ${member?.email || 'user'}`);
+  } catch (error) {
+    showAlert(error.message || 'Could not send password reset.');
   }
 }
 
@@ -27686,6 +28037,8 @@ els.aiDeploymentSourceType.addEventListener('change', () => {
   updateAiDeploymentSourceFields();
   updateAiDeploymentSummary();
 });
+els.aiDeploymentFetchRepositoriesButton.addEventListener('click', fetchAiDeploymentGithubRepositories);
+els.aiDeploymentReconnectGithubButton.addEventListener('click', openGithubIntegrationDialog);
 els.aiDeploymentGithubRepo.addEventListener('change', () => {
   const option = els.aiDeploymentGithubRepo.selectedOptions[0];
   if (option?.dataset.defaultBranch) els.aiDeploymentGithubBranch.value = option.dataset.defaultBranch;
@@ -30013,45 +30366,28 @@ els.openCreateTeamButton.addEventListener('click', () => {
   setModalVisible(true, els.createTeamModal);
   els.createTeamName.focus();
 });
-els.inviteMemberForm.addEventListener('submit', inviteMember);
-els.inviteRoleButton.addEventListener('click', () => {
-  if (els.inviteRoleButton.getAttribute('aria-expanded') === 'true') closeInviteRoleMenu();
-  else openInviteRoleMenu();
+els.addWorkspaceUserButton.addEventListener('click', openAddWorkspaceUserModal);
+els.addWorkspaceUserForm.addEventListener('submit', submitAddWorkspaceUser);
+els.addWorkspaceUserCloseButton.addEventListener('click', closeAddWorkspaceUserModal);
+els.addWorkspaceUserCancelButton.addEventListener('click', closeAddWorkspaceUserModal);
+els.addWorkspaceUserBackButton.addEventListener('click', () => setAddWorkspaceUserStep(addWorkspaceUserStep - 1));
+els.addWorkspaceUserNextButton.addEventListener('click', () => {
+  try {
+    validateAddWorkspaceUserStep();
+    setAddWorkspaceUserStep(addWorkspaceUserStep + 1);
+  } catch (error) {
+    showAddWorkspaceUserError(error.message);
+  }
 });
-els.inviteRoleButton.addEventListener('keydown', (event) => {
-  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
-  event.preventDefault();
-  openInviteRoleMenu();
+[els.addWorkspaceUserMethodInvite, els.addWorkspaceUserMethodCreate].forEach((input) => input.addEventListener('change', updateAddWorkspaceUserMethodFields));
+els.addWorkspaceUserRole.addEventListener('change', () => resetWorkspacePermissionInputs(els.addWorkspaceUserPermissions, els.addWorkspaceUserRole.value, 'add-user'));
+els.addWorkspaceUserAllModules.addEventListener('change', () => syncWorkspaceScopeAll(els.addWorkspaceUserAllModules, els.addWorkspaceUserModules));
+els.addWorkspaceUserAllServers.addEventListener('change', () => syncWorkspaceScopeAll(els.addWorkspaceUserAllServers, els.addWorkspaceUserServers));
+els.addWorkspaceUserModal.addEventListener('click', (event) => {
+  if (event.target === els.addWorkspaceUserModal || event.target.classList.contains('modal-backdrop')) closeAddWorkspaceUserModal();
 });
-els.inviteRoleMenu.addEventListener('click', (event) => {
-  const option = event.target.closest('.workspace-switcher-option');
-  if (!option) return;
-  els.inviteRoleSelect.value = option.dataset.inviteRole || 'member';
-  renderInviteRoleDropdown();
-  els.inviteRoleButton.focus();
-});
-els.inviteRoleMenu.addEventListener('keydown', (event) => {
-  const options = Array.from(els.inviteRoleMenu.querySelectorAll('.workspace-switcher-option'));
-  const currentIndex = options.indexOf(document.activeElement);
-  let nextIndex = currentIndex;
-  if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % options.length;
-  else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + options.length) % options.length;
-  else if (event.key === 'Home') nextIndex = 0;
-  else if (event.key === 'End') nextIndex = options.length - 1;
-  else if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault();
-    document.activeElement?.click();
-    return;
-  } else if (event.key === 'Escape' || event.key === 'Tab') {
-    if (event.key === 'Escape') event.preventDefault();
-    closeInviteRoleMenu({ focusTrigger: event.key === 'Escape' });
-    return;
-  } else return;
-  event.preventDefault();
-  options[nextIndex]?.focus();
-});
-document.addEventListener('click', (event) => {
-  if (!els.inviteRoleDropdown.contains(event.target)) closeInviteRoleMenu();
+els.addWorkspaceUserModal.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeAddWorkspaceUserModal();
 });
 els.importLocalToCloudButton.addEventListener('click', importLocalToCloud);
 els.createTeamForm.addEventListener('submit', createTeam);

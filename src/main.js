@@ -22,6 +22,18 @@ const { listMcpClients, connectMcpClient, disconnectMcpClient, readMcpClientToke
 const { directAgentArguments, parseAgentEvent, buildAgentPrompt, createProjectArchive, normalizeAiDeployment, normalizeAiDeploymentRunOptions, validateAiDeployment } = require('./ai-deployment');
 const { listLocalAgents } = require('./local-agents');
 const { createDeploymentSshBridge, executeDeploymentSsh } = require('./deployment-ssh');
+const {
+  WORKSPACE_PERMISSION_CATALOG,
+  WORKSPACE_MODULE_CATALOG,
+  normalizeWorkspacePermissions,
+  normalizeBlockedCommands,
+  normalizeWorkspaceModules,
+  normalizeWorkspaceServers,
+  resolveWorkspaceAccess,
+  hasWorkspacePermission,
+  hasWorkspaceServerAccess,
+  canAssignWorkspaceAccess
+} = require('./workspace-permissions');
 
 const CODEX_ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFSUlEQVR4nM2Ze4hVVRTG7x3TsqzUzIIym4wkdSytQDBnpmjSAqs/svorigR7KNlLykykZEroZSUjWT4qIiJEo6AosCgoreglvaR0pJE0x9IsJpvpFyvXdtasu8+558y9NH0wDOy91jrfOXvttb69b6FQAYDDgQuAm4D7gLnA1cCIwv8JwGjgGeB34vgb+Ai4Bij2JdF+wHzgANmxCajtC7KHAS8ZIl3AWuBaYBxwAjASuAR4EthnbH8GFgNvAtt1rk1X4RGgoeorAaxwX21sGfthwIYcK7ERaKwW2StN4NeAI8rYHwcsAzodqW/Vf43+/97Nd+nmLVaaCls04NfAoDK2c4B2R2IVMDHBZyywUu0CHq+E8BUm0OUpdk3AZvfF3gUmZHxOg3vRmb0l/KwGaIstFTAKWOeIbgNm9OJZZ5tS+YukVh7nqVoVOjTA6sjyN5t5wX5gATAwIeaxWkWGpDz3ZhNvSRaitcDblOJ+Z3eXaxTPAyel1O8bgd1qvweYLS8dse0P/GBWKnkDAudrzbREAm53ti3GpqFMbn5GHF9Ia4/4PGhsxhVSduuvxnA9MCUD4b0J8aSJvOwItmtL3+XGxe4U4ytpE3BZLPgA4CtjNF/HT8xLGDgSWAT8YXz/Ap4AhqrNYOBR1+Jlsy2U/AfGm/FZMcLzjMFSM56LMHAV0Oq+3nZgTIqIet3Zb1W9EnBDIbLbfzRJPjAvYeAs4B2S8V5S49BY09wKW1zsjS80k7e5uSyEu1wL3q3dTv5CVQh2TwPHJ5CW6nCrVhCLyd5Q8i3g1F4QDvhTldehGgsM0TGZwzQEEfr9U3SItHKbUidbAxEi0d2eg/ArwOkxAgKZUxsLSYGphQToSwV8CNSECdG0gh0Rp9xVIg0czHeP9Ukvaz6m4LowuFwHJA8HpBCeV0XCW7SNB3Ros+ihBIGjgZ1qI92vKIP3GsceohwYbuZEu06pEuEWaePazm03/fzQ0nf7PGTmz5WB88xAc+Qhn5p5Cf6ibIJKCRe6xyYB35hnjHQ+dWbuHhkoGrHxU2RZjgEedjt9vxH1FREWALeY2KcVSq8SgrhfHgavNw5rrINxPCPSlapFeFYSYZ3foXNrw0CNHgID5qY89FK3hL0pay05Cf9Wosk1L6VIB6xOUvzale5w6i5r48hFWE80AQs9kcn0xB5tl0ldabge/7sytOZOY5eHsHyYgMbYsSgG6UrTYqTV7xzgfZKxQQVSrhxWqRnUX2vJCUWknHFc7FIE3XSjE0iPidhvlTsNY5OX8NIkYRYM5NwVUGfEuL30O6Die7D6DFVxLiLdlj1pSD0uXPIQdg3ty2hayr2DMWoy4yP0BG270i497rTnOIzuzUC4SfWF3UdnxuIV3NFkUWReznifEIeUxUnRwIV/fRvNC6cRth9lZ1rM0PVazUaridhIzZ5pREmb3mBGj+Mc1AzPOSJ3Opu7Ix/gDd+mk0gvKZF0cbujgHrJ84R52eELIqqs2e92oxg7VKtcVJaoK/YhL+Uety6zc3eM6UafBLyVlIvGdkXeZ4UAsuQBsvT1Gf0m6AWgxWa7gRNafcD0XhHWQI+5LrUy5bg+MXJlKqs0J3YdZfwGmdOyXOX2q4RwUWuhJYEuX7iUlkbynZvv1Mvs1JtHqdHAq1mucvMSl1L2AdkhbXhYmZjjgY+Nz7KqkHUPqVchv1EvXvZpK5by84C7RJS5pzQ/a/VsWKe6e51btRcqSoUKXqjWaepy6NArspJa/1+SLuqPiZtco8BAxLjU3VF9RjQGPRDMUD0tvwxJ+5W06nGVkBf/APLOOieCuT2TAAAAAElFTkSuQmCC';
 const { RdpSessionManager } = require('./rdp-session');
@@ -270,7 +282,9 @@ const WORKSPACE_UPTIME_SYNC_INTERVAL_MS = 60 * 1000;
 const WORKSPACE_CONTROL_SYNC_INTERVAL_MS = 15 * 1000;
 const UPTIME_RUNTIME_FILE = 'runtime.json';
 const APP_USER_DATA_PATH = path.join(app.getPath('appData'), 'deployerx');
-const SESSION_DATA_PATH = path.join(os.tmpdir(), `DeployerX-session-${process.pid}`);
+// Electron stores its Windows credential encryption key in sessionData/Local State.
+// Keep this directory across launches so saved credentials remain decryptable.
+const SESSION_DATA_PATH = path.join(APP_USER_DATA_PATH, 'session');
 app.setPath('userData', APP_USER_DATA_PATH);
 app.setPath('sessionData', SESSION_DATA_PATH);
 if (process.platform === 'win32') app.setAppUserModelId('com.everythingx.deployerx');
@@ -4309,6 +4323,7 @@ async function writeSettings(nextSettings) {
 }
 
 function normalizeGithubIntegration(input = {}) {
+  input = input || {};
   return {
     tokenEncrypted: String(input.tokenEncrypted || ''),
     login: String(input.login || '').slice(0, 100),
@@ -4320,8 +4335,18 @@ function normalizeGithubIntegration(input = {}) {
 
 function publicGithubIntegration(input = {}) {
   const integration = normalizeGithubIntegration(input);
+  let error = '';
+  if (integration.tokenEncrypted) {
+    try {
+      if (!decryptGithubToken(integration.tokenEncrypted)) throw new Error('Empty credential');
+    } catch {
+      error = 'The saved GitHub credential could not be unlocked. Reconnect GitHub to restore repository access.';
+    }
+  }
   return {
-    connected: Boolean(integration.tokenEncrypted && integration.login),
+    connected: Boolean(integration.tokenEncrypted && integration.login && !error),
+    needsReconnect: Boolean(error),
+    error,
     login: integration.login,
     name: integration.name,
     avatarUrl: integration.avatarUrl,
@@ -4412,7 +4437,7 @@ async function listGithubRepositories() {
   const settings = await readSettings();
   const token = await githubToken(settings);
   const repositories = [];
-  for (let page = 1; page <= 20; page += 1) {
+  for (let page = 1; ; page += 1) {
     const batch = await githubRequest(token, `/user/repos?affiliation=owner,collaborator,organization_member&sort=full_name&direction=asc&per_page=100&page=${page}`);
     repositories.push(...batch.map((repository) => ({
       id: String(repository.id),
@@ -6007,13 +6032,79 @@ async function removeUserTeamRef(uid, teamId) {
 
 async function currentMember(teamId) {
   const auth = await requireAuthSession();
-  return getDoc(['teams', teamId, 'members', auth.uid]);
+  const [team, member] = await Promise.all([
+    getDoc(['teams', teamId]),
+    getDoc(['teams', teamId, 'members', auth.uid])
+  ]);
+  return resolveWorkspaceAccess(team, member, auth.uid);
 }
 
-async function ensureTeamManager(teamId) {
+async function ensureTeamPermission(teamId, permission) {
   const member = await currentMember(teamId);
-  if (member?.role !== 'owner') throw new Error('Only the workspace owner can manage members.');
+  if (member?.mustChangePassword) throw new Error('Change your temporary password before using this workspace.');
+  if (!hasWorkspacePermission(member, permission)) throw new Error('You do not have permission to perform this action.');
   return member;
+}
+
+async function ensureActiveWorkspacePermission(permission) {
+  const settings = await readSettings();
+  if (settings.mode !== 'cloud') return null;
+  const teamId = String(settings.activeTeamId || '');
+  if (!teamId) throw new Error('Select a workspace first.');
+  return ensureTeamPermission(teamId, permission);
+}
+
+function workspaceAccessForStorage(role, permissions, blockedCommands = [], visibleModules, serverIds) {
+  const normalizedRole = normalizeWorkspaceRole(role);
+  return {
+    role: normalizedRole,
+    permissions: normalizeWorkspacePermissions(normalizedRole, permissions),
+    blockedCommands: normalizeBlockedCommands(blockedCommands),
+    visibleModules: normalizeWorkspaceModules(normalizedRole, visibleModules),
+    serverIds: normalizeWorkspaceServers(normalizedRole, serverIds)
+  };
+}
+
+function ensureWorkspaceServerAllowed(member, serverId, { creating = false } = {}) {
+  if (!member || member.role === 'owner') return;
+  if (creating && !member.serverIds?.includes('*')) {
+    throw new Error('You need access to all servers before creating a server.');
+  }
+  if (!creating && !hasWorkspaceServerAccess(member, serverId)) {
+    throw new Error('You do not have access to this server.');
+  }
+}
+
+async function ensureWorkspaceCommandsAllowed(commands) {
+  const member = await ensureActiveWorkspacePermission('server.command.execute');
+  if (!member || member.role === 'owner') return;
+  const blocked = new Set(normalizeBlockedCommands(member.blockedCommands));
+  const denied = (Array.isArray(commands) ? commands : [])
+    .map((command) => String(command || '').trim())
+    .find((command) => command && blocked.has(command));
+  if (denied) throw new Error(`This command is blocked for your workspace access: ${denied}`);
+}
+
+async function ensureCanAssignWorkspaceAccess(teamId, role, permissions, visibleModules, serverIds) {
+  const actor = await currentMember(teamId);
+  if (!canAssignWorkspaceAccess(actor, role, permissions, visibleModules, serverIds)) {
+    throw new Error('You cannot grant this role or these permissions.');
+  }
+  return actor;
+}
+
+async function recordWorkspaceAudit(teamId, action, target = {}, details = {}) {
+  const auth = await requireAuthSession();
+  const id = createId('audit');
+  await patchDoc(['teams', teamId, 'auditLogs', id], {
+    id,
+    action,
+    actorUid: auth.uid,
+    actorEmail: auth.email || '',
+    target,
+    details,
+    createdAt: nowIso()
+  });
 }
 
 function prepareCloudProjectForSave(project) {
@@ -6150,6 +6241,19 @@ function normalizeMcpIntegration(config = {}) {
     tokenEncrypted: String(config.tokenEncrypted || ''),
     lastError: String(config.lastError || ''),
     updatedAt: String(config.updatedAt || '')
+  };
+}
+
+async function readCloudStoreForMember(member) {
+  if (!member || member.role === 'owner' || member.serverIds?.includes('*')) return readCloudStore();
+  const teamId = await ensureActiveTeamUnlocked();
+  const [projects, templates] = await Promise.all([
+    Promise.all((member.serverIds || []).map((projectId) => getDoc(['teams', teamId, 'projects', projectId]))),
+    listCollection(['teams', teamId, 'templates'])
+  ]);
+  return {
+    projects: projects.filter(Boolean).map(prepareCloudProjectForRead),
+    templates: templates.map(prepareCloudTemplateForRead)
   };
 }
 
@@ -6760,6 +6864,19 @@ async function writeMcpIntegrationSettings(config) {
   return normalized;
 }
 
+function mcpDeploymentChanges(input = {}) {
+  const fields = ['name', 'projectId', 'sourceType', 'localPath', 'githubRepo', 'githubBranch', 'autoDeploy', 'remotePath', 'agentId', 'prompt', 'instructions', 'createRollback'];
+  return Object.fromEntries(fields.filter((field) => Object.prototype.hasOwnProperty.call(input, field)).map((field) => [field, input[field]]));
+}
+
+async function mcpDeploymentById(id) {
+  const deploymentId = String(id || '').trim();
+  if (!deploymentId) throw new Error('Deployment id is required.');
+  const deployment = (await listAiDeployments()).find((item) => item.id === deploymentId);
+  if (!deployment) throw new Error('Deployment was not found.');
+  return deployment;
+}
+
 function ensureMcpServer() {
   if (!mcpServer) {
     mcpServer = new DeployerXMcpServer({
@@ -6769,6 +6886,27 @@ function ensureMcpServer() {
       },
       sshOperations: {
         execute: executeManagedMcpSshCommand
+      },
+      deploymentOperations: {
+        list: async () => ({ deployments: await listAiDeployments() }),
+        get: async ({ id } = {}) => ({ deployment: await mcpDeploymentById(id) }),
+        create: async (input = {}) => ({ deployment: await saveAiDeployment({ ...mcpDeploymentChanges(input), id: '' }) }),
+        update: async ({ id, ...input } = {}) => {
+          const current = await mcpDeploymentById(id);
+          return { deployment: await saveAiDeployment({ ...current, ...mcpDeploymentChanges(input), id: current.id }) };
+        },
+        delete: async ({ id } = {}) => {
+          const current = await mcpDeploymentById(id);
+          await deleteAiDeployment(current.id);
+          return { id: current.id, deleted: true };
+        },
+        run: async ({ id, temporaryPrompt, temporaryFiles } = {}) => runAiDeployment(String(id || ''), { temporaryPrompt, temporaryFiles }),
+        stop: async ({ runId } = {}) => {
+          const id = String(runId || '').trim();
+          if (!id) throw new Error('Deployment run id is required.');
+          if (!stopAiDeployment(id)) throw new Error('Active deployment run was not found.');
+          return { runId: id, stopped: true };
+        }
       },
       uptimeOperations: {
         getStatus: getUptimeStatusOperation,
@@ -8102,7 +8240,13 @@ async function queryUserMemberships(auth) {
         if (teamIndex < 0 || !pathParts[teamIndex + 1] || memberUid !== auth.uid) return null;
         return {
           teamId: pathParts[teamIndex + 1],
-          role: normalizeWorkspaceRole(membership.role, { allowOwner: true })
+          role: normalizeWorkspaceRole(membership.role, { allowOwner: true }),
+          mustChangePassword: Boolean(membership.mustChangePassword),
+          blockedCommands: normalizeBlockedCommands(membership.blockedCommands),
+          permissions: normalizeWorkspacePermissions(
+            normalizeWorkspaceRole(membership.role, { allowOwner: true }),
+            membership.permissions
+          )
         };
       })
       .filter(Boolean);
@@ -8152,12 +8296,17 @@ async function teamSnapshot(options = {}) {
               ? Promise.resolve(discoveredMembership)
               : getDoc(['teams', teamRef.teamId, 'members', auth.uid])
           ]);
-          if (!team || !member) return null;
+          if (!team || (!member && String(team.ownerUid || '') !== String(auth.uid))) return null;
           teamDocumentsById.set(String(team.id), team);
+          const access = resolveWorkspaceAccess(team, member, auth.uid);
           return {
             id: team.id,
             name: team.name || teamRef.name || 'Team',
-            role: normalizeWorkspaceRole(member.role, { allowOwner: true }),
+            ownerUid: team.ownerUid || '',
+            role: access.role,
+            mustChangePassword: Boolean(access.mustChangePassword),
+            blockedCommands: access.blockedCommands,
+            permissions: access.permissions,
             createdAt: team.createdAt || ''
           };
         } catch (error) {
@@ -8197,18 +8346,17 @@ async function teamSnapshot(options = {}) {
   }
 
   const activeTeam = teams.find((team) => team.id === activeTeamId) || null;
-  const canManageTeam = activeTeam?.role === 'owner';
+  const canViewMembers = hasWorkspacePermission(activeTeam, 'members.view');
+  const canManageInvites = hasWorkspacePermission(activeTeam, 'members.invite');
+  const activeTeamDocument = activeTeamId ? teamDocumentsById.get(String(activeTeamId)) || null : null;
   const [activeTeamDoc, members, teamInvites] = await Promise.all([
-    activeTeamId ? Promise.resolve(teamDocumentsById.get(String(activeTeamId)) || null) : Promise.resolve(null),
-    !lightweight && activeTeamId
+    Promise.resolve(activeTeamDocument),
+    !lightweight && activeTeamId && canViewMembers
       ? listCollection(['teams', activeTeamId, 'members']).then((items) =>
-          items.map((member) => ({
-            ...member,
-            role: normalizeWorkspaceRole(member.role, { allowOwner: true })
-          }))
+          items.map((member) => resolveWorkspaceAccess(activeTeamDocument, member, member.uid))
         )
       : Promise.resolve([]),
-    !lightweight && activeTeamId && canManageTeam ? listCollection(['teams', activeTeamId, 'invites']) : Promise.resolve([])
+    !lightweight && activeTeamId && canManageInvites ? listCollection(['teams', activeTeamId, 'invites']) : Promise.resolve([])
   ]);
   if (activeTeamId && activeTeamDoc) {
     cloudUnlock = { teamId: activeTeamId, key: deriveWorkspaceKey(activeTeamDoc) };
@@ -8234,6 +8382,8 @@ async function teamSnapshot(options = {}) {
     members,
     teamInvites: pendingTeamInvites,
     invites,
+    permissionCatalog: WORKSPACE_PERMISSION_CATALOG,
+    moduleCatalog: WORKSPACE_MODULE_CATALOG,
     unlocked: Boolean(activeTeamId && activeTeamDoc)
   };
 }
@@ -8246,6 +8396,8 @@ function emptyTeamSnapshot(cloudError = '') {
     members: [],
     teamInvites: [],
     invites: [],
+    permissionCatalog: WORKSPACE_PERMISSION_CATALOG,
+    moduleCatalog: WORKSPACE_MODULE_CATALOG,
     unlocked: false,
     cloudError
   };
@@ -9870,6 +10022,7 @@ function appendMcpCommandOutput(chunks, data, currentBytes) {
 }
 
 async function executeManagedMcpSshCommand(project, command, timeoutMs, { onOutput } = {}) {
+  await ensureWorkspaceCommandsAllowed([command]);
   const validationError = validateConnectionProject(project, { requireSsh: true });
   if (validationError) throw new Error(validationError);
   const { connection, reused, terminalSessionId, entry, terminalEntry } = await managedMcpSshConnection(project);
@@ -11103,7 +11256,6 @@ app.on('before-quit', () => {
   if (uptimeScheduledWorkerService && isWorkerMode()) uptimeScheduledWorkerService.stop({ drain: false }).catch(() => {});
   if (uptimeControlDatabase) uptimeControlDatabase.close().catch(() => {});
   if (backupControlDatabase) backupControlDatabase.close().catch(() => {});
-  fs.rm(SESSION_DATA_PATH, { recursive: true, force: true }).catch(() => {});
   if (autoUpdateTimer) clearInterval(autoUpdateTimer);
   if (uptimeWindowPollTimer) clearInterval(uptimeWindowPollTimer);
   if (uptimeWorkerInterval) clearInterval(uptimeWorkerInterval);
@@ -11621,6 +11773,8 @@ ipcMain.handle('vnc:start', async (_event, payload = {}) => {
   vncKeyboard?.setEnabled(false);
   if (!vncSessionManager) throw new Error('VNC is not ready.');
   const projectId = String(payload.projectId || '');
+  const member = await ensureActiveWorkspacePermission('server.view');
+  ensureWorkspaceServerAllowed(member, projectId);
   const vnc = payload?.vnc && typeof payload.vnc === 'object' ? payload.vnc : {};
   const store = projectId ? await readCurrentStore().catch(() => ({ projects: [] })) : { projects: [] };
   const project = Array.isArray(store.projects)
@@ -11646,6 +11800,8 @@ ipcMain.handle('vnc:start', async (_event, payload = {}) => {
 ipcMain.handle('rdp:start', async (_event, payload = {}) => {
   if (!rdpSessionManager) throw new Error('Remote Desktop is not ready.');
   const projectId = String(payload.projectId || '');
+  const member = await ensureActiveWorkspacePermission('server.view');
+  ensureWorkspaceServerAllowed(member, projectId);
   const rdp = payload?.rdp && typeof payload.rdp === 'object' ? payload.rdp : {};
   const store = projectId ? await readCurrentStore().catch(() => ({ projects: [] })) : { projects: [] };
   const project = Array.isArray(store.projects)
@@ -14519,6 +14675,13 @@ ipcMain.handle('auth:changePassword', async (_event, payload = {}) => {
   );
   const settings = await readSettings();
   await writeSettings({ ...settings, auth: nextAuth });
+  if (settings.mode === 'cloud' && settings.activeTeamId) {
+    const memberPath = ['teams', settings.activeTeamId, 'members', auth.uid];
+    const member = await getDoc(memberPath).catch(() => null);
+    if (member?.mustChangePassword) {
+      await patchDoc(memberPath, { ...member, mustChangePassword: false, updatedAt: nowIso() });
+    }
+  }
   return true;
 });
 
@@ -14564,6 +14727,10 @@ ipcMain.handle('teams:create', async (_event, payload = {}) => {
     emailLower: emailKey(auth.email),
     displayName: auth.displayName || '',
     role: 'owner',
+    permissions: normalizeWorkspacePermissions('owner'),
+    blockedCommands: [],
+    visibleModules: ['*'],
+    serverIds: ['*'],
     createdAt: nowIso(),
     updatedAt: nowIso()
   };
@@ -14609,10 +14776,11 @@ ipcMain.handle('teams:invite', async (_event, payload = {}) => {
   const settings = await readSettings();
   const teamId = String(payload.teamId || settings.activeTeamId || '');
   const email = emailKey(payload.email);
-  const role = normalizeWorkspaceRole(payload.role);
   if (!teamId) throw new Error('Select a team first.');
   if (!email) throw new Error('Invite email is required.');
-  await ensureTeamManager(teamId);
+  await ensureTeamPermission(teamId, 'members.invite');
+  const access = workspaceAccessForStorage(payload.role, payload.permissions, payload.blockedCommands, payload.visibleModules, payload.serverIds);
+  await ensureCanAssignWorkspaceAccess(teamId, access.role, access.permissions, access.visibleModules, access.serverIds);
   const team = await getDoc(['teams', teamId]);
   const inviteId = createId('invite');
   const invite = {
@@ -14621,13 +14789,64 @@ ipcMain.handle('teams:invite', async (_event, payload = {}) => {
     teamName: team?.name || 'Team',
     email,
     emailLower: email,
-    role,
+    ...access,
     status: 'pending',
     createdAt: nowIso(),
     updatedAt: nowIso()
   };
   await patchDoc(['teams', teamId, 'invites', inviteId], invite);
   await syncInviteInboxDocument(invite).catch(() => {});
+  await recordWorkspaceAudit(teamId, 'member.invited', { email }, access).catch(() => {});
+  return teamSnapshot();
+});
+
+ipcMain.handle('teams:createUser', async (_event, payload = {}) => {
+  const settings = await readSettings();
+  const teamId = String(payload.teamId || settings.activeTeamId || '');
+  const email = emailKey(payload.email);
+  const password = String(payload.password || '');
+  const displayName = String(payload.displayName || '').trim();
+  if (!teamId) throw new Error('Select a workspace first.');
+  if (!email || !password) throw new Error('Email and temporary password are required.');
+  if (password.length < 6) throw new Error('Temporary password must be at least 6 characters.');
+  await ensureTeamPermission(teamId, 'members.create');
+  const access = workspaceAccessForStorage(payload.role, payload.permissions, payload.blockedCommands, payload.visibleModules, payload.serverIds);
+  await ensureCanAssignWorkspaceAccess(teamId, access.role, access.permissions, access.visibleModules, access.serverIds);
+
+  const registered = await firebaseAuthRequest('accounts:signUp', { email, password, returnSecureToken: true });
+  const uid = String(registered.localId || '');
+  if (!uid) {
+    await firebaseAuthRequest('accounts:delete', { idToken: registered.idToken }).catch(() => {});
+    throw new Error('Firebase did not return a user ID.');
+  }
+  try {
+    if (displayName) {
+      await firebaseAuthRequest('accounts:update', {
+        idToken: registered.idToken,
+        displayName,
+        returnSecureToken: false
+      });
+    }
+    const createdAt = nowIso();
+    await patchDoc(['teams', teamId, 'members', uid], {
+      uid,
+      email,
+      emailLower: email,
+      displayName,
+      ...access,
+      mustChangePassword: true,
+      createdAt,
+      updatedAt: createdAt
+    });
+    await firebaseAuthRequest('accounts:sendOobCode', {
+      requestType: 'VERIFY_EMAIL',
+      idToken: registered.idToken
+    }).catch(() => {});
+  } catch (error) {
+    await firebaseAuthRequest('accounts:delete', { idToken: registered.idToken }).catch(() => {});
+    throw error;
+  }
+  await recordWorkspaceAudit(teamId, 'member.created', { uid, email }, access).catch(() => {});
   return teamSnapshot();
 });
 
@@ -14636,11 +14855,12 @@ ipcMain.handle('teams:revokeInvite', async (_event, payload = {}) => {
   const teamId = String(payload.teamId || settings.activeTeamId || '');
   const inviteId = String(payload.inviteId || payload.id || '');
   if (!teamId || !inviteId) throw new Error('Invite is missing.');
-  await ensureTeamManager(teamId);
+  await ensureTeamPermission(teamId, 'members.invite');
   const invite = await getDoc(['teams', teamId, 'invites', inviteId]);
   if (!invite || invite.status !== 'pending') throw new Error('Invite is no longer pending.');
   await deleteDoc(['teams', teamId, 'invites', inviteId]);
   await deleteInviteInboxDocument(invite).catch(() => {});
+  await recordWorkspaceAudit(teamId, 'member.invite_revoked', { email: invite.emailLower || invite.email || '' }).catch(() => {});
   return teamSnapshot();
 });
 
@@ -14654,12 +14874,13 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
   if (emailKey(invite.emailLower || invite.email) !== emailKey(auth.email)) throw new Error('This invite belongs to another email.');
 
   const acceptedAt = nowIso();
+  const access = workspaceAccessForStorage(invite.role, invite.permissions, invite.blockedCommands, invite.visibleModules, invite.serverIds);
   const member = {
     uid: auth.uid,
     email: auth.email,
     emailLower: emailKey(auth.email),
     displayName: auth.displayName || '',
-    role: normalizeWorkspaceRole(invite.role),
+    ...access,
     acceptedInviteId: inviteId,
     createdAt: acceptedAt,
     updatedAt: acceptedAt
@@ -14677,7 +14898,7 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
       activeTeamUid: auth.uid
     });
     if (team) cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
-    const acceptedInvite = { ...invite, status: 'accepted', acceptedBy: auth.uid, updatedAt: acceptedAt };
+    const acceptedInvite = { ...invite, ...access, status: 'accepted', acceptedBy: auth.uid, updatedAt: acceptedAt };
     await patchDoc(['teams', teamId, 'invites', inviteId], acceptedInvite).catch(() => {});
     await deleteInviteInboxDocument(acceptedInvite).catch(() => {});
     if (previousWorkspaceId !== String(teamId)) await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
@@ -14686,15 +14907,56 @@ ipcMain.handle('teams:acceptInvite', async (_event, payload = {}) => {
   });
 });
 
+ipcMain.handle('teams:updateMember', async (_event, payload = {}) => {
+  const settings = await readSettings();
+  const teamId = String(payload.teamId || settings.activeTeamId || '');
+  const uid = String(payload.uid || '');
+  if (!teamId || !uid) throw new Error('Member is required.');
+  const actor = await ensureTeamPermission(teamId, 'members.update');
+  if (actor.uid === uid) throw new Error('You cannot change your own workspace access.');
+  const member = await getDoc(['teams', teamId, 'members', uid]);
+  if (!member) throw new Error('Member was not found.');
+  if (member.role === 'owner') throw new Error('Owner permissions cannot be changed.');
+  const access = workspaceAccessForStorage(payload.role, payload.permissions, payload.blockedCommands, payload.visibleModules, payload.serverIds);
+  if (!canAssignWorkspaceAccess(actor, access.role, access.permissions, access.visibleModules, access.serverIds)) {
+    throw new Error('You cannot grant this role or these permissions.');
+  }
+  await patchDoc(['teams', teamId, 'members', uid], { ...member, ...access, updatedAt: nowIso() });
+  await recordWorkspaceAudit(teamId, 'member.access_updated', { uid, email: member.email || '' }, access).catch(() => {});
+  return teamSnapshot();
+});
+
+ipcMain.handle('teams:resetMemberPassword', async (_event, payload = {}) => {
+  const settings = await readSettings();
+  const teamId = String(payload.teamId || settings.activeTeamId || '');
+  const uid = String(payload.uid || '');
+  if (!teamId || !uid) throw new Error('Member is required.');
+  const actor = await currentMember(teamId);
+  if (actor?.role !== 'owner') throw new Error('Only the workspace owner can reset a user password.');
+  const member = await getDoc(['teams', teamId, 'members', uid]);
+  if (!member?.email) throw new Error('This user does not have an email address.');
+  await firebaseAuthRequest('accounts:sendOobCode', {
+    requestType: 'PASSWORD_RESET',
+    email: member.email
+  });
+  await recordWorkspaceAudit(teamId, 'member.password_reset_requested', { uid, email: member.email }).catch(() => {});
+  return true;
+});
+
 ipcMain.handle('teams:removeMember', async (_event, payload = {}) => {
   const settings = await readSettings();
   const teamId = String(payload.teamId || settings.activeTeamId || '');
   const uid = String(payload.uid || '');
   if (!teamId || !uid) throw new Error('Member is required.');
-  await ensureTeamManager(teamId);
+  const actor = await ensureTeamPermission(teamId, 'members.remove');
   const member = await getDoc(['teams', teamId, 'members', uid]);
   if (member?.role === 'owner') throw new Error('Owner cannot be removed.');
+  if (member?.role === 'admin' && actor.role !== 'owner' && !hasWorkspacePermission(actor, 'members.promote')) {
+    throw new Error('You cannot remove an admin.');
+  }
   await deleteDoc(['teams', teamId, 'members', uid]);
+  await removeUserTeamRef(uid, teamId).catch(() => {});
+  await recordWorkspaceAudit(teamId, 'member.removed', { uid, email: member?.email || '' }).catch(() => {});
   return teamSnapshot();
 });
 
@@ -14764,7 +15026,9 @@ ipcMain.handle('cloud:import-local', async () => {
 ipcMain.handle('projects:list', async () => {
   let data;
   try {
-    data = await readCurrentStore();
+    const member = await ensureActiveWorkspacePermission('server.view');
+    const settings = await readSettings();
+    data = settings.mode === 'cloud' ? await readCloudStoreForMember(member) : await readCurrentStore();
   } catch (error) {
     // Login and the dashboard should remain usable when Firestore is briefly
     // rate-limited or unavailable. Reads can be retried from the dashboard.
@@ -14794,6 +15058,8 @@ ipcMain.handle('projects:save', async (_event, project) => {
     ? currentStore.projects.find((item) => String(item.id) === String(id)) || null
     : null;
   if (settings.mode === 'cloud') {
+    const member = await ensureActiveWorkspacePermission(previousProject ? 'server.update' : 'server.create');
+    ensureWorkspaceServerAllowed(member, id, { creating: !previousProject });
     const teamId = await ensureActiveTeamUnlocked();
     await patchDoc(['teams', teamId, 'projects', id], prepareCloudProjectForSave(normalized));
     await pruneRemovedMonitorArtifacts(previousProject, normalized);
@@ -14813,12 +15079,16 @@ ipcMain.handle('projects:save', async (_event, project) => {
 ipcMain.handle('network:vpn-profiles:list', async () => listWindowsVpnProfiles());
 
 ipcMain.handle('projects:delete', async (_event, id) => {
+  const member = await ensureActiveWorkspacePermission('server.delete');
+  ensureWorkspaceServerAllowed(member, id);
   await deleteProjectFromCurrentStore(id);
   return true;
 });
 
 ipcMain.handle('projects:export', async (_event, projectIds) => {
-  const data = await readCurrentStore();
+  const member = await ensureActiveWorkspacePermission('server.view');
+  const settings = await readSettings();
+  const data = settings.mode === 'cloud' ? await readCloudStoreForMember(member) : await readCurrentStore();
   const selectedIds = Array.isArray(projectIds) ? new Set(projectIds.map(String)) : null;
   const projects = selectedIds ? (data.projects || []).filter((project) => selectedIds.has(String(project.id))) : data.projects || [];
   const result = await dialog.showSaveDialog(mainWindow, {
@@ -14841,6 +15111,8 @@ ipcMain.handle('projects:export', async (_event, projectIds) => {
 });
 
 ipcMain.handle('projects:import', async () => {
+  const member = await ensureActiveWorkspacePermission('server.create');
+  ensureWorkspaceServerAllowed(member, '', { creating: true });
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Import Servers',
     properties: ['openFile'],
@@ -15094,6 +15366,9 @@ ipcMain.handle('dialog:select-terminal-download', async (_event, defaultName = '
 });
 
 ipcMain.handle('deployment:run', async (_event, payload) => {
+  await ensureWorkspaceCommandsAllowed(payload.project?.commands || []);
+  const member = await ensureActiveWorkspacePermission('server.view');
+  ensureWorkspaceServerAllowed(member, payload.project?.id);
   const runId = payload.runId || `${Date.now()}`;
   executeDeployment(payload.project, payload.upload, runId).catch(() => {});
   return { runId };
@@ -15102,6 +15377,8 @@ ipcMain.handle('deployment:run', async (_event, payload) => {
 ipcMain.handle('deployment:stop', async (_event, runId) => stopDeployment(runId));
 
 ipcMain.handle('terminal:start', async (_event, payload) => {
+  const member = await ensureActiveWorkspacePermission('server.terminal.open');
+  ensureWorkspaceServerAllowed(member, payload.project?.id);
   const sessionId = payload.sessionId || `${Date.now()}`;
   startTerminal(payload.project, sessionId, {
     cols: payload.cols,
@@ -15114,7 +15391,9 @@ ipcMain.handle('terminal:start', async (_event, payload) => {
 });
 
 ipcMain.handle('server-monitoring:start', async (_event, payload = {}) => {
+  const member = await ensureActiveWorkspacePermission('server.view');
   const project = payload.project || {};
+  ensureWorkspaceServerAllowed(member, project.id);
   if (['vnc', 'rdp'].includes(project.serverType)) throw new Error('Real-time monitoring currently requires an SSH-capable server.');
   const validationError = validateConnectionProject(project, { requireSsh: true });
   if (validationError) throw new Error(validationError);

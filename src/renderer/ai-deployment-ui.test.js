@@ -2,8 +2,32 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const rendererDirectory = __dirname;
+
+test('GitHub repository listing fetches every page, including beyond 2,000 repositories', async () => {
+  const main = await fs.readFile(path.join(rendererDirectory, '..', 'main.js'), 'utf8');
+  const source = main.slice(main.indexOf('async function listGithubRepositories()'), main.indexOf('async function downloadGithubArchive('));
+  let pages = 0;
+  const context = vm.createContext({
+    readSettings: async () => ({}),
+    githubToken: async () => 'test-token',
+    githubRequest: async (_token, endpoint) => {
+      const page = Number(new URL(endpoint, 'https://api.github.com').searchParams.get('page'));
+      assert.equal(page, ++pages);
+      return Array.from({ length: page <= 20 ? 100 : 1 }, (_, index) => ({
+        id: (page - 1) * 100 + index,
+        full_name: `team/repo-${page}-${index}`,
+        default_branch: 'main'
+      }));
+    }
+  });
+  const repositories = await vm.runInContext(`${source}\nlistGithubRepositories()`, context);
+  assert.equal(pages, 21);
+  assert.equal(repositories.length, 2001);
+  assert.equal(repositories.at(-1).fullName, 'team/repo-21-0');
+});
 
 test('provides the accessible deployment list and configuration workflow', async () => {
   const [html, renderer, preload] = await Promise.all([
@@ -12,7 +36,9 @@ test('provides the accessible deployment list and configuration workflow', async
     fs.readFile(path.join(rendererDirectory, '..', 'preload.js'), 'utf8')
   ]);
 
-  assert.match(html, /id="aiDeploymentsButton"[\s\S]*?<span>Deployment<\/span>/);
+  assert.match(html, /id="aiDeploymentsButton"[\s\S]*?<use href="#icon-layers"><\/use>[\s\S]*?<span>Deployment<\/span>/);
+  assert.ok(html.indexOf('id="topSshButton"') < html.indexOf('id="aiDeploymentsButton"'));
+  assert.ok(html.indexOf('id="aiDeploymentsButton"') < html.indexOf('id="serverMonitoringButton"'));
   assert.match(html, /id="aiDeploymentTableWrap"[\s\S]*?<caption class="sr-only">Saved external deployments<\/caption>/);
   assert.match(html, /<th scope="col">#<\/th>/);
   assert.match(html, /<th scope="col">Actions<\/th>/);

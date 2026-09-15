@@ -25,7 +25,56 @@ service cloud.firestore {
     }
 
     function isTeamManager(teamId) {
-      return isTeamMember(teamId) && member(teamId).data.role == 'owner';
+      return isTeamOwner(teamId)
+        || (isTeamMember(teamId) && (
+          member(teamId).data.role == 'owner'
+          || (
+            member(teamId).data.permissions is list
+            && member(teamId).data.permissions.hasAny(['members.update'])
+          )
+        ));
+    }
+
+    function hasTeamPermission(teamId, permission) {
+      return isTeamOwner(teamId)
+        || (isTeamMember(teamId) && (
+          member(teamId).data.role == 'owner'
+          || (
+            member(teamId).data.permissions is list
+            && member(teamId).data.permissions.hasAny([permission])
+          )
+        ));
+    }
+
+    function canAssignAccess(teamId) {
+      return request.resource.data.role != 'owner'
+        && request.resource.data.permissions is list
+        && request.resource.data.blockedCommands is list
+        && request.resource.data.visibleModules is list
+        && request.resource.data.serverIds is list
+        && request.resource.data.blockedCommands.size() <= 100
+        && request.resource.data.visibleModules.size() <= 20
+        && request.resource.data.serverIds.size() <= 500
+        && (
+          isTeamOwner(teamId)
+          || (
+            request.resource.data.permissions.hasOnly(member(teamId).data.permissions)
+            && (
+              !member(teamId).data.keys().hasAny(['visibleModules'])
+              || member(teamId).data.visibleModules.hasAny(['*'])
+              || request.resource.data.visibleModules.hasOnly(member(teamId).data.visibleModules)
+            )
+            && (
+              !member(teamId).data.keys().hasAny(['serverIds'])
+              || member(teamId).data.serverIds.hasAny(['*'])
+              || request.resource.data.serverIds.hasOnly(member(teamId).data.serverIds)
+            )
+            && (
+              request.resource.data.role != 'admin'
+              || hasTeamPermission(teamId, 'members.promote')
+            )
+          )
+        );
     }
 
     function isTeamOwner(teamId) {
@@ -57,7 +106,7 @@ service cloud.firestore {
       return signedIn()
         && request.resource.data.emailLower == emailLower
         && request.resource.data.teamId is string
-        && isTeamManager(request.resource.data.teamId);
+        && hasTeamPermission(request.resource.data.teamId, 'members.invite');
     }
 
     function isTeamOwnerDocument(teamId, uid) {
@@ -72,6 +121,66 @@ service cloud.firestore {
         && inviteMatchesUser(teamId, request.resource.data.acceptedInviteId);
     }
 
+    function hasServerAccess(teamId, projectId) {
+      return isTeamOwner(teamId)
+        || (
+          isTeamMember(teamId)
+          && (
+            !member(teamId).data.keys().hasAny(['serverIds'])
+            || member(teamId).data.serverIds.hasAny(['*', projectId])
+          )
+        );
+    }
+
+    function hasAllServerAccess(teamId) {
+      return isTeamOwner(teamId)
+        || (
+          isTeamMember(teamId)
+          && (
+            !member(teamId).data.keys().hasAny(['serverIds'])
+            || member(teamId).data.serverIds.hasAny(['*'])
+          )
+        );
+    }
+
+    function acceptedInviteAccessMatches(teamId) {
+      let invite = get(/databases/$(database)/documents/teams/$(teamId)/invites/$(request.resource.data.acceptedInviteId));
+      return request.resource.data.role == invite.data.role
+        && request.resource.data.permissions is list
+        && request.resource.data.blockedCommands is list
+        && request.resource.data.visibleModules is list
+        && request.resource.data.serverIds is list
+        && (
+          (
+            invite.data.permissions is list
+            && request.resource.data.permissions == invite.data.permissions
+          )
+          || (
+            !invite.data.keys().hasAny(['permissions'])
+            && request.resource.data.role == 'member'
+            && request.resource.data.permissions == ['server.view']
+          )
+        )
+        && (
+          (
+            invite.data.blockedCommands is list
+            && request.resource.data.blockedCommands == invite.data.blockedCommands
+          )
+          || (
+            !invite.data.keys().hasAny(['blockedCommands'])
+            && request.resource.data.blockedCommands == []
+          )
+        )
+        && (
+          (invite.data.visibleModules is list && request.resource.data.visibleModules == invite.data.visibleModules)
+          || (!invite.data.keys().hasAny(['visibleModules']) && request.resource.data.visibleModules == ['*'])
+        )
+        && (
+          (invite.data.serverIds is list && request.resource.data.serverIds == invite.data.serverIds)
+          || (!invite.data.keys().hasAny(['serverIds']) && request.resource.data.serverIds == ['*'])
+        );
+    }
+
     match /users/{uid} {
       allow read, create, update: if isSelf(uid);
       allow delete: if false;
@@ -79,36 +188,75 @@ service cloud.firestore {
 
     match /teams/{teamId} {
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow read, update: if isTeamMember(teamId);
+      allow read: if isTeamMember(teamId) || isTeamOwner(teamId);
+      allow update: if hasTeamPermission(teamId, 'workspace.settings.update')
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.secretSeed == resource.data.secretSeed;
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
 
       match /members/{uid} {
-        allow read: if isTeamMember(teamId) || isTeamOwner(teamId);
-        allow create: if isTeamOwnerDocument(teamId, uid)
-          || (acceptingOwnInvite(teamId, uid) && request.resource.data.role == 'member')
-          || (isTeamManager(teamId) && request.resource.data.role == 'member');
-        allow update: if isTeamManager(teamId)
-          && resource.data.role != 'owner'
-          && request.resource.data.role == 'member';
-        allow delete: if isTeamOwner(teamId) || (isTeamManager(teamId) && resource.data.role != 'owner');
-      }
-
-      match /invites/{inviteId} {
-        allow read: if isTeamOwner(teamId) || isTeamManager(teamId) || inviteResourceMatchesUser();
-        allow create, delete: if isTeamOwner(teamId) || isTeamManager(teamId);
-        allow update: if isTeamOwner(teamId) || isTeamManager(teamId)
-          || (
-            inviteResourceMatchesUser()
+        allow read: if isSelf(uid) || hasTeamPermission(teamId, 'members.view');
+        allow create: if request.resource.data.uid == uid
+          && (
+            isTeamOwnerDocument(teamId, uid)
+            || (acceptingOwnInvite(teamId, uid) && acceptedInviteAccessMatches(teamId))
+            || (hasTeamPermission(teamId, 'members.create') && canAssignAccess(teamId))
+          );
+        allow update: if (
+            isSelf(uid)
+            && resource.data.mustChangePassword == true
+            && request.resource.data.mustChangePassword == false
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword', 'updatedAt'])
+          ) || (
+            !isSelf(uid)
+            && resource.data.role != 'owner'
+            && request.resource.data.uid == resource.data.uid
             && request.resource.data.emailLower == resource.data.emailLower
-            && request.resource.data.role == 'member'
-            && request.resource.data.status == 'accepted'
-            && request.resource.data.acceptedBy == request.auth.uid
+            && request.resource.data.createdAt == resource.data.createdAt
+            && hasTeamPermission(teamId, 'members.update')
+            && canAssignAccess(teamId)
+          );
+        allow delete: if resource.data.role != 'owner'
+          && hasTeamPermission(teamId, 'members.remove')
+          && (
+            resource.data.role != 'admin'
+            || isTeamOwner(teamId)
+            || hasTeamPermission(teamId, 'members.promote')
           );
       }
 
+      match /invites/{inviteId} {
+        allow read: if hasTeamPermission(teamId, 'members.invite') || inviteResourceMatchesUser();
+        allow create: if hasTeamPermission(teamId, 'members.invite')
+          && request.resource.data.status == 'pending'
+          && request.resource.data.emailLower is string
+          && canAssignAccess(teamId);
+        allow delete: if hasTeamPermission(teamId, 'members.invite');
+        allow update: if inviteResourceMatchesUser()
+            && resource.data.status == 'pending'
+            && request.resource.data.emailLower == resource.data.emailLower
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.permissions == resource.data.permissions
+            && request.resource.data.blockedCommands == resource.data.blockedCommands
+            && (
+              (resource.data.visibleModules is list && request.resource.data.visibleModules == resource.data.visibleModules)
+              || (!resource.data.keys().hasAny(['visibleModules']) && request.resource.data.visibleModules == ['*'])
+            )
+            && (
+              (resource.data.serverIds is list && request.resource.data.serverIds == resource.data.serverIds)
+              || (!resource.data.keys().hasAny(['serverIds']) && request.resource.data.serverIds == ['*'])
+            )
+            && request.resource.data.status == 'accepted'
+            && request.resource.data.acceptedBy == request.auth.uid
+          ;
+      }
+
       match /projects/{projectId} {
-        allow read, create, update: if isTeamMember(teamId);
-        allow delete: if isTeamMember(teamId) || isTeamOwner(teamId);
+        allow get: if hasTeamPermission(teamId, 'server.view') && hasServerAccess(teamId, projectId);
+        allow list: if hasTeamPermission(teamId, 'server.view') && hasAllServerAccess(teamId);
+        allow create: if hasTeamPermission(teamId, 'server.create') && hasAllServerAccess(teamId);
+        allow update: if hasTeamPermission(teamId, 'server.update') && hasServerAccess(teamId, projectId);
+        allow delete: if hasTeamPermission(teamId, 'server.delete') && hasServerAccess(teamId, projectId);
       }
 
       match /templates/{templateId} {
@@ -136,6 +284,13 @@ service cloud.firestore {
         allow read, create, update, delete: if isTeamMember(teamId);
       }
 
+      match /auditLogs/{auditId} {
+        allow read: if hasTeamPermission(teamId, 'members.view');
+        allow create: if isTeamMember(teamId)
+          && request.resource.data.actorUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+
     }
 
     match /{path=**}/invites/{inviteId} {
@@ -148,7 +303,7 @@ service cloud.firestore {
       allow read: if isInviteInboxOwner(emailLower);
       allow create, update: if canWriteInviteInbox(emailLower);
       allow delete: if isInviteInboxOwner(emailLower)
-        || (resource.data.teamId is string && isTeamManager(resource.data.teamId));
+        || (resource.data.teamId is string && hasTeamPermission(resource.data.teamId, 'members.invite'));
     }
   }
 }

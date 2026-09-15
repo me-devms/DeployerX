@@ -34,6 +34,8 @@ app.whenReady().then(async () => {
         { id: 'server-2', name: 'Staging Worker', group: 'Staging', serverType: 'ubuntu', ssh: { host: '192.0.2.11', port: 22, username: 'deploy' }, ftp: {}, commands: [] }
       ];
       Object.defineProperty(window, 'deployerx', { configurable: true, value: {
+        getGithubIntegration: async () => ({ connected: true, login: 'test-user' }),
+        listGithubRepositories: async () => { throw new Error("Error invoking remote method 'github-integration:repositories': Error: Repository access denied"); },
         listAiDeployments: async () => [
           { id: 'dep-1', name: 'Production release', projectId: 'server-1', localPath: 'C:\\projects\\api', remotePath: '/srv/api', agentId: 'codex', prompt: 'Deploy the latest verified release.', instructions: 'Run smoke tests.', createRollback: true, status: 'successful', lastRunAt: '2026-09-14T08:00:00.000Z', log: '[2026-09-14T08:00:00.000Z] INFO Deployment started.\\n[2026-09-14T08:02:00.000Z] SUCCESS Deployment completed.', runs: [
             { id: 'run-2', startedAt: '2026-09-14T08:00:00.000Z', completedAt: '2026-09-14T08:02:00.000Z', status: 'successful', message: 'Deployment completed.', log: '[2026-09-14T08:00:00.000Z] INFO Deployment started.\\n[2026-09-14T08:02:00.000Z] SUCCESS Deployment completed.' },
@@ -282,6 +284,99 @@ app.whenReady().then(async () => {
     const formPath = path.join(captureRoot, 'deployment-form.png');
     await fs.writeFile(formPath, (await window.webContents.capturePage()).toPNG());
 
+    await window.webContents.executeJavaScript(`(async () => {
+      const check = (condition, message) => { if (!condition) throw new Error(message); };
+      const source = els.aiDeploymentSourceType;
+      const button = els.aiDeploymentFetchRepositoriesButton;
+      const status = els.aiDeploymentRepositoriesStatus;
+      check(state.githubIntegration.connected, 'Repository failure must preserve the connected integration');
+      check(!source.querySelector('option[value="github"]').disabled, 'Connected GitHub must remain selectable');
+      check(status.textContent.includes('Repository access denied'), 'Repository failure must be visible');
+      check(!status.textContent.includes('Error invoking remote method'), 'Repository errors must omit the IPC wrapper');
+      source.value = 'github';
+      source.dispatchEvent(new Event('change', { bubbles: true }));
+      check(!button.classList.contains('hidden'), 'GitHub source must show the fetch button');
+      check(els.aiDeploymentSummaryFolder.textContent === 'Not selected', 'Empty repository must not count as a selected source');
+      let finish;
+      let calls = 0;
+      window.deployerx.listGithubRepositories = () => {
+        calls += 1;
+        return new Promise((resolve) => { finish = resolve; });
+      };
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      check(button.disabled && button.getAttribute('aria-busy') === 'true', 'Fetching must show a busy button');
+      await fetchAiDeploymentGithubRepositories();
+      check(calls === 1, 'Duplicate fetch must be ignored');
+      finish([{ fullName: 'team/app', defaultBranch: 'develop', private: true }]);
+      while (button.disabled) await new Promise((resolve) => setTimeout(resolve, 5));
+      check(els.aiDeploymentGithubRepo.options.length === 2, 'Fetch must populate repositories');
+      els.aiDeploymentGithubRepo.value = 'team/app';
+      els.aiDeploymentGithubRepo.dispatchEvent(new Event('change', { bubbles: true }));
+      check(els.aiDeploymentGithubBranch.value === 'develop', 'Selection must use the default branch');
+      els.aiDeploymentGithubBranch.value = 'release';
+      els.aiDeploymentPrompt.value = 'Keep this prompt';
+      const project = els.aiDeploymentProject.value;
+      window.deployerx.listGithubRepositories = async () => [
+        { fullName: 'team/app', defaultBranch: 'develop', private: true },
+        { fullName: 'team/new', defaultBranch: 'main', private: false }
+      ];
+      await fetchAiDeploymentGithubRepositories();
+      check(els.aiDeploymentGithubRepo.value === 'team/app' && els.aiDeploymentGithubBranch.value === 'release', 'Refresh must preserve repository and branch');
+      check(els.aiDeploymentPrompt.value === 'Keep this prompt' && els.aiDeploymentProject.value === project, 'Refresh must preserve form fields');
+      await loadGithubIntegration();
+      check(state.githubRepositories.length === 2, 'Loading settings must preserve repository cache');
+      window.deployerx.listGithubRepositories = async () => { throw new Error('Network unavailable'); };
+      await fetchAiDeploymentGithubRepositories();
+      check(state.githubIntegration.connected && els.aiDeploymentGithubRepo.value === 'team/app', 'Failed refresh must preserve connection and selection');
+      check(!button.disabled && status.textContent.includes('Network unavailable'), 'Failed refresh must allow retry');
+      window.deployerx.listGithubRepositories = async () => [];
+      await fetchAiDeploymentGithubRepositories();
+      check(status.textContent.includes('No repositories available'), 'Empty fetch must explain repository access');
+      state.githubIntegration = { connected: false };
+      openAiDeploymentForm();
+      check(source.querySelector('option[value="github"]').disabled, 'Disconnected GitHub must be disabled');
+      await loadGithubIntegration();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      check(!source.querySelector('option[value="github"]').disabled, 'Late connection state must enable an open form');
+      const sourceDropdown = source.closest('.project-dropdown');
+      sourceDropdown.querySelector('.workspace-switcher-trigger').click();
+      const githubOption = sourceDropdown.querySelector('[data-project-dropdown-value="github"]');
+      check(!githubOption.disabled, 'Enhanced GitHub option must also be enabled');
+      githubOption.click();
+      check(source.value === 'github', 'Clicking the GitHub option must select it');
+      window.deployerx.listGithubRepositories = async () => [{ fullName: 'team/app', defaultBranch: 'main', private: true }];
+      await fetchAiDeploymentGithubRepositories();
+      els.aiDeploymentGithubRepo.value = 'team/app';
+      els.aiDeploymentGithubBranch.value = 'release';
+      window.deployerx.getGithubIntegration = async () => ({ connected: false, needsReconnect: true, error: 'Saved credential unavailable. Reconnect GitHub.' });
+      let failedCredentialRequests = 0;
+      window.deployerx.listGithubRepositories = async () => { failedCredentialRequests += 1; return []; };
+      await fetchAiDeploymentGithubRepositories();
+      check(failedCredentialRequests === 0, 'Locked credentials must not make a repository request');
+      check(els.githubIntegrationStatus.textContent === 'Reconnect required', 'Settings must not claim a locked token is connected');
+      check(!els.aiDeploymentReconnectGithubButton.classList.contains('hidden'), 'Deployment must offer credential recovery');
+      check(status.textContent.includes('Reconnect GitHub'), 'Locked credentials must explain recovery');
+      els.aiDeploymentReconnectGithubButton.click();
+      check(els.githubIntegrationDialog.open, 'Reconnect must open the existing credential dialog');
+      window.deployerx.connectGithubIntegration = async () => {
+        window.deployerx.getGithubIntegration = async () => ({ connected: true, login: 'test-user' });
+        return window.deployerx.getGithubIntegration();
+      };
+      window.deployerx.listGithubRepositories = async () => [{ fullName: 'team/app', defaultBranch: 'main', private: true }];
+      els.githubIntegrationToken.value = 'test-token';
+      await submitGithubIntegration({ preventDefault() {} });
+      check(!els.githubIntegrationDialog.open && els.githubIntegrationToken.value === '', 'Reconnect must close the dialog and clear its token');
+      check(els.githubIntegrationStatus.textContent === 'Connected', 'Reconnected credentials must update settings');
+      check(els.aiDeploymentReconnectGithubButton.classList.contains('hidden'), 'Successful reconnection must hide recovery');
+      check(status.textContent === '1 repository available.', 'Reconnect must fetch repositories automatically');
+      check(els.aiDeploymentGithubRepo.value === 'team/app' && els.aiDeploymentGithubBranch.value === 'release', 'Reconnect must preserve the deployment source');
+    })()`);
+    const githubFormPath = path.join(captureRoot, 'deployment-github.png');
+    window.webContents.invalidate();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await fs.writeFile(githubFormPath, (await window.webContents.capturePage()).toPNG());
+
     const valid = result.view === 'ai-deployments'
       && result.sidebarCollapsed
       && result.rows === 2
@@ -363,7 +458,7 @@ app.whenReady().then(async () => {
       && form.promptAfterClear === ''
       && form.instructionsAfterPromptClear === 'Run smoke tests.'
       && form.instructionsAfterClear === '';
-    process.stdout.write(`${JSON.stringify({ ok: valid, result, runDialog, runExecution, empty, form, logHistoryPath, listPath, runDialogPath, emptyPath, formPath })}\n`);
+    process.stdout.write(`${JSON.stringify({ ok: valid, result, runDialog, runExecution, empty, form, logHistoryPath, listPath, runDialogPath, emptyPath, formPath, githubFormPath })}\n`);
     if (!valid) exitCode = 1;
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);

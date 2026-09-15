@@ -33,6 +33,20 @@ const MONITOR_PROPERTIES = {
 };
 
 const LIST_LIMIT_PROPERTY = { type: 'integer', minimum: 1, maximum: 10000, default: 500 };
+const DEPLOYMENT_PROPERTIES = {
+  name: { type: 'string', maxLength: 120 },
+  projectId: { type: 'string', description: 'Target server ID from deployerx_list_servers.' },
+  sourceType: { type: 'string', enum: ['local', 'github'] },
+  localPath: { type: 'string', description: 'Required when sourceType is local.' },
+  githubRepo: { type: 'string', description: 'Repository in owner/name form. Required when sourceType is github.' },
+  githubBranch: { type: 'string', description: 'GitHub branch. Defaults to repository default branch.' },
+  autoDeploy: { type: 'boolean', description: 'Check GitHub every minute and deploy new commits. GitHub sources only.' },
+  remotePath: { type: 'string', description: 'Optional target folder. Agent chooses when omitted.' },
+  agentId: { type: 'string', description: 'Installed local deployment agent ID.' },
+  prompt: { type: 'string', maxLength: 8000 },
+  instructions: { type: 'string', maxLength: 8000 },
+  createRollback: { type: 'boolean', default: true }
+};
 
 const TOOLS = [
   {
@@ -41,6 +55,64 @@ const TOOLS = [
     description: 'List saved SSH/SFTP server aliases and opaque IDs. Connection details and credentials are never returned.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_list_deployments',
+    title: 'List deployments',
+    description: 'List saved DeployerX deployments, source configuration, status, and run history.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_get_deployment',
+    title: 'Get a deployment',
+    description: 'Get one saved DeployerX deployment and its run history.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_create_deployment',
+    title: 'Create a deployment',
+    description: 'Create a saved deployment from a local folder or connected GitHub repository. This does not run it.',
+    inputSchema: { type: 'object', properties: DEPLOYMENT_PROPERTIES, required: ['name', 'projectId', 'sourceType', 'agentId', 'prompt'], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_update_deployment',
+    title: 'Update a deployment',
+    description: 'Update supplied fields on a saved deployment.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, ...DEPLOYMENT_PROPERTIES }, required: ['id'], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_delete_deployment',
+    title: 'Delete a deployment',
+    description: 'Delete a saved deployment. Running deployments must be stopped first.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  },
+  {
+    name: 'deployerx_run_deployment',
+    title: 'Run a deployment',
+    description: 'Start a saved deployment using its local or GitHub source and installed local agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        temporaryPrompt: { type: 'string', maxLength: 8000 },
+        temporaryFiles: { type: 'array', maxItems: 20, items: { type: 'string' } }
+      },
+      required: ['id'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  },
+  {
+    name: 'deployerx_stop_deployment',
+    title: 'Stop a deployment run',
+    description: 'Stop an active deployment using the run ID returned by deployerx_run_deployment.',
+    inputSchema: { type: 'object', properties: { runId: { type: 'string' } }, required: ['runId'], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
   },
   {
     name: 'deployerx_get_server_metrics',
@@ -684,10 +756,11 @@ function toolResult(result) {
 }
 
 class DeployerXMcpServer {
-  constructor({ getProjects, uptimeOperations = {}, sshOperations = {} }) {
+  constructor({ getProjects, uptimeOperations = {}, sshOperations = {}, deploymentOperations = {} }) {
     this.getProjects = getProjects;
     this.uptimeOperations = uptimeOperations;
     this.sshOperations = sshOperations;
+    this.deploymentOperations = deploymentOperations;
     this.server = null;
     this.port = 0;
     this.token = '';
@@ -911,6 +984,22 @@ class DeployerXMcpServer {
       return { servers: (await this.projects()).map(publicServer) };
     }
 
+    const deploymentOperationNames = {
+      deployerx_list_deployments: 'list',
+      deployerx_get_deployment: 'get',
+      deployerx_create_deployment: 'create',
+      deployerx_update_deployment: 'update',
+      deployerx_delete_deployment: 'delete',
+      deployerx_run_deployment: 'run',
+      deployerx_stop_deployment: 'stop'
+    };
+    const deploymentOperationName = deploymentOperationNames[name];
+    if (deploymentOperationName) {
+      const operation = this.deploymentOperations[deploymentOperationName];
+      if (typeof operation !== 'function') throw new Error('Deployments are not available yet. Keep DeployerX open and try again.');
+      return operation(args);
+    }
+
     const uptimeOperationNames = {
       deployerx_uptime_status: 'getStatus',
       deployerx_uptime_list_monitors: 'listMonitors',
@@ -1065,8 +1154,8 @@ class DeployerXMcpServer {
           result: {
             protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.has(requestedVersion) ? requestedVersion : MCP_PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false }, logging: {} },
-            serverInfo: { name: 'DeployerX', title: 'DeployerX servers and uptime monitoring', version: '1.1.0' },
-            instructions: 'Use server IDs from deployerx_list_servers for SSH, SFTP, and live metrics. Uptime tools manage monitors, checks, incidents, maintenance, worker settings, and reports without exposing stored credentials.'
+            serverInfo: { name: 'DeployerX', title: 'DeployerX servers, deployments, and uptime monitoring', version: '1.2.0' },
+            instructions: 'Use server IDs from deployerx_list_servers for SSH, SFTP, live metrics, and deployment targets. Deployment tools manage saved deployments and runs. Uptime tools manage monitors, checks, incidents, maintenance, worker settings, and reports without exposing stored credentials.'
           }
         };
       }

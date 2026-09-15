@@ -16,7 +16,7 @@ async function availablePort() {
   return port;
 }
 
-test('MCP publishes live monitoring and complete uptime management tools', async () => {
+test('MCP publishes deployments, live monitoring, and complete uptime management tools', async () => {
   const server = new DeployerXMcpServer({ getProjects: async () => [] });
   const response = await server.handleRpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
   const names = new Set(response.result.tools.map((tool) => tool.name));
@@ -24,6 +24,13 @@ test('MCP publishes live monitoring and complete uptime management tools', async
 
   for (const name of [
     'deployerx_get_server_metrics',
+    'deployerx_list_deployments',
+    'deployerx_get_deployment',
+    'deployerx_create_deployment',
+    'deployerx_update_deployment',
+    'deployerx_delete_deployment',
+    'deployerx_run_deployment',
+    'deployerx_stop_deployment',
     'deployerx_uptime_status',
     'deployerx_uptime_list_monitors',
     'deployerx_uptime_get_monitor',
@@ -46,6 +53,22 @@ test('MCP publishes live monitoring and complete uptime management tools', async
   ]) {
     assert.equal(names.has(name), true, `${name} should be published`);
   }
+});
+
+test('MCP routes deployment calls through the application deployment module', async () => {
+  const calls = [];
+  const server = new DeployerXMcpServer({
+    getProjects: async () => { throw new Error('server lookup should not be used'); },
+    deploymentOperations: {
+      list: async (input) => { calls.push(['list', input]); return { deployments: [{ id: 'deployment-1' }] }; },
+      run: async (input) => { calls.push(['run', input]); return { runId: 'run-1', deployment: { id: input.id, status: 'running' } }; }
+    }
+  });
+  const listed = await server.callTool('deployerx_list_deployments', {});
+  const started = await server.callTool('deployerx_run_deployment', { id: 'deployment-1', temporaryPrompt: 'Deploy now.' });
+  assert.deepEqual(calls, [['list', {}], ['run', { id: 'deployment-1', temporaryPrompt: 'Deploy now.' }]]);
+  assert.equal(listed.deployments[0].id, 'deployment-1');
+  assert.equal(started.runId, 'run-1');
 });
 
 test('MCP routes uptime calls through the application uptime control plane', async () => {
