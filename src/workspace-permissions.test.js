@@ -10,6 +10,8 @@ const {
   hasWorkspacePermission,
   hasWorkspaceModuleAccess,
   hasWorkspaceServerAccess,
+  canReadWorkspaceProjectSecrets,
+  redactWorkspaceProjectSecrets,
   canAssignWorkspaceAccess
 } = require('./workspace-permissions');
 
@@ -47,6 +49,21 @@ test('module and server scopes support all access or selected access', () => {
   assert.equal(canAssignWorkspaceAccess(manager, 'member', ['server.view'], ['hosts'], ['*']), false);
 });
 
+test('suspended members lose permissions and scoped access while owners stay authoritative', () => {
+  const suspended = {
+    role: 'admin',
+    suspended: true,
+    permissions: ADMIN_DEFAULT_PERMISSIONS,
+    visibleModules: ['*'],
+    serverIds: ['*']
+  };
+  assert.equal(hasWorkspacePermission(suspended, 'server.view'), false);
+  assert.equal(hasWorkspaceModuleAccess(suspended, 'hosts'), false);
+  assert.equal(hasWorkspaceServerAccess(suspended, 'server-1'), false);
+  assert.equal(canReadWorkspaceProjectSecrets(suspended), false);
+  assert.equal(hasWorkspacePermission({ ...suspended, role: 'owner' }, 'server.delete'), true);
+});
+
 test('workspace ownerUid is authoritative when a membership role is stale', () => {
   const access = resolveWorkspaceAccess(
     { ownerUid: 'owner-1' },
@@ -57,4 +74,34 @@ test('workspace ownerUid is authoritative when a membership role is stale', () =
   assert.equal(access.role, 'owner');
   assert.equal(hasWorkspacePermission(access, 'members.create'), true);
   assert.equal(hasWorkspacePermission(access, 'members.invite'), true);
+});
+
+test('view-only access never exposes stored server credentials', () => {
+  const viewOnly = { role: 'member', permissions: ['server.view'], serverIds: ['server-1'] };
+  const project = {
+    id: 'server-1',
+    proxy: { username: 'proxy-user', password: 'proxy-secret' },
+    ssh: {
+      username: 'root',
+      password: 'ssh-secret',
+      privateKey: 'private-key',
+      passphrase: 'key-secret',
+      users: [{ id: 'root', username: 'root', password: 'user-secret', privateKey: 'user-key', passphrase: 'user-key-secret' }]
+    },
+    ftp: { username: 'ftp-user', password: 'ftp-secret' },
+    vnc: { username: 'vnc-user', password: 'vnc-secret' },
+    rdp: { username: 'rdp-user', password: 'rdp-secret' }
+  };
+
+  assert.equal(canReadWorkspaceProjectSecrets(viewOnly), false);
+  assert.equal(canReadWorkspaceProjectSecrets({ ...viewOnly, permissions: ['server.view', 'server.terminal.open'] }), true);
+  const redacted = redactWorkspaceProjectSecrets(project);
+  assert.equal(redacted.ssh.password, '');
+  assert.equal(redacted.ssh.privateKey, '');
+  assert.equal(redacted.ssh.users[0].password, '');
+  assert.equal(redacted.ftp.password, '');
+  assert.equal(redacted.vnc.password, '');
+  assert.equal(redacted.rdp.password, '');
+  assert.equal(redacted.proxy.password, '');
+  assert.equal(redacted.ssh.username, 'root');
 });

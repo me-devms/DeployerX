@@ -32,6 +32,8 @@ const {
   resolveWorkspaceAccess,
   hasWorkspacePermission,
   hasWorkspaceServerAccess,
+  canReadWorkspaceProjectSecrets,
+  redactWorkspaceProjectSecrets,
   canAssignWorkspaceAccess
 } = require('./workspace-permissions');
 
@@ -336,6 +338,7 @@ let uptimeWorkerLockRenewTimer = null;
 let uptimeWorkerLaunchPromise = null;
 let uptimeWorkerLaunchError = '';
 let detachedUptimeWorkerPid = 0;
+let workspaceSwitchMaintenancePromise = Promise.resolve();
 let updateInstallRequested = false;
 let startupFailureHandled = false;
 let backupSecretStore = null;
@@ -5741,6 +5744,24 @@ function aiDeploymentsFromSettings(settings = {}) {
     .filter((deployment) => deployment.id && deployment.name);
 }
 
+function aiDeploymentWorkspaceId(settings) {
+  return settings.mode === 'cloud' ? String(settings.activeTeamId || '') : 'local';
+}
+
+async function readAiDeploymentWorkspace(settings) {
+  const workspaceId = aiDeploymentWorkspaceId(settings);
+  const store = workspaceId ? await readCurrentStore() : { projects: [] };
+  if (aiDeploymentWorkspaceId(await readSettings()) !== workspaceId) throw new Error('Workspace changed. Reopen Deployments and try again.');
+  return { workspaceId, projectIds: new Set((store.projects || []).map((project) => String(project.id))) };
+}
+
+function aiDeploymentBelongsToWorkspace(deployment, workspace) {
+  if (!workspace.workspaceId) return false;
+  return deployment.workspaceId
+    ? deployment.workspaceId === workspace.workspaceId
+    : workspace.projectIds.has(deployment.projectId);
+}
+
 let aiDeploymentSettingsQueue = Promise.resolve();
 function queueAiDeploymentSettings(operation) {
   const pending = aiDeploymentSettingsQueue.then(operation);
@@ -5754,9 +5775,16 @@ function updateAiDeploymentStatus(...args) { return queueAiDeploymentSettings(()
 
 async function readAiDeployments() {
   const settings = await readSettings();
+  const workspace = await readAiDeploymentWorkspace(settings);
   const activeIds = new Set([...activeAiDeployments.values()].map((run) => run.deploymentId));
   let changed = false;
   const deployments = aiDeploymentsFromSettings(settings).map((deployment) => {
+    if (!aiDeploymentBelongsToWorkspace(deployment, workspace)) return deployment;
+    // Assign legacy records only when their server belongs to this workspace.
+    if (!deployment.workspaceId) {
+      deployment = { ...deployment, workspaceId: workspace.workspaceId };
+      changed = true;
+    }
     if (activeIds.has(deployment.id)) {
       const [runId, active] = [...activeAiDeployments.entries()].find(([, run]) => run.deploymentId === deployment.id);
       return { ...deployment, runs: deployment.runs.map((run) => run.id === runId ? { ...run, log: active.log, percent: active.percent, message: active.label, sessionId: active.sessionId } : run) };
@@ -5781,13 +5809,17 @@ async function readAiDeployments() {
       updatedAt: interruptedAt
     });
   });
-  if (changed) await writeSettings({ ...settings, aiDeployments: deployments });
-  return deployments;
+  if (changed) await writeSettings({ ...await readSettings(), aiDeployments: deployments });
+  return deployments.filter((deployment) => aiDeploymentBelongsToWorkspace(deployment, workspace));
 }
 
 async function saveAiDeploymentSettings(input = {}) {
   let deployment = validateAiDeployment(input);
-  const settings = await readSettings();
+  let settings = await readSettings();
+  const workspace = await readAiDeploymentWorkspace(settings);
+  const existing = aiDeploymentsFromSettings(settings).find((item) => item.id === deployment.id);
+  if (existing && !aiDeploymentBelongsToWorkspace(existing, workspace)) throw new Error('Deployment was not found in this workspace.');
+  if (!workspace.projectIds.has(deployment.projectId)) throw new Error('Selected server is not available in this workspace.');
   if (deployment.sourceType === 'github') {
     const token = await githubToken(settings);
     const repository = await githubRepository(token, deployment.githubRepo);
@@ -5798,11 +5830,14 @@ async function saveAiDeploymentSettings(input = {}) {
       githubLastCommit: deployment.githubLastCommit || await githubCommit(token, deployment.githubRepo, branch)
     });
   }
+  settings = await readSettings();
+  if (aiDeploymentWorkspaceId(settings) !== workspace.workspaceId) throw new Error('Workspace changed. Reopen Deployments and try again.');
   const deployments = aiDeploymentsFromSettings(settings);
   const existingIndex = deployments.findIndex((item) => item.id === deployment.id);
   const timestamp = nowIso();
   const saved = normalizeAiDeployment({
     ...deployment,
+    workspaceId: workspace.workspaceId,
     id: deployment.id || createId('ai-deployment'),
     createdAt: existingIndex >= 0 ? deployments[existingIndex].createdAt : timestamp,
     updatedAt: timestamp
@@ -5834,10 +5869,13 @@ async function deleteAiDeploymentSettings(id) {
     throw new Error('Stop the running deployment before deleting it.');
   }
   const settings = await readSettings();
+  const workspace = await readAiDeploymentWorkspace(settings);
   const deployments = aiDeploymentsFromSettings(settings);
+  const deployment = deployments.find((item) => item.id === deploymentId);
+  if (!deployment || !aiDeploymentBelongsToWorkspace(deployment, workspace)) throw new Error('Deployment was not found in this workspace.');
   const nextDeployments = deployments.filter((item) => item.id !== deploymentId);
   if (nextDeployments.length === deployments.length) throw new Error('Deployment was not found.');
-  await writeSettings({ ...settings, aiDeployments: nextDeployments });
+  await writeSettings({ ...await readSettings(), aiDeployments: nextDeployments });
   return true;
 }
 
@@ -6041,6 +6079,7 @@ async function currentMember(teamId) {
 
 async function ensureTeamPermission(teamId, permission) {
   const member = await currentMember(teamId);
+  if (member?.role !== 'owner' && member?.suspended) throw new Error('Your workspace access is suspended.');
   if (member?.mustChangePassword) throw new Error('Change your temporary password before using this workspace.');
   if (!hasWorkspacePermission(member, permission)) throw new Error('You do not have permission to perform this action.');
   return member;
@@ -6245,15 +6284,25 @@ function normalizeMcpIntegration(config = {}) {
 }
 
 async function readCloudStoreForMember(member) {
-  if (!member || member.role === 'owner' || member.serverIds?.includes('*')) return readCloudStore();
-  const teamId = await ensureActiveTeamUnlocked();
-  const [projects, templates] = await Promise.all([
-    Promise.all((member.serverIds || []).map((projectId) => getDoc(['teams', teamId, 'projects', projectId]))),
-    listCollection(['teams', teamId, 'templates'])
-  ]);
+  let data;
+  if (!member || member.role === 'owner' || member.serverIds?.includes('*')) {
+    data = await readCloudStore();
+  } else {
+    const teamId = await ensureActiveTeamUnlocked();
+    const [projects, templates] = await Promise.all([
+      Promise.all((member.serverIds || []).map((projectId) => getDoc(['teams', teamId, 'projects', projectId]))),
+      listCollection(['teams', teamId, 'templates'])
+    ]);
+    data = {
+      projects: projects.filter(Boolean).map(prepareCloudProjectForRead),
+      templates: templates.map(prepareCloudTemplateForRead)
+    };
+  }
+
+  if (canReadWorkspaceProjectSecrets(member)) return data;
   return {
-    projects: projects.filter(Boolean).map(prepareCloudProjectForRead),
-    templates: templates.map(prepareCloudTemplateForRead)
+    ...data,
+    projects: data.projects.map(redactWorkspaceProjectSecrets)
   };
 }
 
@@ -8072,6 +8121,21 @@ async function restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId
   await maybeStartDetachedUptimeWorker().catch(() => {});
 }
 
+function queueWorkspaceSwitchMaintenance(previousWorkspaceId, workspaceId, actorId) {
+  workspaceSwitchMaintenancePromise = workspaceSwitchMaintenancePromise.catch(() => {}).then(async () => {
+    if (String(previousWorkspaceId || '') !== String(workspaceId || '')) {
+      await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
+    }
+    const settings = await readSettings().catch(() => null);
+    if (String(settings?.activeTeamId || '') !== String(workspaceId || '')) return;
+    await Promise.all([
+      syncUptimeWorkspaceBestEffort({ workspaceId: String(workspaceId), actorId }, { force: true }),
+      syncWorkspaceControlFromCloud(String(workspaceId), { force: true })
+        .catch(async (error) => logWorkspaceControlSyncFailure(error, String(workspaceId)))
+    ]);
+  }).catch(() => {});
+}
+
 async function initializeUptimeWorker() {
   const hasLock = await acquireUptimeWorkerLock();
   if (!hasLock) {
@@ -8238,15 +8302,16 @@ async function queryUserMemberships(auth) {
         const teamIndex = pathParts.lastIndexOf('teams');
         const memberUid = pathParts[pathParts.length - 1] || '';
         if (teamIndex < 0 || !pathParts[teamIndex + 1] || memberUid !== auth.uid) return null;
+        const role = normalizeWorkspaceRole(membership.role, { allowOwner: true });
         return {
           teamId: pathParts[teamIndex + 1],
-          role: normalizeWorkspaceRole(membership.role, { allowOwner: true }),
+          role,
+          suspended: role === 'owner' ? false : Boolean(membership.suspended),
           mustChangePassword: Boolean(membership.mustChangePassword),
           blockedCommands: normalizeBlockedCommands(membership.blockedCommands),
-          permissions: normalizeWorkspacePermissions(
-            normalizeWorkspaceRole(membership.role, { allowOwner: true }),
-            membership.permissions
-          )
+          permissions: normalizeWorkspacePermissions(role, membership.permissions),
+          visibleModules: normalizeWorkspaceModules(role, membership.visibleModules),
+          serverIds: normalizeWorkspaceServers(role, membership.serverIds)
         };
       })
       .filter(Boolean);
@@ -8304,9 +8369,12 @@ async function teamSnapshot(options = {}) {
             name: team.name || teamRef.name || 'Team',
             ownerUid: team.ownerUid || '',
             role: access.role,
+            suspended: access.role === 'owner' ? false : Boolean(access.suspended),
             mustChangePassword: Boolean(access.mustChangePassword),
             blockedCommands: access.blockedCommands,
             permissions: access.permissions,
+            visibleModules: access.visibleModules,
+            serverIds: access.serverIds,
             createdAt: team.createdAt || ''
           };
         } catch (error) {
@@ -8436,6 +8504,36 @@ function cachedTeamSnapshot(settings, auth, cloudError = '') {
     activeTeamId,
     activeTeam: teams.find((team) => team.id === activeTeamId) || null,
     unlocked: Boolean(activeTeamId)
+  };
+}
+
+function switchedTeamSnapshot(settings, auth, team, member) {
+  const cached = cachedTeamSnapshot(settings, auth);
+  const access = resolveWorkspaceAccess(team, member, auth.uid);
+  const activeTeam = {
+    id: String(team.id || ''),
+    name: team.name || 'Workspace',
+    ownerUid: team.ownerUid || '',
+    role: access.role,
+    suspended: access.role === 'owner' ? false : Boolean(access.suspended),
+    mustChangePassword: Boolean(access.mustChangePassword),
+    blockedCommands: access.blockedCommands,
+    permissions: access.permissions,
+    visibleModules: access.visibleModules,
+    serverIds: access.serverIds,
+    createdAt: team.createdAt || ''
+  };
+  const existingIndex = cached.teams.findIndex((item) => String(item.id) === activeTeam.id);
+  const teams = [...cached.teams];
+  if (existingIndex >= 0) teams[existingIndex] = activeTeam;
+  else teams.push(activeTeam);
+  return {
+    ...cached,
+    teams,
+    activeTeamId: activeTeam.id,
+    activeTeam,
+    unlocked: true,
+    cloudError: ''
   };
 }
 
@@ -9634,6 +9732,8 @@ async function executeDeployment(project, upload, runId) {
 }
 
 function emitAiDeployment(runId, type, payload) {
+  const workspaceId = payload?.deployment?.workspaceId || activeAiDeployments.get(runId)?.workspaceId;
+  if (workspaceId && workspaceId !== aiDeploymentWorkspaceId(settingsCache || {})) return;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('ai-deployment:event', { runId, type, payload });
   }
@@ -9683,6 +9783,7 @@ async function prepareAiDeployment(deploymentId, options = {}) {
 
   const store = await readCurrentStore();
   const project = (store.projects || []).find((item) => String(item.id) === deployment.projectId);
+  if (deployment.workspaceId && deployment.workspaceId !== aiDeploymentWorkspaceId(await readSettings())) throw new Error('Workspace changed. Reopen Deployments and try again.');
   if (!project) throw new Error('Selected server is no longer available.');
   if (['vnc', 'rdp'].includes(project.serverType)) throw new Error('AI deployment requires an SSH-capable server.');
 
@@ -9700,7 +9801,7 @@ async function prepareAiDeployment(deploymentId, options = {}) {
   }
 
   const runId = createId('ai-run');
-  const run = { child: null, connection: null, deploymentId: deployment.id, stopped: false, stdout: '', stderr: '', log: '', percent: 2, label: 'Preparing project files.' };
+  const run = { child: null, connection: null, deploymentId: deployment.id, workspaceId: deployment.workspaceId, stopped: false, stdout: '', stderr: '', log: '', percent: 2, label: 'Preparing project files.' };
   const appendRunLog = (message, level = 'INFO') => {
     const value = String(message || '').trimEnd();
     if (!value) return;
@@ -9905,12 +10006,13 @@ async function checkAutomatedGithubDeployments() {
     const settings = await readSettings();
     if (!publicGithubIntegration(settings.githubIntegration).connected) return;
     const token = await githubToken(settings);
-    const deployments = aiDeploymentsFromSettings(settings).filter((deployment) => deployment.sourceType === 'github' && deployment.autoDeploy);
+    const deployments = (await listAiDeployments()).filter((deployment) => deployment.sourceType === 'github' && deployment.autoDeploy);
     for (const deployment of deployments) {
       if (startingAiDeployments.has(deployment.id) || [...activeAiDeployments.values()].some((run) => run.deploymentId === deployment.id)) continue;
       try {
         const commit = await githubCommit(token, deployment.githubRepo, deployment.githubBranch || 'main');
         if (!commit || commit === deployment.githubLastCommit) continue;
+        if (aiDeploymentWorkspaceId(await readSettings()) !== deployment.workspaceId) break;
         await updateAiDeploymentGithubCommit(deployment.id, commit);
         await runAiDeployment(deployment.id, { automatic: true });
       } catch (error) {
@@ -11773,7 +11875,7 @@ ipcMain.handle('vnc:start', async (_event, payload = {}) => {
   vncKeyboard?.setEnabled(false);
   if (!vncSessionManager) throw new Error('VNC is not ready.');
   const projectId = String(payload.projectId || '');
-  const member = await ensureActiveWorkspacePermission('server.view');
+  const member = await ensureActiveWorkspacePermission('server.terminal.open');
   ensureWorkspaceServerAllowed(member, projectId);
   const vnc = payload?.vnc && typeof payload.vnc === 'object' ? payload.vnc : {};
   const store = projectId ? await readCurrentStore().catch(() => ({ projects: [] })) : { projects: [] };
@@ -11800,7 +11902,7 @@ ipcMain.handle('vnc:start', async (_event, payload = {}) => {
 ipcMain.handle('rdp:start', async (_event, payload = {}) => {
   if (!rdpSessionManager) throw new Error('Remote Desktop is not ready.');
   const projectId = String(payload.projectId || '');
-  const member = await ensureActiveWorkspacePermission('server.view');
+  const member = await ensureActiveWorkspacePermission('server.terminal.open');
   ensureWorkspaceServerAllowed(member, projectId);
   const rdp = payload?.rdp && typeof payload.rdp === 'object' ? payload.rdp : {};
   const store = projectId ? await readCurrentStore().catch(() => ({ projects: [] })) : { projects: [] };
@@ -14649,7 +14751,11 @@ ipcMain.handle('ai-deployments:run', async (_event, payload = {}) => {
   const request = typeof payload === 'string' ? { id: payload } : payload;
   return runAiDeployment(request.id, request);
 });
-ipcMain.handle('ai-deployments:stop', async (_event, runId) => stopAiDeployment(runId));
+ipcMain.handle('ai-deployments:stop', async (_event, runId) => {
+  const run = activeAiDeployments.get(String(runId || ''));
+  if (run && !(await listAiDeployments()).some((deployment) => deployment.id === run.deploymentId)) throw new Error('Deployment was not found in this workspace.');
+  return stopAiDeployment(runId);
+});
 
 ipcMain.handle('auth:changePassword', async (_event, payload = {}) => {
   const currentPassword = String(payload.currentPassword || '');
@@ -14752,23 +14858,23 @@ ipcMain.handle('teams:create', async (_event, payload = {}) => {
 
 ipcMain.handle('teams:switch', async (_event, teamId) => {
   const auth = await requireAuthSession();
-  const team = await getDoc(['teams', teamId]);
-  const member = team ? await getDoc(['teams', teamId, 'members', auth.uid]) : null;
+  const [team, member] = await Promise.all([
+    getDoc(['teams', teamId]),
+    getDoc(['teams', teamId, 'members', auth.uid])
+  ]);
   if (!team || !member) throw new Error('You do not have access to this team.');
   return withDatabaseAccessContextTransition(async () => {
     const settings = await readSettings();
     const previousWorkspaceId = String(settings.activeTeamId || '');
     cloudUnlock = { teamId, key: deriveWorkspaceKey(team) };
-    await writeSettings({
+    const nextSettings = await writeSettings({
       ...settings,
       activeTeamId: teamId,
       activeTeamName: team.name || 'Workspace',
       activeTeamUid: auth.uid
     });
-    if (previousWorkspaceId !== String(teamId)) await restartDetachedUptimeWorkerForWorkspaceChange(previousWorkspaceId);
-    await syncUptimeWorkspaceBestEffort({ workspaceId: String(teamId), actorId: auth.uid }, { force: true });
-    await syncWorkspaceControlFromCloud(String(teamId), { force: true }).catch(async (error) => logWorkspaceControlSyncFailure(error, String(teamId)));
-    return teamSnapshot();
+    queueWorkspaceSwitchMaintenance(previousWorkspaceId, String(teamId), auth.uid);
+    return switchedTeamSnapshot(nextSettings, auth, team, member);
   });
 });
 
@@ -14921,8 +15027,14 @@ ipcMain.handle('teams:updateMember', async (_event, payload = {}) => {
   if (!canAssignWorkspaceAccess(actor, access.role, access.permissions, access.visibleModules, access.serverIds)) {
     throw new Error('You cannot grant this role or these permissions.');
   }
-  await patchDoc(['teams', teamId, 'members', uid], { ...member, ...access, updatedAt: nowIso() });
-  await recordWorkspaceAudit(teamId, 'member.access_updated', { uid, email: member.email || '' }, access).catch(() => {});
+  const suspended = payload.suspended === undefined ? Boolean(member.suspended) : Boolean(payload.suspended);
+  const storedMember = { ...member };
+  delete storedMember.id;
+  await patchDoc(['teams', teamId, 'members', uid], { ...storedMember, ...access, suspended, updatedAt: nowIso() });
+  const auditAction = suspended !== Boolean(member.suspended)
+    ? suspended ? 'member.suspended' : 'member.resumed'
+    : 'member.access_updated';
+  await recordWorkspaceAudit(teamId, auditAction, { uid, email: member.email || '' }, { ...access, suspended }).catch(() => {});
   return teamSnapshot();
 });
 
@@ -15025,10 +15137,20 @@ ipcMain.handle('cloud:import-local', async () => {
 
 ipcMain.handle('projects:list', async () => {
   let data;
+  let workspaceAccess = null;
   try {
-    const member = await ensureActiveWorkspacePermission('server.view');
     const settings = await readSettings();
-    data = settings.mode === 'cloud' ? await readCloudStoreForMember(member) : await readCurrentStore();
+    if (settings.mode === 'cloud') {
+      const teamId = String(settings.activeTeamId || '');
+      if (!teamId) throw new Error('Select a workspace first.');
+      workspaceAccess = await currentMember(teamId);
+      if (workspaceAccess?.mustChangePassword) throw new Error('Change your temporary password before using this workspace.');
+      data = hasWorkspacePermission(workspaceAccess, 'server.view')
+        ? await readCloudStoreForMember(workspaceAccess)
+        : { projects: [], templates: [] };
+    } else {
+      data = await readCurrentStore();
+    }
   } catch (error) {
     // Login and the dashboard should remain usable when Firestore is briefly
     // rate-limited or unavailable. Reads can be retried from the dashboard.
@@ -15036,11 +15158,13 @@ ipcMain.handle('projects:list', async () => {
     return {
       projects: [],
       templates: mergeBuiltInTemplates([]),
+      workspaceAccess,
       cloudError: error.message || 'Cloud data is temporarily unavailable.'
     };
   }
   return {
     ...data,
+    workspaceAccess,
     templates: mergeBuiltInTemplates(data.templates)
   };
 });
@@ -15374,6 +15498,13 @@ ipcMain.handle('deployment:run', async (_event, payload) => {
   return { runId };
 });
 
+ipcMain.handle('workspace:commands:validate', async (_event, payload = {}) => {
+  await ensureWorkspaceCommandsAllowed(payload.commands || []);
+  const member = await ensureActiveWorkspacePermission('server.view');
+  ensureWorkspaceServerAllowed(member, payload.projectId);
+  return true;
+});
+
 ipcMain.handle('deployment:stop', async (_event, runId) => stopDeployment(runId));
 
 ipcMain.handle('terminal:start', async (_event, payload) => {
@@ -15626,6 +15757,8 @@ ipcMain.handle('local:delete', async (_event, payload = {}) => deleteLocalEntry(
 ipcMain.handle('ftp:connect', async (_event, payload) => {
   const sessionId = payload.sessionId || `${Date.now()}`;
   try {
+    const member = await ensureActiveWorkspacePermission('server.terminal.open');
+    ensureWorkspaceServerAllowed(member, payload.project?.id);
     const result = await connectFtp(payload.project, sessionId, payload.protocol);
     return { ok: true, ...result };
   } catch (error) {

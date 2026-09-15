@@ -42,6 +42,7 @@ function normalizeAiDeployment(input = {}) {
     id: text(input.id, 160),
     name: text(input.name, 120),
     projectId: text(input.projectId, 160),
+    workspaceId: text(input.workspaceId, 160),
     sourceType: input.sourceType === 'github' ? 'github' : 'local',
     localPath: text(input.localPath, 1024),
     githubRepo: text(input.githubRepo, 300),

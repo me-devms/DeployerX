@@ -49,7 +49,8 @@ test('provides the accessible deployment list and configuration workflow', async
   assert.doesNotMatch(html, /id="aiDeploymentTableViewButton"|id="aiDeploymentListViewButton"/);
   assert.match(html, /id="aiDeploymentProject" required/);
   assert.match(html, /id="aiDeploymentSourceType" required/);
-  assert.match(html, /id="aiDeploymentGithubRepo"/);
+  assert.match(html, /id="aiDeploymentGithubRepo"[^>]+data-project-dropdown-search="true"[^>]+Search repositories \(regex\)/);
+  assert.match(html, /id="aiDeploymentProject"[^>]+Search servers \(regex\)/);
   assert.match(html, /id="aiDeploymentAutoDeploy"/);
   assert.match(html, /id="githubIntegrationConnectButton"/);
   assert.match(html, /<dialog id="githubIntegrationDialog"/);
@@ -73,10 +74,12 @@ test('provides the accessible deployment list and configuration workflow', async
   assert.match(html, /<ol id="aiDeploymentLogHistory"/);
   assert.match(html, /<dialog id="aiDeploymentLogDetailDialog"[^>]+aria-labelledby="aiDeploymentLogDetailHeading"/);
   assert.match(html, /id="aiDeploymentAgent" required/);
+  assert.match(html, /id="aiDeploymentSubmitButton"[\s\S]*?<span>Save Deployment<\/span>/);
   assert.doesNotMatch(html, /id="aiDeploymentRefreshButton"/);
 
   assert.match(renderer, /els\.aiDeploymentsButton\.addEventListener\('click'/);
   assert.match(renderer, /data-ai-deployment-run=/);
+  assert.match(renderer, /data-ai-deployment-stop=/);
   assert.match(renderer, /data-ai-deployment-edit=/);
   assert.match(renderer, /data-ai-deployment-duplicate=/);
   assert.match(renderer, /data-ai-deployment-delete=/);
@@ -85,15 +88,18 @@ test('provides the accessible deployment list and configuration workflow', async
   assert.match(renderer, /function renderAiDeploymentLogDetail\(\)/);
   assert.match(renderer, /data-ai-deployment-log-run=/);
   assert.match(renderer, /data-project-dropdown-search-input/);
+  assert.match(renderer, /pattern = new RegExp\(query, 'i'\)/);
+  assert.match(renderer, /Invalid regular expression\./);
   assert.match(renderer, /option\.hidden = !visible/);
-  assert.match(renderer, /startSavedAiDeployment\(saved\.id\)/);
+  assert.doesNotMatch(renderer, /else await startSavedAiDeployment\(saved\.id\)/);
+  assert.match(renderer, /window\.deployerx\.stopAiDeployment\(runId\)/);
   assert.match(renderer, /function updateAiDeploymentSourceFields\(\)/);
   assert.match(renderer, /loadGithubIntegration\(\{ repositories: true \}\)/);
   assert.match(renderer, /serverFilters: new Set\(\)/);
   assert.match(renderer, /statusFilters: new Set\(\)/);
   assert.match(renderer, /function deleteSelectedAiDeploymentPrompt\(\)/);
   assert.doesNotMatch(renderer, /function openAiDeploymentForm[\s\S]*?aiDeploymentForm\.reset\(\)/);
-  assert.match(renderer, /protocol: els\.aiDeploymentFolderProtocol\.value/);
+  assert.match(renderer, /const protocol = els\.aiDeploymentFolderProtocol\.value;[\s\S]*?window\.deployerx\.ftpConnect\(\{[\s\S]*?protocol/);
   assert.match(renderer, /promptReusable: false/);
   assert.match(renderer, /aiDeploymentDeletePromptButton\.addEventListener\('click'/);
   assert.doesNotMatch(renderer, /deployment\?\.prompt \|\| recent\.prompt/);
@@ -104,6 +110,7 @@ test('provides the accessible deployment list and configuration workflow', async
   assert.match(preload, /listAiDeployments: \(\) => ipcRenderer\.invoke\('ai-deployments:list'\)/);
   assert.match(preload, /connectGithubIntegration: \(payload\) => ipcRenderer\.invoke\('github-integration:connect', payload\)/);
   assert.match(preload, /selectAiDeploymentTemporaryFiles: \(\) => ipcRenderer\.invoke\('ai-deployments:select-temporary-files'\)/);
+  assert.match(preload, /stopAiDeployment: \(runId\) => ipcRenderer\.invoke\('ai-deployments:stop', String\(runId \|\| ''\)\)/);
   assert.match(preload, /onAiDeploymentEvent:/);
 });
 

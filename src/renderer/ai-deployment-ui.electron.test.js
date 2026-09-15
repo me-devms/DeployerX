@@ -57,6 +57,10 @@ app.whenReady().then(async () => {
           const deployment = state.aiDeployments.items.find((item) => item.id === id);
           return { runId: 'run-test', deployment: { ...deployment, status: 'running' } };
         },
+        stopAiDeployment: async (runId) => {
+          window.__lastAiDeploymentStop = runId;
+          return true;
+        },
         ftpConnect: async (payload) => {
           window.__lastAiDeploymentFolderConnection = payload;
           return { ok: true };
@@ -160,9 +164,20 @@ app.whenReady().then(async () => {
       document.getElementById('aiDeploymentTemporaryPrompt').value += ' Also warm the cache.';
       document.getElementById('aiDeploymentRunForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       while (state.aiDeployments.runSubmitting) await new Promise((resolve) => setTimeout(resolve, 5));
+      for (let attempt = 0; attempt < 100 && !document.querySelector('[data-ai-deployment-stop="run-test"]'); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      const stopButton = document.querySelector('[data-ai-deployment-stop="run-test"]');
+      const runBecameStop = stopButton?.textContent.trim() === 'Stop';
+      stopButton?.click();
+      for (let attempt = 0; attempt < 100 && !window.__lastAiDeploymentStop; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
       return {
         dialogClosed: !document.getElementById('aiDeploymentRunDialog').open,
         request: window.__lastAiDeploymentRun,
+        runBecameStop,
+        stopRequest: window.__lastAiDeploymentStop,
         savedPrompt: state.aiDeployments.items.find((item) => item.id === 'dep-1').prompt
       };
     })()`);
@@ -197,10 +212,18 @@ app.whenReady().then(async () => {
       const serverDropdown = document.querySelector('[data-select-id="aiDeploymentProject"]');
       serverDropdown.querySelector('.workspace-switcher-trigger').click();
       const serverSearch = serverDropdown.querySelector('[data-project-dropdown-search-input]');
-      serverSearch.value = 'staging';
+      serverSearch.value = '^Staging';
       serverSearch.dispatchEvent(new Event('input', { bubbles: true }));
       const visibleServers = [...serverDropdown.querySelectorAll('.workspace-switcher-option:not([hidden]) span')].map((option) => option.textContent);
       serverDropdown.querySelector('.workspace-switcher-option:not([hidden])').click();
+      serverDropdown.querySelector('.workspace-switcher-trigger').click();
+      const invalidServerSearch = serverDropdown.querySelector('[data-project-dropdown-search-input]');
+      invalidServerSearch.value = '[';
+      invalidServerSearch.dispatchEvent(new Event('input', { bubbles: true }));
+      const invalidRegexAttribute = invalidServerSearch.getAttribute('aria-invalid');
+      const invalidRegexMessage = serverDropdown.querySelector('.project-dropdown-empty').textContent;
+      const invalidRegexHandled = invalidRegexAttribute === 'true' && invalidRegexMessage === 'Invalid regular expression.';
+      invalidServerSearch.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       const defaultPrompt = document.getElementById('aiDeploymentPrompt').value;
       const defaultInstructions = document.getElementById('aiDeploymentInstructions').value;
       await openAiDeploymentRemoteFolderBrowser();
@@ -258,6 +281,9 @@ app.whenReady().then(async () => {
         promptFieldsAligned: sameRow('aiDeploymentPrompt', 'aiDeploymentInstructions'),
         serverOptions: document.getElementById('aiDeploymentProject').options.length,
         serverSearchPlaceholder: serverSearch.placeholder,
+        invalidRegexHandled,
+        invalidRegexAttribute,
+        invalidRegexMessage,
         visibleServers,
         selectedServer: document.getElementById('aiDeploymentProject').value,
         summaryServer: document.getElementById('aiDeploymentSummaryServer').textContent,
@@ -377,6 +403,99 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     await fs.writeFile(githubFormPath, (await window.webContents.capturePage()).toPNG());
 
+    await window.webContents.executeJavaScript(`(async () => {
+      const check = (condition, message) => { if (!condition) throw new Error(message); };
+      els.aiDeploymentProject.value = 'server-1';
+      const project = aiDeploymentProject('server-1');
+      const retry = els.aiDeploymentFolderRetryButton;
+      window.deployerx.ftpConnect = async () => { throw new Error("Error invoking remote method 'ftp:connect': Error: Connection interrupted"); };
+      await openAiDeploymentRemoteFolderBrowser();
+      check(!els.aiDeploymentFolderProtocol.disabled && !retry.disabled, 'Rejected connection must restore controls');
+      check(els.aiDeploymentFolderSelectButton.disabled && els.aiDeploymentFolderUpButton.disabled, 'Disconnected folder actions must stay disabled');
+      check(els.aiDeploymentFolderError.textContent.includes('Connection interrupted'), 'Connection failure must be shown');
+      check(!els.aiDeploymentFolderError.textContent.includes('Error invoking remote method'), 'Folder errors must omit the IPC wrapper');
+      window.deployerx.ftpConnect = async () => ({ ok: false, error: { message: 'SSH handshake timed out' } });
+      await connectAiDeploymentFolderBrowser(project);
+      check(!retry.disabled && els.aiDeploymentFolderError.textContent.includes('SSH handshake timed out'), 'Structured timeout must allow retry');
+      window.deployerx.ftpConnect = async () => ({ ok: true });
+      retry.click();
+      while (retry.disabled) await new Promise((resolve) => setTimeout(resolve, 5));
+      check(!els.aiDeploymentFolderSelectButton.disabled, 'Retry must reconnect and load the current folder');
+      await loadAiDeploymentFolder('/releases');
+      els.aiDeploymentFolderSelectButton.click();
+      check(els.aiDeploymentRemotePath.value === '/releases', 'Recovered folder selection must update the deployment');
+      check(!els.aiDeploymentFolderDialog.open, 'Selecting a recovered folder must close the dialog');
+      let finishConnection;
+      const disconnected = [];
+      window.deployerx.ftpDisconnect = async (id) => { disconnected.push(id); return true; };
+      window.deployerx.ftpConnect = () => new Promise((resolve) => { finishConnection = resolve; });
+      const pending = openAiDeploymentRemoteFolderBrowser();
+      const oldSession = state.aiDeployments.folderSessionId;
+      await closeAiDeploymentRemoteFolderBrowser();
+      window.deployerx.ftpConnect = async () => ({ ok: true });
+      await openAiDeploymentRemoteFolderBrowser();
+      const newSession = state.aiDeployments.folderSessionId;
+      finishConnection({ ok: true });
+      await pending;
+      check(oldSession !== newSession && disconnected.includes(oldSession), 'Cancelled connection must be released');
+      check(state.aiDeployments.folderSessionId === newSession && !retry.disabled, 'Old connection must not change a reopened picker');
+      await closeAiDeploymentRemoteFolderBrowser();
+      const terminal = { tabId: 'working-tab', sessionId: 'working-ssh', connected: true, sshUserId: 'release-user' };
+      state.terminalSessions['server-1'] = [terminal];
+      state.activeTerminalTabIds['server-1'] = terminal.tabId;
+      let newConnections = 0;
+      window.deployerx.ftpConnect = async () => { newConnections += 1; return { ok: true }; };
+      window.deployerx.listTerminalDirectory = async ({ sessionId, path }) => {
+        check(sessionId === 'working-ssh', 'Folder picker must use the selected server SSH session');
+        return { path, parentPath: '/', items: [{ name: 'releases', path: '/releases', type: 'directory' }] };
+      };
+      await openAiDeploymentRemoteFolderBrowser();
+      check(newConnections === 0 && !els.aiDeploymentFolderSelectButton.disabled, 'Working SSH must be reused without another handshake');
+      await loadAiDeploymentFolder('/releases');
+      els.aiDeploymentFolderSelectButton.click();
+      check(els.aiDeploymentRemotePath.value === '/releases', 'Folder from shared SSH must be selectable');
+      check(terminal.connected && !disconnected.includes('working-ssh'), 'Closing the picker must leave SSH connected');
+      await openAiDeploymentRemoteFolderBrowser();
+      window.deployerx.listTerminalDirectory = async () => ({ unavailable: true, message: 'SFTP subsystem unavailable' });
+      await loadAiDeploymentFolder('/');
+      check(els.aiDeploymentFolderSelectButton.disabled && els.aiDeploymentFolderError.textContent.includes('SFTP subsystem unavailable'), 'Unavailable SFTP must not appear as a selectable empty folder');
+      window.deployerx.listTerminalDirectory = async () => ({ closed: true });
+      await loadAiDeploymentFolder('/');
+      check(els.aiDeploymentFolderSelectButton.disabled && els.aiDeploymentFolderError.textContent.includes('SSH session closed'), 'Closed SSH must require reconnection');
+      await closeAiDeploymentRemoteFolderBrowser();
+      terminal.connected = false;
+      project.ssh.users = [{ id: 'release-user', username: 'release', authType: 'password', password: 'test-only' }];
+      window.deployerx.ftpConnect = async ({ project }) => {
+        check(project.ssh.username === 'release', 'New connection must preserve the selected SSH user');
+        newConnections += 1;
+        return { ok: true };
+      };
+      await openAiDeploymentRemoteFolderBrowser();
+      check(newConnections === 1, 'Disconnected terminal must fall back to an independent connection');
+      await closeAiDeploymentRemoteFolderBrowser();
+    })()`);
+
+    await window.webContents.executeJavaScript(`(async () => {
+      const check = (condition, message) => { if (!condition) throw new Error(message); };
+      state.setup.mode = 'cloud';
+      state.teams.activeTeamId = 'workspace-a';
+      const previousItems = [{ id: 'private-deployment', name: 'Private deployment', workspaceId: 'workspace-a', projectId: 'server-1', runs: [] }];
+      state.aiDeployments.items = previousItems;
+      let finishList;
+      window.deployerx.listAiDeployments = () => new Promise((resolve) => { finishList = resolve; });
+      const pending = loadAiDeploymentWorkspace();
+      while (!finishList) await new Promise((resolve) => setTimeout(resolve, 5));
+      state.teams.activeTeamId = 'fresh-workspace';
+      resetWorkspaceData();
+      check(state.aiDeployments.items.length === 0, 'Workspace switch must clear previous deployments immediately');
+      finishList(previousItems);
+      await pending;
+      check(state.aiDeployments.items.length === 0 && !state.aiDeployments.loading, 'Old workspace response must not repopulate the new workspace');
+      window.deployerx.listAiDeployments = async () => previousItems;
+      await loadAiDeploymentWorkspace();
+      check(state.aiDeployments.items.length === 0 && els.aiDeploymentTableBody.children.length === 0, 'Fresh workspace must not display foreign records');
+    })()`);
+
     const valid = result.view === 'ai-deployments'
       && result.sidebarCollapsed
       && result.rows === 2
@@ -416,6 +535,8 @@ app.whenReady().then(async () => {
       && runExecution.request.id === 'dep-1'
       && runExecution.request.options.temporaryPrompt.endsWith('Also warm the cache.')
       && runExecution.request.options.temporaryFiles.length === 2
+      && runExecution.runBecameStop
+      && runExecution.stopRequest === 'run-test'
       && runExecution.savedPrompt === 'Deploy the latest verified release.'
       && empty.panelHeight >= 400
       && empty.emptyHeight >= 250
@@ -437,7 +558,8 @@ app.whenReady().then(async () => {
       && form.identityFieldsAligned
       && form.promptFieldsAligned
       && form.serverOptions === 3
-      && form.serverSearchPlaceholder === 'Search servers...'
+      && form.serverSearchPlaceholder === 'Search servers (regex)...'
+      && form.invalidRegexHandled
       && form.visibleServers.length === 1
       && form.visibleServers[0] === 'Staging Worker'
       && form.selectedServer === 'server-2'

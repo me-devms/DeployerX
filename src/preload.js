@@ -524,6 +524,7 @@ contextBridge.exposeInMainWorld('deployerx', {
   },
   runDeployment: (payload) => ipcRenderer.invoke('deployment:run', payload),
   stopDeployment: (runId) => ipcRenderer.invoke('deployment:stop', runId),
+  validateWorkspaceCommands: (payload) => ipcRenderer.invoke('workspace:commands:validate', payload),
   startTerminal: (payload) => ipcRenderer.invoke('terminal:start', payload),
   startServerMonitoring: (payload) => ipcRenderer.invoke('server-monitoring:start', payload),
   pauseServerMonitoring: (sessionId, paused) => ipcRenderer.invoke('server-monitoring:pause', { sessionId, paused }),

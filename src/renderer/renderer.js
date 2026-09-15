@@ -448,8 +448,11 @@ const state = {
     temporaryFiles: [],
     runSubmitting: false,
     loading: false,
+    loadRevision: 0,
     runs: new Map(),
+    stoppingRuns: new Set(),
     folderSessionId: '',
+    folderTerminalSessionId: '',
     folderPath: '/',
     folderParentPath: ''
   },
@@ -997,7 +1000,8 @@ function setTerminalSessionDirectory(session, directory, { setHome = false } = {
 
 function renderSshUploadPanel(session = getTerminalSession()) {
   if (!els.sshUploadButton) return;
-  const connected = Boolean(session?.sessionId && session?.connected);
+  const remoteAccessAllowed = activeWorkspaceCanUseServer('server.terminal.open', session?.projectId || state.activeProject?.id);
+  const connected = Boolean(remoteAccessAllowed && session?.sessionId && session?.connected);
   const waitingForPathUpdate = Boolean(session?.pendingDirectoryCandidate);
   const currentPath = String(session?.currentDirectory || session?.homeDirectory || '').trim();
   els.sshDirectoryPath.value = waitingForPathUpdate
@@ -1626,7 +1630,9 @@ function renderTerminalTabs(projectId = state.activeProject?.id) {
     els.terminalTabs.appendChild(tab);
   }
 
-  els.terminalNewTabButton.disabled = !projectId || isRdpProject();
+  els.terminalNewTabButton.disabled = !projectId
+    || isRdpProject()
+    || !activeWorkspaceCanUseServer('server.terminal.open', projectId);
   els.terminalTabs.querySelector('.terminal-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   const renameLabel = els.terminalTabs.querySelector('[data-terminal-tab-rename-input]');
   if (renameLabel) requestAnimationFrame(() => {
@@ -1753,9 +1759,7 @@ async function disconnectProjectConnections(projectId) {
 
 async function disconnectAllProjectConnections() {
   const projectIds = [...new Set([...Object.keys(state.terminalSessions), ...Object.keys(state.ftpSessions), state.rdpProjectId].filter(Boolean))];
-  for (const projectId of projectIds) {
-    await disconnectProjectConnections(projectId);
-  }
+  await Promise.all(projectIds.map((projectId) => disconnectProjectConnections(projectId)));
   await stopServerMonitoring();
 }
 
@@ -3183,6 +3187,7 @@ const els = {
   aiDeploymentFolderCancelButton: document.getElementById('aiDeploymentFolderCancelButton'),
   aiDeploymentFolderUpButton: document.getElementById('aiDeploymentFolderUpButton'),
   aiDeploymentFolderProtocol: document.getElementById('aiDeploymentFolderProtocol'),
+  aiDeploymentFolderRetryButton: document.getElementById('aiDeploymentFolderRetryButton'),
   aiDeploymentFolderSelectButton: document.getElementById('aiDeploymentFolderSelectButton'),
   aiDeploymentRunDialog: document.getElementById('aiDeploymentRunDialog'),
   aiDeploymentRunForm: document.getElementById('aiDeploymentRunForm'),
@@ -3998,6 +4003,15 @@ const els = {
   openCreateTeamButton: document.getElementById('openCreateTeamButton'),
   importLocalToCloudButton: document.getElementById('importLocalToCloudButton'),
   workspaceUserPermissionNotice: document.getElementById('workspaceUserPermissionNotice'),
+  workspaceInvitesButton: document.getElementById('workspaceInvitesButton'),
+  workspaceInviteCount: document.getElementById('workspaceInviteCount'),
+  workspaceInvitesModal: document.getElementById('workspaceInvitesModal'),
+  workspaceInvitesCloseButton: document.getElementById('workspaceInvitesCloseButton'),
+  workspaceInvitesDoneButton: document.getElementById('workspaceInvitesDoneButton'),
+  workspaceInvitesReceivedTab: document.getElementById('workspaceInvitesReceivedTab'),
+  workspaceInvitesSentTab: document.getElementById('workspaceInvitesSentTab'),
+  workspaceInvitesReceivedPanel: document.getElementById('workspaceInvitesReceivedPanel'),
+  workspaceInvitesSentPanel: document.getElementById('workspaceInvitesSentPanel'),
   addWorkspaceUserButton: document.getElementById('addWorkspaceUserButton'),
   addWorkspaceUserModal: document.getElementById('addWorkspaceUserModal'),
   addWorkspaceUserForm: document.getElementById('addWorkspaceUserForm'),
@@ -4025,7 +4039,6 @@ const els = {
   addWorkspaceUserServers: document.getElementById('addWorkspaceUserServers'),
   addWorkspaceUserBlockedCommands: document.getElementById('addWorkspaceUserBlockedCommands'),
   addWorkspaceUserReview: document.getElementById('addWorkspaceUserReview'),
-  sentInvitesCard: document.getElementById('sentInvitesCard'),
   teamMembersList: document.getElementById('teamMembersList'),
   workspaceUserCount: document.getElementById('workspaceUserCount'),
   incomingInvitesLists: document.querySelectorAll('[data-incoming-invites-list]'),
@@ -6052,25 +6065,39 @@ function renderProjectDropdown(controller) {
     return `<button class="workspace-switcher-option" type="button" role="option" data-project-dropdown-value="${escapeHtml(option.value)}" aria-selected="${isSelected}" tabindex="-1" ${option.disabled ? 'disabled' : ''}><span>${escapeHtml(option.textContent)}</span>${isSelected ? icon('check') : ''}</button>`;
   }).join('');
   const searchMarkup = controller.searchable
-    ? `<div class="project-dropdown-search"><input class="project-dropdown-search-input" type="search" value="${escapeHtml(controller.searchQuery)}" placeholder="${escapeHtml(select.dataset.searchPlaceholder || 'Search options...')}" aria-label="${escapeHtml(select.dataset.searchPlaceholder || 'Search options')}" aria-controls="${controller.optionsId}" autocomplete="off" data-project-dropdown-search-input /></div>`
+    ? `<div class="project-dropdown-search"><input class="project-dropdown-search-input" type="search" value="${escapeHtml(controller.searchQuery)}" placeholder="${escapeHtml(select.dataset.searchPlaceholder || 'Search options (regex)...')}" aria-label="${escapeHtml(select.dataset.searchPlaceholder || 'Search options with a regular expression')}" aria-controls="${controller.optionsId}" aria-describedby="${controller.statusId}" maxlength="200" autocomplete="off" spellcheck="false" data-project-dropdown-search-input /></div>`
     : '';
   const emptyMarkup = controller.searchable
-    ? `<div class="project-dropdown-empty hidden" role="status">${escapeHtml(select.dataset.searchEmpty || 'No matching options.')}</div>`
+    ? `<div id="${controller.statusId}" class="project-dropdown-empty hidden" role="status" aria-live="polite">${escapeHtml(select.dataset.searchEmpty || 'No matching options.')}</div>`
     : '';
   controller.menu.innerHTML = `${searchMarkup}<div id="${controller.optionsId}" role="listbox" aria-label="${escapeHtml(controller.name)}">${optionMarkup}</div>${emptyMarkup}`;
   filterProjectDropdownOptions(controller);
 }
 
 function filterProjectDropdownOptions(controller) {
-  const query = controller.searchQuery.trim().toLowerCase();
+  const query = controller.searchQuery.trim();
+  let pattern = null;
+  let invalid = false;
+  try { if (query) pattern = new RegExp(query, 'i'); }
+  catch { invalid = true; }
   const options = Array.from(controller.menu.querySelectorAll('.workspace-switcher-option'));
   let visibleOptions = 0;
   for (const option of options) {
-    const visible = !query || option.textContent.toLowerCase().includes(query);
+    const visible = !query || (!invalid && pattern.test(option.textContent));
     option.hidden = !visible;
     if (visible) visibleOptions += 1;
   }
-  controller.menu.querySelector('.project-dropdown-empty')?.classList.toggle('hidden', visibleOptions > 0);
+  const search = controller.menu.querySelector('[data-project-dropdown-search-input]');
+  if (search) {
+    if (invalid) search.setAttribute('aria-invalid', 'true');
+    else search.removeAttribute('aria-invalid');
+  }
+  if (search) search.title = invalid ? 'Invalid regular expression.' : '';
+  const status = controller.menu.querySelector('.project-dropdown-empty');
+  if (status) {
+    status.textContent = invalid ? 'Invalid regular expression.' : controller.select.dataset.searchEmpty || 'No matching options.';
+    status.classList.toggle('hidden', !invalid && visibleOptions > 0);
+  }
 }
 
 function closeProjectDropdown({ focusTrigger = false } = {}) {
@@ -6131,6 +6158,7 @@ function enhanceProjectDropdown(select) {
   const id = select.id || `projectDropdown${++projectDropdownId}`;
   const menuId = `${id}ComponentMenu`;
   const optionsId = `${menuId}Options`;
+  const statusId = `${menuId}Status`;
   const wrapper = document.createElement('div');
   wrapper.className = 'project-dropdown top-workspace-switcher';
   wrapper.dataset.selectId = id;
@@ -6162,6 +6190,7 @@ function enhanceProjectDropdown(select) {
     menu,
     name: projectDropdownName(select),
     optionsId,
+    statusId,
     originalTabIndex,
     searchable: select.dataset.projectDropdownSearch === 'true',
     searchQuery: ''
@@ -6964,7 +6993,9 @@ function renderRdpStatus(status, message, { hasSession = Boolean(state.rdpSessio
   els.rdpWorkspace.classList.toggle('rdp-connecting', connecting);
   els.projectView.classList.toggle('terminal-connected', connected);
   els.projectView.classList.remove('terminal-needs-connect');
-  els.connectRdpButton.disabled = connected || connecting;
+  els.connectRdpButton.disabled = connected
+    || connecting
+    || !activeWorkspaceCanUseServer('server.terminal.open', state.activeProject?.id);
   els.disconnectTerminalButton.disabled = !hasSession;
   els.connectRdpLabel.textContent = connecting ? 'Connecting...' : `Connect ${protocol}`;
   if (!connected && resetDisplays) updateVncDisplaySelector([], 'all');
@@ -7024,6 +7055,10 @@ function stopRemoteSession(protocol, sessionId) {
 async function connectRdp() {
   const project = state.activeProject;
   if (!isRdpProject(project) || state.rdpStatus === 'connecting') return;
+  if (!activeWorkspaceCanUseServer('server.terminal.open', project.id)) {
+    showAlert('You do not have permission to open a remote session for this server.');
+    return;
+  }
   if (state.rdpSessionId && state.rdpProjectId === project.id && activeRdpClient) {
     activeRdpClient.resize();
     if (windowsConnectionProtocol(project) === 'rdp') els.rdpCanvas.focus();
@@ -11423,8 +11458,14 @@ function aiDeploymentActionButtons(deployment) {
   const name = escapeHtml(deployment.name);
   const id = escapeHtml(deployment.id);
   const running = deployment.status === 'running';
+  const runId = deployment.runs?.find((run) => run.status === 'running')?.id
+    || [...state.aiDeployments.runs].find(([, deploymentId]) => deploymentId === deployment.id)?.[0]
+    || '';
+  const stopping = runId && state.aiDeployments.stoppingRuns.has(runId);
   return `<div class="ai-deployment-actions">
-    <button class="button outline compact" type="button" data-ai-deployment-run="${id}" aria-label="Run ${name}" ${running ? 'disabled' : ''}>${icon('play')}<span>Run</span></button>
+    ${running
+      ? `<button class="button outline danger compact" type="button" data-ai-deployment-stop="${escapeHtml(runId)}" aria-label="Stop ${name}" ${!runId || stopping ? 'disabled' : ''}>${icon('stop')}<span>${stopping ? 'Stopping…' : 'Stop'}</span></button>`
+      : `<button class="button outline compact" type="button" data-ai-deployment-run="${id}" aria-label="Run ${name}">${icon('play')}<span>Run</span></button>`}
     <button class="button outline compact" type="button" data-ai-deployment-view="${id}" aria-label="View session for ${name}" ${deployment.runs?.length ? '' : 'disabled'}>${icon('eye')}<span>View</span></button>
     <button class="button outline compact" type="button" data-ai-deployment-log="${id}" aria-label="View log for ${name}">${icon('file')}<span>Logs</span></button>
     <button class="button plain compact icon-only" type="button" data-ai-deployment-edit="${id}" aria-label="Edit ${name}" title="Edit" ${running ? 'disabled' : ''}>${icon('edit')}</button>
@@ -11618,7 +11659,7 @@ function openAiDeploymentForm(deployment = null) {
   els.aiDeploymentPrompt.value = deployment?.prompt || '';
   els.aiDeploymentInstructions.value = deployment?.instructions || '';
   els.aiDeploymentFormHeading.textContent = editing ? 'Edit Deployment' : 'Start Deployment';
-  els.aiDeploymentSubmitButton.querySelector('span').textContent = editing ? 'Save Changes' : 'Save & Deploy';
+  els.aiDeploymentSubmitButton.querySelector('span').textContent = editing ? 'Save Changes' : 'Save Deployment';
   els.aiDeploymentForm.querySelectorAll('[aria-invalid="true"]').forEach((field) => field.removeAttribute('aria-invalid'));
   els.aiDeploymentFormError.classList.add('hidden');
   els.aiDeploymentFormError.textContent = '';
@@ -11672,13 +11713,13 @@ async function submitAiDeployment(event) {
   els.aiDeploymentSubmitButton.disabled = true;
   try {
     const saved = await window.deployerx.saveAiDeployment(value);
+    if (!aiDeploymentVisibleInWorkspace(saved)) return;
     const index = state.aiDeployments.items.findIndex((item) => item.id === saved.id);
     if (index >= 0) state.aiDeployments.items[index] = saved;
     else state.aiDeployments.items.unshift(saved);
     renderAiDeploymentFilters();
     closeAiDeploymentForm();
-    if (editing) showToast('Deployment saved.');
-    else await startSavedAiDeployment(saved.id);
+    showToast(editing ? 'Deployment saved.' : 'Deployment created. Click Run when ready.');
   } catch (error) {
     els.aiDeploymentFormError.textContent = error.message || 'Could not save deployment.';
     els.aiDeploymentFormError.classList.remove('hidden');
@@ -11709,6 +11750,21 @@ async function startSavedAiDeployment(id, runOptions = {}) {
     renderAiDeployments();
     showAlert(String(error.message || 'Could not start deployment.').slice(0, 240));
     return false;
+  }
+}
+
+async function stopSavedAiDeployment(runId) {
+  if (!runId || state.aiDeployments.stoppingRuns.has(runId)) return;
+  state.aiDeployments.stoppingRuns.add(runId);
+  renderAiDeployments();
+  try {
+    const stopped = await window.deployerx.stopAiDeployment(runId);
+    if (!stopped) throw new Error('Deployment is no longer running.');
+    showToast('Stopping deployment…');
+  } catch (error) {
+    state.aiDeployments.stoppingRuns.delete(runId);
+    renderAiDeployments();
+    showAlert(error.message || 'Could not stop deployment.');
   }
 }
 
@@ -11791,6 +11847,7 @@ async function duplicateAiDeployment(id) {
     log: '',
     runs: []
   });
+  if (!aiDeploymentVisibleInWorkspace(copy)) return;
   state.aiDeployments.items.unshift(copy);
   renderAiDeploymentFilters();
   renderAiDeployments();
@@ -11820,6 +11877,7 @@ async function deleteSelectedAiDeploymentPrompt() {
   els.aiDeploymentDeletePromptButton.disabled = true;
   try {
     const saved = await window.deployerx.saveAiDeployment({ ...deployment, promptReusable: false });
+    if (!aiDeploymentVisibleInWorkspace(saved)) return;
     const index = state.aiDeployments.items.findIndex((item) => item.id === saved.id);
     if (index >= 0) state.aiDeployments.items[index] = saved;
     const selected = { projectId: els.aiDeploymentProject.value, agentId: els.aiDeploymentAgent.value };
@@ -11923,12 +11981,14 @@ function handleAiDeploymentAction(event) {
   const button = event.target.closest('button');
   if (!button) return;
   const runId = button.dataset.aiDeploymentRun;
+  const stopRunId = button.dataset.aiDeploymentStop;
   const logId = button.dataset.aiDeploymentLog;
   const viewId = button.dataset.aiDeploymentView;
   const editId = button.dataset.aiDeploymentEdit;
   const duplicateId = button.dataset.aiDeploymentDuplicate;
   const deleteId = button.dataset.aiDeploymentDelete;
-  if (runId) openAiDeploymentRunDialog(runId);
+  if (stopRunId) stopSavedAiDeployment(stopRunId);
+  else if (runId) openAiDeploymentRunDialog(runId);
   else if (viewId) openAiDeploymentSession(viewId);
   else if (logId) openAiDeploymentLog(logId);
   else if (editId) openAiDeploymentForm(state.aiDeployments.items.find((item) => item.id === editId));
@@ -11936,21 +11996,31 @@ function handleAiDeploymentAction(event) {
   else if (deleteId) deleteSavedAiDeployment(deleteId).catch((error) => showAlert(error.message));
 }
 
+function aiDeploymentVisibleInWorkspace(deployment) {
+  const workspaceId = state.setup.mode === 'cloud' ? state.teams.activeTeamId : 'local';
+  return Boolean(workspaceId && (deployment.workspaceId
+    ? deployment.workspaceId === workspaceId
+    : state.projects.some((project) => String(project.id) === deployment.projectId)));
+}
+
 async function loadAiDeploymentWorkspace() {
   if (state.aiDeployments.loading) return;
+  const revision = ++state.aiDeployments.loadRevision;
   state.aiDeployments.loading = true;
   try {
     await fetchAiDeploymentGithubRepositories();
+    if (revision !== state.aiDeployments.loadRevision) return;
     const [items, agents] = await Promise.all([
       window.deployerx.listAiDeployments(),
       window.deployerx.listLocalAgents()
     ]);
-    state.aiDeployments.items = items || [];
+    if (revision !== state.aiDeployments.loadRevision) return;
+    state.aiDeployments.items = (items || []).filter(aiDeploymentVisibleInWorkspace);
     state.aiDeployments.agents = agents || [];
     renderAiDeploymentFilters();
     renderAiDeployments();
   } finally {
-    state.aiDeployments.loading = false;
+    if (revision === state.aiDeployments.loadRevision) state.aiDeployments.loading = false;
   }
 }
 
@@ -11968,12 +12038,19 @@ function showAiDeploymentFolderError(message = '') {
 }
 
 async function loadAiDeploymentFolder(path = '/') {
-  if (!state.aiDeployments.folderSessionId) return;
+  const sessionId = state.aiDeployments.folderSessionId;
+  if (!sessionId) return;
   els.aiDeploymentFolderList.innerHTML = '<div class="settings-muted">Loading folders…</div>';
   els.aiDeploymentFolderSelectButton.disabled = true;
   showAiDeploymentFolderError();
   try {
-    const result = await window.deployerx.ftpList({ sessionId: state.aiDeployments.folderSessionId, path });
+    const terminalSessionId = state.aiDeployments.folderTerminalSessionId;
+    const result = terminalSessionId
+      ? await window.deployerx.listTerminalDirectory({ sessionId: terminalSessionId, path })
+      : await window.deployerx.ftpList({ sessionId, path });
+    if (state.aiDeployments.folderSessionId !== sessionId) return;
+    if (result.unavailable) throw new Error(result.message || 'SFTP is unavailable on this SSH server.');
+    if (result.closed) throw new Error('The SSH session closed. Reconnect in the SSH tab, then retry.');
     state.aiDeployments.folderPath = result.path;
     state.aiDeployments.folderParentPath = result.parentPath;
     els.aiDeploymentFolderPath.textContent = result.path;
@@ -11984,6 +12061,7 @@ async function loadAiDeploymentFolder(path = '/') {
       ? folders.map((folder) => `<button class="ai-deployment-folder-item" type="button" data-ai-deployment-folder="${escapeHtml(folder.path)}">${icon('folder-open')}<span>${escapeHtml(folder.name)}</span></button>`).join('')
       : '<div class="ai-deployment-folder-empty">No subfolders. Select this folder or go up one level.</div>';
   } catch (error) {
+    if (state.aiDeployments.folderSessionId !== sessionId) return;
     els.aiDeploymentFolderList.innerHTML = '';
     els.aiDeploymentFolderSelectButton.disabled = true;
     showAiDeploymentFolderError(error.message || 'Could not read this server folder.');
@@ -11992,25 +12070,51 @@ async function loadAiDeploymentFolder(path = '/') {
 
 async function connectAiDeploymentFolderBrowser(project) {
   const previousSessionId = state.aiDeployments.folderSessionId;
-  const sessionId = `ai-folder-${Date.now()}`;
+  const previousTerminalSessionId = state.aiDeployments.folderTerminalSessionId;
+  const sessionId = `ai-folder-${crypto.randomUUID()}`;
+  const protocol = els.aiDeploymentFolderProtocol.value;
+  const activeTerminal = getTerminalSession(project.id);
+  const terminal = protocol === 'sftp'
+    ? (activeTerminal?.connected ? activeTerminal : getConnectedTerminalSession(project.id))
+    : null;
   state.aiDeployments.folderSessionId = sessionId;
-  if (previousSessionId) await window.deployerx.ftpDisconnect(previousSessionId).catch(() => {});
+  state.aiDeployments.folderTerminalSessionId = terminal?.sessionId || '';
   els.aiDeploymentFolderList.innerHTML = '<div class="settings-muted">Connecting to server…</div>';
   els.aiDeploymentFolderSelectButton.disabled = true;
+  els.aiDeploymentFolderUpButton.disabled = true;
   els.aiDeploymentFolderProtocol.disabled = true;
+  setButtonLoading(els.aiDeploymentFolderRetryButton, true);
   showAiDeploymentFolderError();
-  const result = await window.deployerx.ftpConnect({
-    sessionId,
-    project,
-    protocol: els.aiDeploymentFolderProtocol.value
-  });
-  els.aiDeploymentFolderProtocol.disabled = false;
-  if (!result.ok) {
-    showAiDeploymentFolderError(result.error?.message || 'Could not connect to the server folder browser.');
+  try {
+    if (previousSessionId && !previousTerminalSessionId) await window.deployerx.ftpDisconnect(previousSessionId).catch(() => {});
+    if (state.aiDeployments.folderSessionId !== sessionId) return;
+    if (state.aiDeployments.folderTerminalSessionId) {
+      await loadAiDeploymentFolder(state.aiDeployments.folderPath);
+      return;
+    }
+    const selectedUser = (project.ssh?.users || []).find((user) => user.id === activeTerminal?.sshUserId);
+    const result = await window.deployerx.ftpConnect({
+      sessionId,
+      project: protocol === 'sftp' && selectedUser ? terminalConnectionProject(project, selectedUser) : project,
+      protocol
+    });
+    if (state.aiDeployments.folderSessionId !== sessionId) {
+      await window.deployerx.ftpDisconnect(sessionId).catch(() => {});
+      return;
+    }
+    if (!result.ok) throw new Error(result.error?.message || 'Could not connect to the server folder browser.');
+    await loadAiDeploymentFolder(state.aiDeployments.folderPath);
+  } catch (error) {
+    if (state.aiDeployments.folderSessionId !== sessionId) return;
+    const message = String(error.message || 'Could not connect to the server folder browser.').replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '');
+    showAiDeploymentFolderError(`${message} Retry the connection or choose another saved connection below.`);
     els.aiDeploymentFolderList.innerHTML = '';
-    return;
+  } finally {
+    if (state.aiDeployments.folderSessionId === sessionId) {
+      els.aiDeploymentFolderProtocol.disabled = false;
+      setButtonLoading(els.aiDeploymentFolderRetryButton, false);
+    }
   }
-  await loadAiDeploymentFolder(state.aiDeployments.folderPath);
 }
 
 async function openAiDeploymentRemoteFolderBrowser() {
@@ -12037,9 +12141,11 @@ async function openAiDeploymentRemoteFolderBrowser() {
 
 async function closeAiDeploymentRemoteFolderBrowser() {
   const sessionId = state.aiDeployments.folderSessionId;
+  const terminalSessionId = state.aiDeployments.folderTerminalSessionId;
   state.aiDeployments.folderSessionId = '';
+  state.aiDeployments.folderTerminalSessionId = '';
   if (els.aiDeploymentFolderDialog.open) els.aiDeploymentFolderDialog.close();
-  if (sessionId) await window.deployerx.ftpDisconnect(sessionId).catch(() => {});
+  if (sessionId && !terminalSessionId) await window.deployerx.ftpDisconnect(sessionId).catch(() => {});
 }
 
 function setProjectTab(tab) {
@@ -21747,7 +21853,8 @@ function updateTerminalStatus(text, connected = state.terminalConnected) {
     Boolean(state.activeProject && !state.activeTerminalSessionId && !connected)
   );
   els.disconnectTerminalButton.disabled = !state.activeTerminalSessionId;
-  els.connectTerminalButton.disabled = Boolean(state.activeTerminalSessionId);
+  els.connectTerminalButton.disabled = Boolean(state.activeTerminalSessionId)
+    || !activeWorkspaceCanUseServer('server.terminal.open', state.activeProject?.id);
   renderSshUploadPanel(terminalSession);
   renderTerminalTabs(terminalSession?.projectId);
   renderProjects();
@@ -21939,7 +22046,45 @@ function applySetupState(setup = {}) {
   renderSettingsView();
 }
 
+function reconcileWorkspaceProjectAccess(previousWorkspace = null) {
+  if (state.setup.mode !== 'cloud' || !state.teams.activeTeam) return;
+  const workspace = state.teams.activeTeam;
+  const canViewServers = workspaceAccessCan(workspace, 'server.view');
+  const unauthorizedProjects = state.projects.filter((project) => (
+    !canViewServers || !workspaceAccessCanServer(workspace, project.id)
+  ));
+  const lostRemoteAccess = workspaceAccessCan(previousWorkspace, 'server.terminal.open')
+    && !workspaceAccessCan(workspace, 'server.terminal.open');
+  const projectsToDisconnect = lostRemoteAccess ? [...state.projects] : unauthorizedProjects;
+
+  for (const project of projectsToDisconnect) {
+    disconnectProjectConnections(project.id).catch(() => {});
+  }
+  if (unauthorizedProjects.length) {
+    const unauthorizedIds = new Set(unauthorizedProjects.map((project) => String(project.id)));
+    state.projects = state.projects.filter((project) => !unauthorizedIds.has(String(project.id)));
+    if (state.activeProject && unauthorizedIds.has(String(state.activeProject.id))) {
+      state.activeProject = null;
+      if (state.currentView === 'project') showView('servers');
+    }
+    renderProjects();
+  }
+  applyWorkspaceProjectPermissionControls();
+}
+
+function applyActiveWorkspaceAccess(access) {
+  if (!access || !state.teams.activeTeam) return;
+  const previousWorkspace = state.teams.activeTeam;
+  const nextWorkspace = { ...previousWorkspace, ...access, id: previousWorkspace.id };
+  state.teams.activeTeam = nextWorkspace;
+  const teamIndex = state.teams.teams.findIndex((team) => team.id === state.teams.activeTeamId);
+  if (teamIndex >= 0) state.teams.teams[teamIndex] = { ...state.teams.teams[teamIndex], ...nextWorkspace };
+  reconcileWorkspaceProjectAccess(previousWorkspace);
+  renderTeamView();
+}
+
 function applyTeamSnapshot(snapshot = {}) {
+  const previousWorkspace = state.teams.activeTeam;
   state.teams.teams = Array.isArray(snapshot.teams) ? snapshot.teams : [];
   state.teams.activeTeamId = snapshot.activeTeamId || '';
   state.teams.activeTeam = snapshot.activeTeam || null;
@@ -21950,6 +22095,7 @@ function applyTeamSnapshot(snapshot = {}) {
   state.teams.moduleCatalog = Array.isArray(snapshot.moduleCatalog) ? snapshot.moduleCatalog : [];
   state.teams.unlocked = Boolean(state.teams.activeTeamId);
   state.teams.cloudError = snapshot.cloudError || '';
+  reconcileWorkspaceProjectAccess(previousWorkspace);
   renderTopNotificationsMenu();
   renderTeamView();
   applySetupState({ setupComplete: state.setup.complete, mode: state.setup.mode, activeTeamId: state.teams.activeTeamId, session: state.auth.session });
@@ -22519,6 +22665,32 @@ async function connectMcpClient(clientId, button) {
   }
 }
 
+function setWorkspaceInvitesTab(tab) {
+  const sent = tab === 'sent' && !els.workspaceInvitesSentTab.disabled;
+  els.workspaceInvitesReceivedTab.classList.toggle('active', !sent);
+  els.workspaceInvitesReceivedTab.setAttribute('aria-selected', String(!sent));
+  els.workspaceInvitesReceivedTab.tabIndex = sent ? -1 : 0;
+  els.workspaceInvitesSentTab.classList.toggle('active', sent);
+  els.workspaceInvitesSentTab.setAttribute('aria-selected', String(sent));
+  els.workspaceInvitesSentTab.tabIndex = sent ? 0 : -1;
+  els.workspaceInvitesReceivedPanel.classList.toggle('hidden', sent);
+  els.workspaceInvitesSentPanel.classList.toggle('hidden', !sent);
+}
+
+function openWorkspaceInvitesModal() {
+  setWorkspaceInvitesTab(state.teams.invites.length ? 'received' : 'sent');
+  setModalVisible(true, els.workspaceInvitesModal);
+  requestAnimationFrame(() => {
+    const activeTab = els.workspaceInvitesModal.querySelector('[role="tab"][aria-selected="true"]');
+    activeTab?.focus();
+  });
+}
+
+function closeWorkspaceInvitesModal() {
+  setModalVisible(false, els.workspaceInvitesModal);
+  els.workspaceInvitesButton.focus();
+}
+
 async function disconnectMcpClient(clientId, button) {
   setButtonLoading(button, true);
   try {
@@ -22726,9 +22898,92 @@ function workspaceRoleLabel(role) {
   return 'Member';
 }
 
+function workspaceAccessCan(workspace, permission) {
+  if (!workspace) return false;
+  if (workspace.role === 'owner') return true;
+  return !workspace.suspended
+    && Array.isArray(workspace.permissions)
+    && workspace.permissions.includes(permission);
+}
+
 function activeWorkspaceCan(permission) {
   const workspace = state.teams.activeTeam;
-  return workspace?.role === 'owner' || (Array.isArray(workspace?.permissions) && workspace.permissions.includes(permission));
+  return workspaceAccessCan(workspace, permission);
+}
+
+function workspaceAccessCanServer(workspace, serverId) {
+  if (!workspace || !serverId) return false;
+  if (workspace.role === 'owner') return true;
+  return !workspace.suspended
+    && (Array.isArray(workspace.serverIds)
+      && (workspace.serverIds.includes('*') || workspace.serverIds.includes(String(serverId))));
+}
+
+function activeWorkspaceCanServer(serverId) {
+  if (state.setup.mode !== 'cloud') return true;
+  return workspaceAccessCanServer(state.teams.activeTeam, serverId);
+}
+
+function activeWorkspaceCanUseServer(permission, serverId = state.activeProject?.id) {
+  if (state.setup.mode !== 'cloud') return true;
+  return activeWorkspaceCan(permission) && activeWorkspaceCanServer(serverId);
+}
+
+function activeWorkspaceCanCreateServer() {
+  if (state.setup.mode !== 'cloud') return true;
+  const workspace = state.teams.activeTeam;
+  return workspaceAccessCan(workspace, 'server.create')
+    && (workspace?.role === 'owner' || workspace?.serverIds?.includes('*'));
+}
+
+function setPermissionControl(control, allowed, reason, { hidden = false } = {}) {
+  if (!control) return;
+  control.classList.toggle('hidden', hidden && !allowed);
+  if ('disabled' in control) control.disabled = !allowed;
+  if (!allowed) {
+    control.dataset.permissionReason = reason;
+    control.title = reason;
+  } else if (control.dataset.permissionReason) {
+    delete control.dataset.permissionReason;
+    control.removeAttribute('title');
+  }
+}
+
+function applyWorkspaceProjectPermissionControls(project = state.activeProject) {
+  const serverId = project?.id;
+  const canUpdate = Boolean(serverId && activeWorkspaceCanUseServer('server.update', serverId));
+  const canDelete = Boolean(serverId && activeWorkspaceCanUseServer('server.delete', serverId));
+  const canConnect = Boolean(serverId && activeWorkspaceCanUseServer('server.terminal.open', serverId));
+  const canRunCommands = Boolean(serverId && activeWorkspaceCanUseServer('server.command.execute', serverId));
+  const remoteReason = 'Requires remote session permission for this server.';
+
+  setPermissionControl(els.editProjectButton, canUpdate, 'Requires permission to change this server.', { hidden: true });
+  setPermissionControl(els.deleteProjectButton, canDelete, 'Requires permission to delete this server.', { hidden: true });
+  setPermissionControl(els.saveCommandsButton, canUpdate, 'Requires permission to change this server.', { hidden: true });
+  setPermissionControl(els.runProjectButton, canRunCommands, 'Requires permission to run saved commands.', { hidden: true });
+  setPermissionControl(els.projectTemplateButton, canUpdate, 'Requires permission to change this server.');
+  if (els.commands) {
+    els.commands.readOnly = !canUpdate;
+    els.commands.title = canUpdate ? '' : 'Server commands are read only.';
+  }
+
+  setPermissionControl(els.connectTerminalButton, canConnect, remoteReason);
+  setPermissionControl(els.connectFtpButton, canConnect, remoteReason);
+  setPermissionControl(els.connectRdpButton, canConnect, remoteReason);
+  setPermissionControl(els.terminalNewTabButton, canConnect, remoteReason);
+  if (canConnect) {
+    els.connectTerminalButton.disabled = Boolean(state.activeTerminalSessionId);
+    els.connectFtpButton.disabled = Boolean(state.ftpConnected);
+    els.connectRdpButton.disabled = ['connecting', 'connected'].includes(state.rdpStatus);
+    els.terminalNewTabButton.disabled = !serverId || isRdpProject(project);
+  }
+}
+
+function applyWorkspaceServerCreationVisibility() {
+  const canCreate = activeWorkspaceCanCreateServer();
+  const reason = 'Requires permission to create servers and access to all servers.';
+  [els.dashboardCreateButton, els.dashboardQuickAddButton, els.sidebarAddServerButton, els.dashboardImportProjectsButton]
+    .forEach((button) => setPermissionControl(button, canCreate, reason, { hidden: true }));
 }
 
 function defaultWorkspacePermissions(role) {
@@ -22770,11 +23025,12 @@ function resetWorkspacePermissionInputs(container, role, prefix) {
 }
 
 function activeWorkspaceCanModule(moduleId) {
+  if (state.setup.mode !== 'cloud') return true;
   const workspace = state.teams.activeTeam;
-  return workspace?.role === 'owner'
-    || !Array.isArray(workspace?.visibleModules)
-    || workspace.visibleModules.includes('*')
-    || workspace.visibleModules.includes(moduleId);
+  if (workspace?.role === 'owner') return true;
+  return !workspace?.suspended
+    && (Array.isArray(workspace?.visibleModules)
+      && (workspace.visibleModules.includes('*') || workspace.visibleModules.includes(moduleId)));
 }
 
 function applyWorkspaceModuleVisibility() {
@@ -22788,6 +23044,8 @@ function applyWorkspaceModuleVisibility() {
     [els.uptimeButton, 'uptime'],
     [els.topBackupsButton, 'backups']
   ].forEach(([button, moduleId]) => button?.classList.toggle('hidden', scoped && !activeWorkspaceCanModule(moduleId)));
+  applyWorkspaceServerCreationVisibility();
+  applyWorkspaceProjectPermissionControls();
 }
 
 function renderWorkspaceScopeInputs(container, items, selectedIds, type) {
@@ -22828,12 +23086,19 @@ function renderTeamView() {
   const canPromoteMembers = activeWorkspaceCan('members.promote');
   const owner = state.teams.members.find((member) => member.role === 'owner');
   renderIncomingInvites();
-  els.sentInvitesCard.classList.toggle('hidden', !canInvite);
+  const inviteCount = state.teams.invites.length + state.teams.teamInvites.length;
+  els.workspaceInviteCount.textContent = String(inviteCount);
+  els.workspaceInviteCount.setAttribute('aria-label', `${inviteCount} ${inviteCount === 1 ? 'invite' : 'invites'}`);
+  els.workspaceInvitesButton.disabled = !state.auth.session;
+  els.workspaceInvitesSentTab.disabled = !canInvite;
+  if (!canInvite && els.workspaceInvitesSentTab.getAttribute('aria-selected') === 'true') setWorkspaceInvitesTab('received');
   const missingAddUserAccess = Boolean(activeTeam && !canCreateUser && !canInvite);
   if (els.workspaceUserPermissionNotice) {
     els.workspaceUserPermissionNotice.classList.toggle('hidden', !missingAddUserAccess);
     els.workspaceUserPermissionNotice.innerHTML = missingAddUserAccess
-      ? state.teams.cloudError
+      ? activeTeam?.suspended
+        ? '<strong>Workspace access is suspended</strong><span>Contact the workspace owner or an authorized admin to resume access.</span>'
+        : state.teams.cloudError
         ? '<strong>Workspace access could not be verified</strong><span>Refresh when Firebase is available. Add-user controls remain visible but disabled.</span>'
         : '<strong>Add-user access is restricted</strong><span>The workspace owner or an authorized admin must grant Create users or Invite users permission.</span>'
       : '';
@@ -22879,7 +23144,7 @@ function renderTeamView() {
   els.importLocalToCloudButton.disabled = !state.teams.activeTeamId;
 
   renderTopWorkspaceSwitcher();
-  els.addWorkspaceUserButton.disabled = !activeTeam;
+  els.addWorkspaceUserButton.disabled = !activeTeam || (!canInvite && !canCreateUser);
   const addAdminOption = els.addWorkspaceUserRole.querySelector('option[value="admin"]');
   if (addAdminOption) addAdminOption.disabled = !canPromoteMembers;
   if (!canPromoteMembers && els.addWorkspaceUserRole.value === 'admin') els.addWorkspaceUserRole.value = 'member';
@@ -22896,29 +23161,42 @@ function renderTeamView() {
       const roleLabel = workspaceRoleLabel(member.role);
       const canManageTargetAdmin = member.role !== 'admin' || isWorkspaceOwner || canPromoteMembers;
       const removeButton = canRemoveMembers && canManageTargetAdmin && !isOwner && !isSelf
-        ? `<button class="button plain danger compact" type="button" data-remove-member="${escapeHtml(member.uid)}">Remove</button>`
+        ? `<button class="button outline danger compact" type="button" data-remove-member="${escapeHtml(member.uid)}">${icon('trash')}Delete</button>`
         : '';
       const resetButton = isWorkspaceOwner && !isOwner && !isSelf
-        ? `<button class="button outline compact" type="button" data-reset-member-password="${escapeHtml(member.uid)}">Send password reset</button>`
+        ? `<button class="button outline compact" type="button" data-reset-member-password="${escapeHtml(member.uid)}">${icon('lock')}Reset</button>`
         : '';
       const canEdit = canUpdateMembers && canManageTargetAdmin && !isOwner && !isSelf;
-      const canManage = canEdit || resetButton || removeButton;
+      const editButton = canEdit
+        ? `<button class="button outline compact" type="button" data-edit-member="${escapeHtml(member.uid)}" aria-expanded="false">${icon('edit')}Edit</button>`
+        : '';
+      const suspendButton = canEdit
+        ? `<button class="button outline compact ${member.suspended ? 'success' : 'warning'}" type="button" data-suspend-member="${escapeHtml(member.uid)}">${icon(member.suspended ? 'play' : 'pause')}${member.suspended ? 'Resume' : 'Suspend'}</button>`
+        : '';
+      const actionButtons = `${editButton}${suspendButton}${resetButton}${removeButton}`;
+      const actionPlaceholder = isOwner ? 'Owner protected' : isSelf ? 'Your account' : 'No actions allowed';
       const moduleLabel = workspaceScopeLabel(member.visibleModules, state.teams.moduleCatalog, 'module');
       const serverCatalog = state.projects.map((project) => ({ key: String(project.id), label: project.name || 'Server' }));
       const serverLabel = workspaceScopeLabel(member.serverIds, serverCatalog, 'server');
+      const statusLabel = member.suspended ? 'Suspended' : member.mustChangePassword ? 'Password change required' : 'Active';
+      const statusClass = member.suspended ? 'suspended' : member.mustChangePassword ? 'pending' : '';
       const row = document.createElement('tr');
       row.innerHTML = `
         <td><span class="workspace-user-identity"><strong>${escapeHtml(member.displayName || member.email || 'Member')}</strong><small>${escapeHtml(member.email || '')}</small></span></td>
         <td><span class="team-role-pill">${escapeHtml(roleLabel)}</span></td>
         <td>${escapeHtml(moduleLabel)}</td>
         <td>${escapeHtml(serverLabel)}</td>
-        <td><span class="workspace-user-status ${member.mustChangePassword ? 'pending' : ''}">${member.mustChangePassword ? 'Password change required' : 'Active'}</span></td>
-        <td>${canManage ? `<button class="button outline compact" type="button" data-manage-member="${escapeHtml(member.uid)}" aria-expanded="false">Manage</button>` : '<span class="team-muted">—</span>'}</td>
+        <td><span class="workspace-user-status ${statusClass}">${statusLabel}</span></td>
+        <td><div class="workspace-user-row-actions">${actionButtons || `<span class="workspace-user-protected">${actionPlaceholder}</span>`}</div></td>
       `;
       els.teamMembersList.appendChild(row);
-      if (!canManage) continue;
+      row.querySelector('[data-reset-member-password]')?.addEventListener('click', resetMemberPassword);
+      row.querySelector('[data-remove-member]')?.addEventListener('click', removeMember);
+      row.querySelector('[data-suspend-member]')?.addEventListener('click', toggleMemberSuspension);
+      if (!canEdit) continue;
       const editorRow = document.createElement('tr');
       editorRow.className = 'workspace-user-editor-row hidden';
+      editorRow.id = `workspace-user-access-${member.uid}`;
       editorRow.dataset.memberAccessRow = member.uid;
       editorRow.innerHTML = `<td colspan="6"><form class="workspace-user-access-form" data-member-access-form="${escapeHtml(member.uid)}">
         ${canEdit ? `
@@ -22930,7 +23208,7 @@ function renderTeamView() {
           </div>
           <label class="field"><span>Blocked saved commands</span><textarea rows="3" data-member-blocked-commands>${escapeHtml((member.blockedCommands || []).join('\n'))}</textarea><small>Exact matches only. Remove interactive terminal permission to prevent shell bypass.</small></label>
         ` : ''}
-        <div class="workspace-user-access-actions">${canEdit ? '<button class="button solid compact" type="submit">Save access</button>' : ''}${resetButton}${removeButton}</div>
+        <div class="workspace-user-access-actions"><button class="button solid compact" type="submit">Save access</button></div>
       </form></td>`;
       els.teamMembersList.appendChild(editorRow);
       const permissionContainer = editorRow.querySelector('[data-member-permissions]');
@@ -22945,14 +23223,13 @@ function renderTeamView() {
       syncWorkspaceScopeAll(allServers, serverContainer);
       allModules?.addEventListener('change', () => syncWorkspaceScopeAll(allModules, moduleContainer));
       allServers?.addEventListener('change', () => syncWorkspaceScopeAll(allServers, serverContainer));
-      row.querySelector('[data-manage-member]')?.addEventListener('click', (event) => {
+      row.querySelector('[data-edit-member]')?.addEventListener('click', (event) => {
         const expanded = !editorRow.classList.toggle('hidden');
         event.currentTarget.setAttribute('aria-expanded', String(expanded));
       });
+      row.querySelector('[data-edit-member]')?.setAttribute('aria-controls', editorRow.id);
       editorRow.querySelector('[data-member-role]')?.addEventListener('change', (event) => resetWorkspacePermissionInputs(permissionContainer, event.currentTarget.value, `member-${member.uid}`));
       editorRow.querySelector('[data-member-access-form]')?.addEventListener('submit', updateMemberAccess);
-      editorRow.querySelector('[data-reset-member-password]')?.addEventListener('click', resetMemberPassword);
-      editorRow.querySelector('[data-remove-member]')?.addEventListener('click', removeMember);
     }
   }
 
@@ -23162,7 +23439,22 @@ function setAuthLoading(loading, label = '') {
 }
 
 function resetWorkspaceData() {
+  state.aiDeployments.loadRevision += 1;
+  state.aiDeployments.loading = false;
+  state.aiDeployments.items = [];
+  state.aiDeployments.runs.clear();
+  state.aiDeployments.stoppingRuns.clear();
+  state.aiDeployments.serverFilters.clear();
+  state.aiDeployments.statusFilters.clear();
+  state.aiDeployments.editingId = '';
+  closeAiDeploymentLog();
+  closeAiDeploymentRunDialog({ force: true });
+  closeAiDeploymentRemoteFolderBrowser();
+  els.aiDeploymentFormPage.classList.add('hidden');
+  els.aiDeploymentListPage.classList.remove('hidden');
   state.projects = [];
+  renderAiDeploymentFilters();
+  renderAiDeployments();
   state.serverGroups = [];
   state.uptime.monitors = [];
   state.uptime.groupCatalog = { groups: [] };
@@ -23560,20 +23852,25 @@ async function switchWorkspace(teamId, loadingControl) {
       try { captureActiveDatabaseQueryTab(); } catch {}
       persistDatabaseQueryTabs();
     }
-    if (loadingControl) loadingControl.disabled = true;
+    setButtonLoading(loadingControl, true);
+    await disconnectAllProjectConnections();
     const snapshot = await window.deployerx.switchTeam(teamId);
     if (!snapshot) return;
-    await disconnectAllProjectConnections();
+    if (!els.workspaceInvitesModal.classList.contains('hidden')) closeWorkspaceInvitesModal();
     applyTeamSnapshot(snapshot);
     resetWorkspaceData();
-    await loadProjects();
-    showView('dashboard');
+    await enterCloudWorkspace();
+    window.deployerx.listTeams().then((freshSnapshot) => {
+      if (state.teams.activeTeamId !== String(teamId)) return;
+      applyTeamSnapshot(freshSnapshot);
+      renderTeamView();
+    }).catch(() => {});
     showToast('Workspace switched');
   } catch (error) {
     els.teamSelect.value = previousTeamId || '';
     showAlert(error.message || 'Could not switch team.');
   } finally {
-    if (loadingControl) loadingControl.disabled = false;
+    setButtonLoading(loadingControl, false);
     renderTeamView();
   }
 }
@@ -23637,6 +23934,8 @@ function setAddWorkspaceUserStep(step) {
     const indicatorStep = Number(indicator.dataset.addUserStepIndicator);
     indicator.classList.toggle('active', indicatorStep === addWorkspaceUserStep);
     indicator.classList.toggle('complete', indicatorStep < addWorkspaceUserStep);
+    if (indicatorStep === addWorkspaceUserStep) indicator.setAttribute('aria-current', 'step');
+    else indicator.removeAttribute('aria-current');
   });
   els.addWorkspaceUserBackButton.classList.toggle('hidden', addWorkspaceUserStep === 1);
   els.addWorkspaceUserNextButton.classList.toggle('hidden', addWorkspaceUserStep === 4);
@@ -23756,6 +24055,39 @@ async function resetMemberPassword(event) {
   }
 }
 
+async function toggleMemberSuspension(event) {
+  const button = event.currentTarget;
+  const uid = button.dataset.suspendMember;
+  const member = state.teams.members.find((item) => item.uid === uid);
+  if (!member) return;
+  const suspending = !member.suspended;
+  if (suspending) {
+    const ok = await confirmDangerousAction(
+      `Suspend ${member.email || 'this member'}?`,
+      'Their workspace permissions will stop working until access is resumed.',
+      'Suspend'
+    );
+    if (!ok) return;
+  }
+  try {
+    const snapshot = await withButtonLoading(`team:suspend-member:${uid}`, button, () => window.deployerx.updateTeamMember({
+      teamId: state.teams.activeTeamId,
+      uid,
+      role: member.role,
+      permissions: member.permissions,
+      blockedCommands: member.blockedCommands,
+      visibleModules: member.visibleModules,
+      serverIds: member.serverIds,
+      suspended: suspending
+    }));
+    if (!snapshot) return;
+    applyTeamSnapshot(snapshot);
+    showToast(suspending ? 'Member access suspended' : 'Member access resumed');
+  } catch (error) {
+    showAlert(error.message || `Could not ${suspending ? 'suspend' : 'resume'} member access.`);
+  }
+}
+
 async function acceptInvite(event) {
   const button = event.currentTarget;
   const inviteId = button.dataset.acceptInvite;
@@ -23767,6 +24099,7 @@ async function acceptInvite(event) {
       })
     );
     if (!snapshot) return;
+    closeWorkspaceInvitesModal();
     applyTeamSnapshot(snapshot);
     resetWorkspaceData();
     await enterCloudWorkspace();
@@ -25127,6 +25460,7 @@ function renderDashboardStats(stats = dashboardStats()) {
 }
 
 function renderProjects() {
+  applyWorkspaceServerCreationVisibility();
   els.projectList.innerHTML = '';
   els.projectGrid.innerHTML = '';
   if (els.dashboardStatsGrid) els.dashboardStatsGrid.innerHTML = '';
@@ -25220,6 +25554,7 @@ function renderProjects() {
           { label: 'FTP', port: project.ftp?.port || project.ssh?.port || 22, active: connection.ftp }
         ];
     const pinLabel = project.pinned ? `Remove ${projectName} from favorites` : `Add ${projectName} to favorites`;
+    const canUpdateProject = activeWorkspaceCanUseServer('server.update', project.id);
     const row = document.createElement('div');
     row.className = `server-inventory-row ${connected ? 'is-connected' : 'is-disconnected'}`;
     row.innerHTML = `
@@ -25245,12 +25580,13 @@ function renderProjects() {
       </span>
       <span class="server-inventory-commands"><strong>${project.commands?.length || 0}</strong><small>saved</small></span>
       <span class="server-inventory-state ${connected ? 'is-live' : ''}"><i></i>${connected ? 'Connected' : 'Offline'}</span>
-      <button class="server-inventory-favorite ${project.pinned ? 'active' : ''}" type="button" aria-label="${escapeHtml(pinLabel)}" aria-pressed="${project.pinned ? 'true' : 'false'}" title="${escapeHtml(pinLabel)}">${icon('heart')}</button>
+      <button class="server-inventory-favorite ${project.pinned ? 'active' : ''} ${canUpdateProject ? '' : 'hidden'}" type="button" aria-label="${escapeHtml(pinLabel)}" aria-pressed="${project.pinned ? 'true' : 'false'}" title="${escapeHtml(pinLabel)}" ${canUpdateProject ? '' : 'disabled'}>${icon('heart')}</button>
       <span class="server-inventory-arrow" aria-hidden="true">${icon('chevron-right')}</span>
     `;
     row.querySelector('.server-inventory-open').addEventListener('click', () => openProject(project.id));
     const favoriteButton = row.querySelector('.server-inventory-favorite');
     favoriteButton.addEventListener('click', async () => {
+      if (!activeWorkspaceCanUseServer('server.update', project.id)) return;
       const nextPinned = !project.pinned;
       try {
         const saved = await withButtonLoading(`project:pin:${project.id}`, favoriteButton, () => saveProject({
@@ -25280,6 +25616,7 @@ function renderProjects() {
     const isActiveProject = state.currentView === 'project' && state.activeProject?.id === project.id;
     const projectName = project.name || 'Untitled Server';
     const pinLabel = project.pinned ? `Remove ${projectName} from favorites` : `Add ${projectName} to favorites`;
+    const canUpdateProject = activeWorkspaceCanUseServer('server.update', project.id);
     const item = document.createElement('div');
     item.className = `project-item ${reorderable ? 'is-reorderable' : ''} ${isActiveProject ? 'active' : ''}`;
     if (reorderable) {
@@ -25300,13 +25637,14 @@ function renderProjects() {
           <span class="project-host">${escapeHtml(serverHost(project) || 'no host')}</span>
         </span>
       </button>
-      <button class="project-pin-button ${project.pinned ? 'active' : ''}" type="button" aria-label="${escapeHtml(pinLabel)}" aria-pressed="${project.pinned ? 'true' : 'false'}" title="${escapeHtml(pinLabel)}">
+      <button class="project-pin-button ${project.pinned ? 'active' : ''} ${canUpdateProject ? '' : 'hidden'}" type="button" aria-label="${escapeHtml(pinLabel)}" aria-pressed="${project.pinned ? 'true' : 'false'}" title="${escapeHtml(pinLabel)}" ${canUpdateProject ? '' : 'disabled'}>
         ${icon('heart')}
       </button>
     `;
     item.querySelector('.project-item-open').addEventListener('click', () => openSidebarProject(project.id));
     const pinButton = item.querySelector('.project-pin-button');
     pinButton.addEventListener('click', async () => {
+      if (!activeWorkspaceCanUseServer('server.update', project.id)) return;
       const nextPinned = !project.pinned;
       try {
         const saved = await withButtonLoading(`project:pin:${project.id}`, pinButton, () => saveProject({
@@ -25324,9 +25662,14 @@ function renderProjects() {
   };
 
   if (!state.projects.length) {
+    const canCreateServer = activeWorkspaceCanCreateServer();
+    const emptyTitle = canCreateServer ? 'No Servers Yet' : 'No Servers Assigned';
+    const emptyCopy = canCreateServer
+      ? 'Use Add Server to save SSH details, groups, and deployment commands.'
+      : 'Ask a workspace admin to assign at least one server to your account.';
     const sidebarEmpty = document.createElement('div');
     sidebarEmpty.className = 'empty-project';
-    sidebarEmpty.textContent = 'No Servers Yet';
+    sidebarEmpty.textContent = emptyTitle;
     els.projectList.appendChild(sidebarEmpty);
 
     const empty = document.createElement('div');
@@ -25335,11 +25678,11 @@ function renderProjects() {
       <div class="project-card-top">
         <span class="project-icon">DX</span>
         <div class="project-card-meta">
-          <strong>No Servers Yet</strong>
-          <span>Add one to start.</span>
+          <strong>${emptyTitle}</strong>
+          <span>${canCreateServer ? 'Add one to start.' : 'Your account currently has no server access.'}</span>
         </div>
       </div>
-      <div class="project-card-note">Use Add Server to save SSH details, groups, and deployment commands.</div>
+      <div class="project-card-note">${emptyCopy}</div>
     `;
     els.projectGrid.appendChild(empty);
     renderDashboardStats({ total: 0, sshConnected: 0, ftpConnected: 0, groups: 0, commands: 0 });
@@ -25575,7 +25918,9 @@ function renderProjects() {
     const dashboardGrid = dashboardSection.querySelector('.server-group-grid');
 
     for (const project of sidebarItems) {
-      sidebarGroup.appendChild(renderSidebarProjectItem(project, { reorderable: !sidebarQuery }));
+      sidebarGroup.appendChild(renderSidebarProjectItem(project, {
+        reorderable: !sidebarQuery && activeWorkspaceCanUseServer('server.update', project.id)
+      }));
     }
     for (const project of group.items) {
       dashboardGrid.appendChild(renderServerCard(project));
@@ -25968,7 +26313,8 @@ function updateFtpStatus(message, connected = state.ftpConnected) {
   syncActiveFtpSession();
   els.ftpStatus.textContent = message;
   els.ftpWorkspace.classList.toggle('terminal-connected', state.ftpConnected);
-  els.connectFtpButton.disabled = state.ftpConnected;
+  els.connectFtpButton.disabled = state.ftpConnected
+    || !activeWorkspaceCanUseServer('server.terminal.open', state.activeProject?.id);
   els.disconnectFtpButton.disabled = !state.ftpSessionId;
   els.ftpPathInput.disabled = !state.ftpConnected;
   els.ftpBackButton.disabled = !state.ftpConnected || !state.ftpBackStack.length;
@@ -26218,6 +26564,10 @@ async function refreshFtpList(pathOverride = state.ftpCurrentPath, options = {})
 
 async function connectFtp() {
   if (!state.activeProject || state.ftpSessionId || pendingActions.has('ftp:connect')) return;
+  if (!activeWorkspaceCanUseServer('server.terminal.open', state.activeProject.id)) {
+    showAlert('You do not have permission to open a remote session for this server.');
+    return;
+  }
   const ftpUsers = Array.isArray(state.activeProject.ftp?.users) ? state.activeProject.ftp.users.filter((user) => user?.id) : [];
   const selectedUser = await promptForFtpUser(state.activeProject);
   if (ftpUsers.length > 1 && !selectedUser) return;
@@ -26814,6 +27164,7 @@ function populateProjectView(project) {
   }
   const windowsServer = isRdpProject(normalizedProject);
   state.activeProject = structuredClone(normalizedProject);
+  applyWorkspaceProjectPermissionControls(state.activeProject);
   if (!windowsServer) {
     state.activeProjectTab = normalizedProject.ftp?.host && !normalizedProject.ssh?.host ? 'ftp' : 'ssh';
   }
@@ -26893,12 +27244,19 @@ function populateProjectView(project) {
   });
 }
 
+function activeProjectLoadWorkspaceId() {
+  return state.setup.mode === 'cloud' ? String(state.teams.activeTeamId || '') : 'local';
+}
+
 async function refreshProjectsAndTemplates() {
+  const requestedWorkspaceId = activeProjectLoadWorkspaceId();
   const data = await window.deployerx.listProjects();
+  if (requestedWorkspaceId !== activeProjectLoadWorkspaceId()) return false;
+  if (data.workspaceAccess) applyActiveWorkspaceAccess(data.workspaceAccess);
   if (data.cloudError) {
     showToast('Cloud data is temporarily unavailable. Retrying shortly...');
     scheduleCloudProjectsRetry();
-    return;
+    return false;
   }
 
   clearCloudProjectsRetry();
@@ -26909,7 +27267,9 @@ async function refreshProjectsAndTemplates() {
   // first, so preserving only active connections does not resurrect deletes.
   const nextProjectIds = new Set(nextProjects.map((project) => String(project.id)));
   const activeMissingProjects = state.projects.filter((project) => (
-    !nextProjectIds.has(String(project.id)) && serverPrimaryConnectionActive(project)
+    !nextProjectIds.has(String(project.id))
+      && serverPrimaryConnectionActive(project)
+      && activeWorkspaceCanUseServer('server.view', project.id)
   ));
   state.projects = [...nextProjects, ...activeMissingProjects];
   state.serverGroups = readStoredServerGroups();
@@ -26919,6 +27279,7 @@ async function refreshProjectsAndTemplates() {
   state.templates = (data.templates || []).map(normalizeTemplate);
   if (activeProjectId) {
     state.activeProject = state.projects.find((project) => project.id === activeProjectId) || null;
+    if (!state.activeProject && state.currentView === 'project') showView('servers');
   }
   const monitoringProject = syncServerMonitoringProjectSelection();
   syncSelectedUptimeProject(state.uptime.selectedProjectId || activeProjectId);
@@ -26931,6 +27292,7 @@ async function refreshProjectsAndTemplates() {
   if (state.currentView === 'server-monitoring' && monitoringProject) {
     await selectServerForMonitoring(monitoringProject.id);
   }
+  return true;
 }
 
 function startWorkspaceAutoRefresh() {
@@ -26951,6 +27313,7 @@ function stopWorkspaceAutoRefresh() {
 }
 
 let projectLoadPromise = null;
+let projectLoadWorkspaceId = '';
 let cloudProjectsRetryTimer = null;
 let cloudProjectsRetryCount = 0;
 
@@ -26970,21 +27333,35 @@ function scheduleCloudProjectsRetry() {
 }
 
 async function loadProjects() {
-  if (projectLoadPromise) return projectLoadPromise;
-  projectLoadPromise = (async () => {
+  const workspaceId = activeProjectLoadWorkspaceId();
+  if (projectLoadPromise && projectLoadWorkspaceId === workspaceId) return projectLoadPromise;
+  const loadPromise = (async () => {
     try {
-      await refreshProjectsAndTemplates();
+      const loaded = await refreshProjectsAndTemplates();
+      if (!loaded || workspaceId !== activeProjectLoadWorkspaceId()) return;
       state.activeProject = null;
       renderProjects();
       if (state.currentView === 'dashboard') showView('dashboard');
     } finally {
-      projectLoadPromise = null;
+      if (projectLoadPromise === loadPromise) {
+        projectLoadPromise = null;
+        projectLoadWorkspaceId = '';
+      }
     }
   })();
-  return projectLoadPromise;
+  projectLoadPromise = loadPromise;
+  projectLoadWorkspaceId = workspaceId;
+  return loadPromise;
 }
 
 async function saveProject(project) {
+  const existing = project?.id && state.projects.some((item) => String(item.id) === String(project.id));
+  const allowed = existing
+    ? activeWorkspaceCanUseServer('server.update', project.id)
+    : activeWorkspaceCanCreateServer();
+  if (!allowed) throw new Error(existing
+    ? 'You do not have permission to change this server.'
+    : 'You do not have permission to create servers.');
   const saved = normalizeProject(await window.deployerx.saveProject(normalizeProject(project)));
   const index = state.projects.findIndex((item) => item.id === saved.id);
   if (index >= 0) state.projects[index] = saved;
@@ -27319,11 +27696,15 @@ async function importTemplates() {
 
 async function openProject(projectId) {
   const project = state.projects.find((item) => item.id === projectId);
-  if (!project) return;
+  if (!project || !activeWorkspaceCanUseServer('server.view', projectId)) return;
   populateProjectView(normalizeProject(project));
 }
 
 function openCreateModal() {
+  if (!activeWorkspaceCanCreateServer()) {
+    showAlert('You do not have permission to create servers.');
+    return;
+  }
   state.modalMode = 'create';
   state.modalDraft = blankProject();
   els.projectModalTitle.textContent = 'Add Server';
@@ -27335,6 +27716,10 @@ function openCreateModal() {
 
 function openEditModal() {
   if (!state.activeProject) return;
+  if (!activeWorkspaceCanUseServer('server.update', state.activeProject.id)) {
+    showAlert('You do not have permission to change this server.');
+    return;
+  }
   state.modalMode = 'edit';
   els.projectModalTitle.textContent = 'Edit Server';
   fillModal(state.activeProject);
@@ -27414,6 +27799,10 @@ async function saveCommands() {
 
 async function deleteCurrentProject() {
   if (!state.activeProject || pendingActions.has('project:delete')) return;
+  if (!activeWorkspaceCanUseServer('server.delete', state.activeProject.id)) {
+    showAlert('You do not have permission to delete this server.');
+    return;
+  }
   const projectId = state.activeProject.id;
   const projectName = state.activeProject.name;
   const ok = await confirmDangerousAction(
@@ -27705,6 +28094,10 @@ async function startRun(event) {
   if (!state.activeProject) return;
 
   if (event?.preventDefault) event.preventDefault();
+  if (!activeWorkspaceCanUseServer('server.command.execute', state.activeProject.id)) {
+    showAlert('You do not have permission to run saved commands on this server.');
+    return;
+  }
   const rawCommands = normalizeCommands(els.commands.value);
   let hydratedProject;
   try {
@@ -27725,6 +28118,13 @@ async function startRun(event) {
 
   const commands = resolveTemplateCommands(rawCommands, state.activeProject);
   if (!commands.length) return;
+
+  try {
+    await window.deployerx.validateWorkspaceCommands({ projectId: state.activeProject.id, commands });
+  } catch (error) {
+    showAlert(error.message || 'You do not have permission to run these commands.');
+    return;
+  }
 
   if (!state.terminalConnected) {
     updateTerminalStatus('Connect SSH to run scripts', false);
@@ -27849,6 +28249,10 @@ async function disconnectTerminal() {
 
 async function connectTerminal(project = state.activeProject, terminalSession = getTerminalSession(project?.id, true), options = {}) {
   if (!project || !terminalSession || terminalSession.sessionId || terminalSession.connected) return;
+  if (!activeWorkspaceCanUseServer('server.terminal.open', project.id)) {
+    showAlert('You do not have permission to open a remote session for this server.');
+    return;
+  }
   try {
     const selectedUser = options.useDefaultUser
       ? defaultTerminalUser(project)
@@ -28028,7 +28432,9 @@ els.aiDeploymentRemoteBrowseButton.addEventListener('click', () => {
   openAiDeploymentRemoteFolderBrowser().catch((error) => showAiDeploymentFolderError(error.message || 'Could not open the server folder browser.'));
 });
 els.aiDeploymentForm.addEventListener('input', (event) => {
-  if (event.target.matches('input, select, textarea')) event.target.removeAttribute('aria-invalid');
+  if (event.target.matches('input, select, textarea') && !event.target.matches('[data-project-dropdown-search-input]')) {
+    event.target.removeAttribute('aria-invalid');
+  }
   if ([els.aiDeploymentPrompt, els.aiDeploymentInstructions].includes(event.target)) els.aiDeploymentSavedPrompt.value = '';
   updateAiDeploymentSummary();
 });
@@ -28069,6 +28475,10 @@ els.aiDeploymentFolderList.addEventListener('click', (event) => {
   if (folder) loadAiDeploymentFolder(folder.dataset.aiDeploymentFolder);
 });
 els.aiDeploymentFolderUpButton.addEventListener('click', () => loadAiDeploymentFolder(state.aiDeployments.folderParentPath));
+els.aiDeploymentFolderRetryButton.addEventListener('click', () => {
+  const project = aiDeploymentProject(els.aiDeploymentProject.value);
+  if (project) connectAiDeploymentFolderBrowser(project);
+});
 els.aiDeploymentFolderProtocol.addEventListener('change', () => {
   const project = aiDeploymentProject(els.aiDeploymentProject.value);
   if (project) connectAiDeploymentFolderBrowser(project).catch((error) => showAiDeploymentFolderError(error.message || 'Could not connect to the server folder browser.'));
@@ -30367,6 +30777,39 @@ els.openCreateTeamButton.addEventListener('click', () => {
   els.createTeamName.focus();
 });
 els.addWorkspaceUserButton.addEventListener('click', openAddWorkspaceUserModal);
+els.workspaceInvitesButton.addEventListener('click', openWorkspaceInvitesModal);
+els.workspaceInvitesCloseButton.addEventListener('click', closeWorkspaceInvitesModal);
+els.workspaceInvitesDoneButton.addEventListener('click', closeWorkspaceInvitesModal);
+els.workspaceInvitesReceivedTab.addEventListener('click', () => setWorkspaceInvitesTab('received'));
+els.workspaceInvitesSentTab.addEventListener('click', () => setWorkspaceInvitesTab('sent'));
+els.workspaceInvitesModal.addEventListener('click', (event) => {
+  if (event.target === els.workspaceInvitesModal || event.target.classList.contains('modal-backdrop')) closeWorkspaceInvitesModal();
+});
+els.workspaceInvitesModal.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeWorkspaceInvitesModal();
+    return;
+  }
+  if (event.key === 'Tab') {
+    const focusable = databaseModalFocusableElements(els.workspaceInvitesModal);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+    return;
+  }
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key) || !event.target.matches('[role="tab"]')) return;
+  event.preventDefault();
+  const nextTab = event.target === els.workspaceInvitesReceivedTab && !els.workspaceInvitesSentTab.disabled ? 'sent' : 'received';
+  setWorkspaceInvitesTab(nextTab);
+  (nextTab === 'sent' ? els.workspaceInvitesSentTab : els.workspaceInvitesReceivedTab).focus();
+});
 els.addWorkspaceUserForm.addEventListener('submit', submitAddWorkspaceUser);
 els.addWorkspaceUserCloseButton.addEventListener('click', closeAddWorkspaceUserModal);
 els.addWorkspaceUserCancelButton.addEventListener('click', closeAddWorkspaceUserModal);
@@ -30876,6 +31319,9 @@ window.deployerx?.onDeploymentEvent?.((event) => {
 window.deployerx?.onAiDeploymentEvent?.((event) => {
   const payload = event.payload || {};
   let deployment = payload.deployment;
+  if (deployment && !aiDeploymentVisibleInWorkspace(deployment)) return;
+  if (!deployment && !state.aiDeployments.items.some((item) => item.id === payload.deploymentId)
+    && !state.aiDeployments.runs.has(event.runId)) return;
   if (deployment) {
     const index = state.aiDeployments.items.findIndex((item) => item.id === deployment.id);
     if (index >= 0) state.aiDeployments.items[index] = deployment;
@@ -30886,10 +31332,13 @@ window.deployerx?.onAiDeploymentEvent?.((event) => {
     state.aiDeployments.runs.set(event.runId, deployment?.id || '');
   } else if (event.type === 'done') {
     state.aiDeployments.runs.delete(event.runId);
+    state.aiDeployments.stoppingRuns.delete(event.runId);
     showToast(`${deployment?.name || 'Deployment'} completed. View its session for details.`);
   } else if (event.type === 'failed') {
     state.aiDeployments.runs.delete(event.runId);
-    showAlert(`${deployment?.name || 'Deployment'} failed. View its session for details.`);
+    state.aiDeployments.stoppingRuns.delete(event.runId);
+    if (/deployment stopped/i.test(String(payload.message || ''))) showToast(`${deployment?.name || 'Deployment'} stopped.`);
+    else showAlert(`${deployment?.name || 'Deployment'} failed. View its session for details.`);
   }
 
   deployment ||= state.aiDeployments.items.find((item) => item.id === payload.deploymentId);

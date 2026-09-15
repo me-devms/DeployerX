@@ -24,9 +24,17 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
     }
 
+    function isActiveTeamMember(teamId) {
+      return isTeamMember(teamId)
+        && (
+          !member(teamId).data.keys().hasAny(['suspended'])
+          || member(teamId).data.suspended == false
+        );
+    }
+
     function isTeamManager(teamId) {
       return isTeamOwner(teamId)
-        || (isTeamMember(teamId) && (
+        || (isActiveTeamMember(teamId) && (
           member(teamId).data.role == 'owner'
           || (
             member(teamId).data.permissions is list
@@ -37,7 +45,7 @@ service cloud.firestore {
 
     function hasTeamPermission(teamId, permission) {
       return isTeamOwner(teamId)
-        || (isTeamMember(teamId) && (
+        || (isActiveTeamMember(teamId) && (
           member(teamId).data.role == 'owner'
           || (
             member(teamId).data.permissions is list
@@ -52,6 +60,10 @@ service cloud.firestore {
         && request.resource.data.blockedCommands is list
         && request.resource.data.visibleModules is list
         && request.resource.data.serverIds is list
+        && (
+          !request.resource.data.keys().hasAny(['suspended'])
+          || request.resource.data.suspended is bool
+        )
         && request.resource.data.blockedCommands.size() <= 100
         && request.resource.data.visibleModules.size() <= 20
         && request.resource.data.serverIds.size() <= 500
@@ -124,7 +136,7 @@ service cloud.firestore {
     function hasServerAccess(teamId, projectId) {
       return isTeamOwner(teamId)
         || (
-          isTeamMember(teamId)
+          isActiveTeamMember(teamId)
           && (
             !member(teamId).data.keys().hasAny(['serverIds'])
             || member(teamId).data.serverIds.hasAny(['*', projectId])
@@ -135,7 +147,7 @@ service cloud.firestore {
     function hasAllServerAccess(teamId) {
       return isTeamOwner(teamId)
         || (
-          isTeamMember(teamId)
+          isActiveTeamMember(teamId)
           && (
             !member(teamId).data.keys().hasAny(['serverIds'])
             || member(teamId).data.serverIds.hasAny(['*'])
@@ -210,9 +222,15 @@ service cloud.firestore {
           ) || (
             !isSelf(uid)
             && resource.data.role != 'owner'
-            && request.resource.data.uid == resource.data.uid
-            && request.resource.data.emailLower == resource.data.emailLower
-            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'role',
+              'permissions',
+              'blockedCommands',
+              'visibleModules',
+              'serverIds',
+              'suspended',
+              'updatedAt'
+            ])
             && hasTeamPermission(teamId, 'members.update')
             && canAssignAccess(teamId)
           );
@@ -260,33 +278,33 @@ service cloud.firestore {
       }
 
       match /templates/{templateId} {
-        allow read, create, update: if isTeamMember(teamId);
-        allow delete: if isTeamMember(teamId) || isTeamOwner(teamId);
+        allow read, create, update: if isActiveTeamMember(teamId);
+        allow delete: if isActiveTeamMember(teamId) || isTeamOwner(teamId);
       }
 
       match /uptimeMonitors/{monitorId} {
-        allow read, create, update, delete: if isTeamMember(teamId);
+        allow read, create, update, delete: if isActiveTeamMember(teamId);
       }
 
       match /uptimeCheckWindows/{windowId} {
-        allow read, create, update, delete: if isTeamMember(teamId);
+        allow read, create, update, delete: if isActiveTeamMember(teamId);
       }
 
       match /uptimeIncidents/{incidentId} {
-        allow read, create, update, delete: if isTeamMember(teamId);
+        allow read, create, update, delete: if isActiveTeamMember(teamId);
       }
 
       match /uptimeMaintenance/{maintenanceId} {
-        allow read, create, update, delete: if isTeamMember(teamId);
+        allow read, create, update, delete: if isActiveTeamMember(teamId);
       }
 
       match /workspaceControlRecords/{recordId} {
-        allow read, create, update, delete: if isTeamMember(teamId);
+        allow read, create, update, delete: if isActiveTeamMember(teamId);
       }
 
       match /auditLogs/{auditId} {
         allow read: if hasTeamPermission(teamId, 'members.view');
-        allow create: if isTeamMember(teamId)
+        allow create: if isActiveTeamMember(teamId)
           && request.resource.data.actorUid == request.auth.uid;
         allow update, delete: if false;
       }

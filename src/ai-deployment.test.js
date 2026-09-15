@@ -115,12 +115,14 @@ test('automated GitHub checks run only deployments with a new branch commit', as
     ] }),
     publicGithubIntegration: () => ({ connected: true }), githubToken: async () => 'token',
     aiDeploymentsFromSettings: (settings) => settings.aiDeployments, startingAiDeployments: new Set(), activeAiDeployments: new Map(),
+    aiDeploymentWorkspaceId: () => 'local',
     githubCommit: async (_token, repository) => repository.endsWith('/docs') ? 'same' : 'new',
     updateAiDeploymentGithubCommit: async (id, commit) => calls.push(['commit', id, commit]),
     runAiDeployment: async (id, options) => calls.push(['run', id, options.automatic]),
     console
   });
   const start = mainSource.indexOf('async function checkAutomatedGithubDeployments(');
+  context.listAiDeployments = async () => (await context.readSettings()).aiDeployments.map((deployment) => ({ ...deployment, workspaceId: 'local' }));
   const end = mainSource.indexOf('function emitMcpTerminal(', start);
   vm.runInContext(`let githubDeploymentCheckRunning = false;\n${mainSource.slice(start, end)}`, context);
   await context.checkAutomatedGithubDeployments();
@@ -178,20 +180,24 @@ test('startup acknowledges before compression and stopping preparation is safe',
 
 test('interleaved session events keep logs and progress with the correct deployment', async () => {
   const source = await fs.readFile(path.join(__dirname, 'renderer', 'renderer.js'), 'utf8');
-  const state = { aiDeployments: { items: [], runs: new Map(), logDeploymentId: 'deployment-2', logRunId: 'run-2' } };
+  const state = { setup: { mode: 'offline' }, teams: {}, projects: [], aiDeployments: { items: [], runs: new Map(), logDeploymentId: 'deployment-2', logRunId: 'run-2' } };
   let handler;
   let renders = 0;
   const context = vm.createContext({ state, window: { deployerx: { onAiDeploymentEvent: (callback) => { handler = callback; } } },
     els: { aiDeploymentLogDialog: { open: false }, aiDeploymentLogDetailDialog: { open: true } },
     renderAiDeploymentLogDetail: () => { renders++; }, renderAiDeploymentFilters() {}, renderAiDeployments() {}, showToast() {}, showAlert() {}
   });
+  vm.runInContext(source.slice(source.indexOf('function aiDeploymentVisibleInWorkspace('), source.indexOf('async function loadAiDeploymentWorkspace(')), context);
   vm.runInContext(source.slice(source.indexOf('window.deployerx?.onAiDeploymentEvent?.('), source.indexOf('window.deployerx?.onVncEvent?.(')), context);
   for (let index = 0; index < 30; index++) {
-    handler({ runId: `run-${index}`, type: 'started', payload: { deployment: { id: `deployment-${index}`, status: 'running', runs: [{ id: `run-${index}`, status: 'running', log: '' }] } } });
+    handler({ runId: `run-${index}`, type: 'started', payload: { deployment: { id: `deployment-${index}`, workspaceId: 'local', status: 'running', runs: [{ id: `run-${index}`, status: 'running', log: '' }] } } });
     handler({ runId: `run-${index}`, type: 'progress', payload: { deploymentId: `deployment-${index}`, percent: index, label: `Stage ${index}` } });
     handler({ runId: `run-${index}`, type: 'log', payload: { deploymentId: `deployment-${index}`, message: `Only session ${index}` } });
   }
   assert.equal(renders, 3);
+  handler({ runId: 'foreign-run', type: 'started', payload: { deployment: { id: 'foreign', workspaceId: 'other-workspace' } } });
+  assert.equal(state.aiDeployments.items.length, 30);
+  assert.equal(state.aiDeployments.runs.has('foreign-run'), false);
   state.aiDeployments.items.forEach((deployment) => {
     const index = Number(deployment.id.split('-')[1]);
     assert.equal(deployment.runs[0].percent, index);

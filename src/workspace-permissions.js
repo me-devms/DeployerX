@@ -4,7 +4,7 @@ const WORKSPACE_PERMISSION_CATALOG = Object.freeze([
   { key: 'server.update', group: 'Servers', label: 'Change server details' },
   { key: 'server.delete', group: 'Servers', label: 'Delete servers' },
   { key: 'server.command.execute', group: 'Commands', label: 'Run saved commands' },
-  { key: 'server.terminal.open', group: 'Commands', label: 'Open interactive terminal' },
+  { key: 'server.terminal.open', group: 'Commands', label: 'Open SSH, FTP, and remote desktop sessions' },
   { key: 'workspace.settings.update', group: 'Workspace', label: 'Change workspace settings' },
   { key: 'members.view', group: 'Users', label: 'View users and invitations' },
   { key: 'members.invite', group: 'Users', label: 'Invite users' },
@@ -61,6 +61,7 @@ function normalizeWorkspacePermissions(role, permissions) {
 function hasWorkspacePermission(member, permission) {
   if (!member || !PERMISSION_KEY_SET.has(permission)) return false;
   if (member.role === 'owner') return true;
+  if (member.suspended) return false;
   return normalizeWorkspacePermissions(member.role, member.permissions).includes(permission);
 }
 
@@ -88,7 +89,9 @@ function normalizeWorkspaceServers(role, serverIds) {
 
 function hasScopedAccess(member, values, value) {
   if (!member || !value) return false;
-  if (member.role === 'owner' || !Array.isArray(values) || values.includes('*')) return true;
+  if (member.role === 'owner') return true;
+  if (member.suspended) return false;
+  if (!Array.isArray(values) || values.includes('*')) return true;
   return values.includes(String(value));
 }
 
@@ -100,6 +103,33 @@ function hasWorkspaceServerAccess(member, serverId) {
   return hasScopedAccess(member, member?.serverIds, serverId);
 }
 
+function canReadWorkspaceProjectSecrets(member) {
+  if (!member || member.role === 'owner') return true;
+  if (member.suspended) return false;
+  return ['server.update', 'server.command.execute', 'server.terminal.open']
+    .some((permission) => hasWorkspacePermission(member, permission));
+}
+
+function redactWorkspaceProjectSecrets(project) {
+  const copy = JSON.parse(JSON.stringify(project || {}));
+  for (const sectionName of ['proxy', 'ssh', 'ftp', 'vnc', 'rdp']) {
+    const section = copy[sectionName];
+    if (!section || typeof section !== 'object') continue;
+    for (const field of ['password', 'privateKey', 'passphrase']) {
+      if (Object.prototype.hasOwnProperty.call(section, field)) section[field] = '';
+    }
+    if (Array.isArray(section.users)) {
+      section.users = section.users.map((user) => ({
+        ...user,
+        password: '',
+        privateKey: '',
+        passphrase: ''
+      }));
+    }
+  }
+  return copy;
+}
+
 function resolveWorkspaceAccess(team, member, uid) {
   const userId = String(uid || '');
   const isOwner = Boolean(userId && String(team?.ownerUid || '') === userId);
@@ -109,6 +139,7 @@ function resolveWorkspaceAccess(team, member, uid) {
     ...(member || {}),
     uid: member?.uid || userId,
     role,
+    suspended: role === 'owner' ? false : Boolean(member?.suspended),
     permissions: normalizeWorkspacePermissions(role, member?.permissions),
     blockedCommands: normalizeBlockedCommands(member?.blockedCommands),
     visibleModules: normalizeWorkspaceModules(role, member?.visibleModules),
@@ -146,5 +177,7 @@ module.exports = {
   hasWorkspacePermission,
   hasWorkspaceModuleAccess,
   hasWorkspaceServerAccess,
+  canReadWorkspaceProjectSecrets,
+  redactWorkspaceProjectSecrets,
   canAssignWorkspaceAccess
 };
