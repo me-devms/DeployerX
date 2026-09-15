@@ -2267,13 +2267,19 @@
             </aside>
 
             <div class="settings-content">
-              <section id="settingsWorkspacePanel" class="settings-panel active" data-settings-panel="workspace">
-                <div class="settings-panel-body gated-settings-panel">
+              <section id="settingsWorkspacePanel" class="settings-panel settings-guide active" data-settings-panel="workspace">
+                <div class="settings-panel-body settings-page-body gated-settings-panel">
+                  <header class="settings-page-header">
+                    <div><h2>Workspace</h2><p>Manage your workspace and shared account settings.</p></div>
+                    <button id="openCreateTeamButton" class="button solid" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>New workspace</button>
+                  </header>
                   <div id="teamCloudWarning" class="cloud-warning hidden" role="status"></div>
-                  <div class="settings-card">
-                    <h2>Workspace</h2>
+                  <div class="settings-card settings-section-card">
+                    <header class="settings-section-heading"><h2>Workspace details</h2></header>
+                    <div class="settings-section-content">
                     <p id="teamHeaderCopy" class="settings-muted">Select or create a workspace to sync encrypted servers, templates, and SSH secrets.</p>
                     <div id="teamOwnershipSummary" class="workspace-ownership-summary hidden" role="status"></div>
+                    <div class="settings-form-grid">
                     <label class="field">
                       <span>Name</span>
                       <input id="settingsWorkspaceName" type="text" value="DeployerX" />
@@ -2282,24 +2288,20 @@
                       <span>Active workspace</span>
                       <select id="teamSelect"></select>
                     </label>
-                    <div class="settings-inline-actions">
+                    </div>
+                    </div>
+                    <div class="settings-inline-actions settings-section-footer">
                       <button id="switchTeamButton" class="button outline" type="button">
                         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                           <use href="#icon-users"></use>
                         </svg>
                         Switch
                       </button>
-                      <button id="openCreateTeamButton" class="button outline" type="button">
-                        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                          <use href="#icon-plus"></use>
-                        </svg>
-                        New workspace
-                      </button>
                     </div>
                   </div>
-                  <div class="settings-card danger-zone-card">
-                    <h2>Danger Zone</h2>
-                    <div class="danger-zone-row">
+                  <div class="settings-card settings-section-card danger-zone-card">
+                    <header class="settings-section-heading"><h2>Danger zone</h2></header>
+                    <div class="danger-zone-row settings-section-content">
                       <span>
                         <strong>Delete workspace</strong>
                         <small>Permanently delete this workspace, members, invites, servers, and templates.</small>
@@ -2323,34 +2325,37 @@
                 </div>
               </section>
 
-              <section id="settingsGroupsPanel" class="settings-panel" data-settings-panel="groups">
-                <div class="settings-panel-body server-groups-settings">
-                  <header class="server-groups-header">
+              <section id="settingsGroupsPanel" class="settings-panel settings-guide" data-settings-panel="groups">
+                <div class="settings-panel-body settings-page-body settings-list-page server-groups-settings">
+                  <header class="settings-page-header">
                     <div>
-                      <h2>Server groups</h2>
+                      <h2>Groups</h2>
                       <p>Organize servers into reusable groups across the workspace.</p>
                     </div>
+                    <div class="settings-page-actions">
                     <button id="serverGroupCreateButton" class="button solid" type="button">
                       <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <use href="#icon-plus"></use>
                       </svg>
                       Create group
                     </button>
+                    <button id="uptimeMonitorGroupCreateButton" class="button solid hidden" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Create monitor group</button>
+                    </div>
                   </header>
-                  <div class="settings-card server-groups-card">
+                  <div class="settings-card settings-section-card settings-list-card" data-settings-tabs>
+                    <div class="settings-section-heading settings-tabs" role="tablist" aria-label="Group type">
+                      <button id="settingsServerGroupsTab" type="button" role="tab" aria-selected="true" aria-controls="settingsServerGroupsList" data-settings-tab-action="serverGroupCreateButton">Server groups</button>
+                      <button id="settingsMonitorGroupsTab" type="button" role="tab" aria-selected="false" aria-controls="settingsMonitorGroupsList" tabindex="-1" data-settings-tab-action="uptimeMonitorGroupCreateButton">Monitor groups</button>
+                    </div>
+                    <section id="settingsServerGroupsList" class="settings-list-scroll" role="tabpanel" aria-labelledby="settingsServerGroupsTab">
                     <div id="serverGroupList" class="server-group-settings-list" aria-live="polite"></div>
                     <div id="serverGroupsEmpty" class="server-groups-empty hidden">
                       <span aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-folder-open"></use></svg></span>
                       <strong>No server groups</strong>
                       <small>Create a group to make it available in the server popup.</small>
                     </div>
-                  </div>
-                  <div class="monitor-groups-settings-grid">
-                    <section class="settings-card monitor-groups-card">
-                      <header class="monitor-groups-card-header">
-                        <div><h2>Monitor groups</h2><p>Subgroups used beneath linked servers.</p></div>
-                        <button id="uptimeMonitorGroupCreateButton" class="button outline compact" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Create group</button>
-                      </header>
+                    </section>
+                    <section id="settingsMonitorGroupsList" class="settings-list-scroll hidden" role="tabpanel" aria-labelledby="settingsMonitorGroupsTab">
                       <div id="uptimeMonitorGroupList" class="monitor-group-settings-list" aria-live="polite"></div>
                       <div id="uptimeMonitorGroupsEmpty" class="server-groups-empty hidden"><span aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-folder-open"></use></svg></span><strong>No monitor groups</strong><small>Create subgroups for monitors linked to your servers.</small></div>
                     </section>
@@ -2398,33 +2403,20 @@
                 </div>
               </section>
 
-              <section id="settingsBackupPanel" class="settings-panel" data-settings-panel="backup">
-                <div class="settings-panel-body backup-settings-body">
-                  <header class="backup-settings-header">
+              <section id="settingsBackupPanel" class="settings-panel settings-guide" data-settings-panel="backup">
+                <div class="settings-panel-body settings-page-body backup-settings-body">
+                  <header class="settings-page-header">
                     <div>
                       <h2>Backup &amp; Restore</h2>
                       <p>Protect account data and restore saved configurations.</p>
                     </div>
+                    <button class="button outline" type="button" data-settings-dialog="settingsBackupHistoryDialog" aria-haspopup="dialog" aria-controls="settingsBackupHistoryDialog"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-file"></use></svg>History</button>
                   </header>
 
                   <div class="backup-settings-grid">
-                    <section class="settings-card backup-history-card">
-                      <div class="backup-card-heading">
-                        <div>
-                          <span class="settings-eyebrow">Activity</span>
-                          <h2>Recent history</h2>
-                        </div>
-                      </div>
-                      <div id="backupHistoryList" class="backup-history-list"></div>
-                    </section>
-
-                    <section class="settings-card backup-account-card">
-                      <div class="backup-card-heading">
-                        <div>
-                          <span class="settings-eyebrow">Account data</span>
-                          <h2>Backup operations</h2>
-                        </div>
-                      </div>
+                    <section class="settings-card settings-section-card backup-account-card">
+                      <header class="settings-section-heading"><h2>Account backup</h2></header>
+                      <div class="settings-section-content">
                       <p class="settings-muted">Backups include saved servers, templates, workspace settings, and encrypted connection details.</p>
 
                       <div class="backup-operation-list">
@@ -2470,6 +2462,7 @@
                           </button>
                         </div>
                       </div>
+                      </div>
                     </section>
                   </div>
                 </div>
@@ -2481,20 +2474,36 @@
                 </div>
               </section>
 
-              <section id="settingsNotificationsPanel" class="settings-panel" data-settings-panel="notifications"><div class="settings-panel-body"><div class="settings-card"><div class="backup-panel-heading"><div><h2>Notification destinations</h2><p>Shared desktop, email, webhook, Slack, and Microsoft Teams routes</p></div><button id="backupAddNotificationRouteButton" class="button solid compact" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg>Add route</button></div><div id="backupNotificationRouteList" class="backup-notification-list hidden" aria-live="polite"></div><div id="backupNotificationRoutesEmpty" class="backup-manager-empty compact"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-bell"></use></svg></span><strong>No notification routes</strong></div><div class="backup-notification-deliveries-heading"><div><h3>Recent deliveries</h3><p>Delivery evidence across Backup Manager and Uptime Monitor</p></div><button id="backupNotificationRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh notification routes and deliveries" title="Refresh"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-refresh"></use></svg></button></div><div id="backupNotificationDeliveryList" class="backup-notification-delivery-list hidden" aria-live="polite"></div><div id="backupNotificationDeliveriesEmpty" class="backup-notification-inline-empty">No delivery attempts yet.</div></div></div></section>
+              <section id="settingsNotificationsPanel" class="settings-panel settings-guide" data-settings-panel="notifications">
+                <div class="settings-panel-body settings-page-body settings-list-page">
+                  <header class="settings-page-header">
+                    <div><h2>Notifications</h2><p>Manage desktop, email, webhook, Slack, and Microsoft Teams destinations.</p></div>
+                    <div class="settings-page-actions">
+                      <button class="button outline" type="button" data-settings-dialog="settingsDeliveryHistoryDialog" aria-haspopup="dialog" aria-controls="settingsDeliveryHistoryDialog"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-file"></use></svg>Deliveries</button>
+                      <button id="backupAddNotificationRouteButton" class="button solid" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-plus"></use></svg>Add route</button>
+                    </div>
+                  </header>
+                  <div class="settings-card settings-section-card settings-list-card">
+                    <header class="settings-section-heading"><h2>Notification destinations</h2><button id="backupNotificationRefreshButton" class="button outline compact icon-only" type="button" aria-label="Refresh notification routes and deliveries" title="Refresh"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-refresh"></use></svg></button></header>
+                    <div class="settings-list-scroll">
+                      <div id="backupNotificationRouteList" class="backup-notification-list hidden" aria-live="polite"></div>
+                      <div id="backupNotificationRoutesEmpty" class="backup-manager-empty compact"><span class="backup-manager-empty-icon" aria-hidden="true"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-bell"></use></svg></span><strong>No notification routes</strong><p>Add a destination to receive notifications.</p></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-              <section id="settingsMonitoringPanel" class="settings-panel" data-settings-panel="monitoring">
-                <div class="settings-panel-body">
+              <section id="settingsMonitoringPanel" class="settings-panel settings-guide" data-settings-panel="monitoring">
+                <div class="settings-panel-body settings-page-body">
+                  <header class="settings-page-header"><div><h2>Monitoring</h2><p>Configure the background service and review data retention.</p></div></header>
                   <div class="settings-card settings-monitoring-card">
-                    <div class="settings-monitoring-heading">
+                    <div class="settings-monitoring-heading settings-section-heading">
                       <div class="settings-monitoring-title">
                         <span class="settings-monitoring-icon" aria-hidden="true">
                           <svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-power"></use></svg>
                         </span>
                         <div>
-                          <span class="settings-eyebrow">Background probe</span>
                           <h2>Monitoring service</h2>
-                          <p class="settings-muted">Controls the local Windows worker used by all workspace monitors.</p>
                         </div>
                       </div>
                       <span id="settingsUptimeWorkerStatus" class="uptime-worker-badge"><span></span>Checking</span>
@@ -2526,7 +2535,7 @@
                         </div>
                       </div>
                     </div>
-                    <div class="settings-card-actions settings-monitoring-actions">
+                    <div class="settings-card-actions settings-monitoring-actions settings-section-footer">
                       <span id="settingsUptimeWorkerMeta" class="settings-muted">Waiting for worker heartbeat.</span>
                       <button id="settingsUptimeSaveButton" class="button solid" type="button"><svg class="button-icon" viewBox="0 0 24 24"><use href="#icon-save"></use></svg>Save changes</button>
                     </div>
@@ -2534,13 +2543,13 @@
                 </div>
               </section>
 
-              <section id="settingsTemplatesPanel" class="settings-panel template-settings-panel" data-settings-panel="templates">
-                <header class="template-settings-header">
+              <section id="settingsTemplatesPanel" class="settings-panel settings-guide template-settings-panel" data-settings-panel="templates">
+                <header class="template-settings-header settings-page-header">
                   <div>
                     <h2>Templates</h2>
                     <p>Build and manage reusable command sets for your servers.</p>
                   </div>
-                  <div class="template-settings-actions">
+                  <div class="template-settings-actions settings-page-actions">
                     <button id="importTemplatesButton" class="button outline" type="button">
                       <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <use href="#icon-import"></use>
@@ -2566,6 +2575,7 @@
 
                 <div class="template-page">
                   <section class="template-list-panel" aria-label="Templates">
+                    <header class="settings-section-heading"><h2>Saved templates</h2></header>
                     <label class="template-search app-search" aria-label="Search templates">
                       <svg class="template-search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <use href="#icon-search"></use>
@@ -2585,9 +2595,8 @@
 
                   <form id="templatePageForm" class="template-editor-panel hidden">
                     <section class="template-editor">
-                      <div class="template-editor-heading">
+                      <div class="template-editor-heading settings-section-heading">
                         <h3>Template details</h3>
-                        <p>Edit the command set and variables used during deployment.</p>
                       </div>
                       <label class="field">
                         <span>Template name</span>
@@ -2638,13 +2647,14 @@
                 </div>
               </section>
 
-              <section id="settingsIntegrationsPanel" class="settings-panel" data-settings-panel="integrations">
-                <div class="settings-panel-body">
+              <section id="settingsIntegrationsPanel" class="settings-panel settings-guide" data-settings-panel="integrations">
+                <div class="settings-panel-body settings-page-body">
+                  <header class="settings-page-header"><div><h2>Integrations</h2><p>Manage source control and secure connections to AI clients.</p></div></header>
                   <div class="settings-card github-integration-card">
-                    <div class="mcp-details-header">
+                    <div class="mcp-details-header settings-section-heading">
                       <div class="github-integration-title">
                         <span class="github-integration-mark" aria-hidden="true">GH</span>
-                        <div><span class="settings-eyebrow">Source control</span><h2>GitHub</h2></div>
+                        <div><h2>GitHub</h2></div>
                       </div>
                       <span id="githubIntegrationStatus" class="app-update-pill" data-status="idle">Not connected</span>
                     </div>
@@ -2671,9 +2681,8 @@
                   </dialog>
 
                   <div class="settings-card mcp-details-card">
-                    <div class="mcp-details-header">
+                    <div class="mcp-details-header settings-section-heading">
                       <div>
-                        <span class="settings-eyebrow">Integration</span>
                         <h2>DeployerX MCP</h2>
                       </div>
                       <span id="mcpIntegrationStatus" class="app-update-pill mcp-status-pill" data-status="unconfigured">Stopped</span>
@@ -2692,7 +2701,6 @@
 
                   <details class="settings-card mcp-documentation-card">
                     <summary class="mcp-doc-heading mcp-doc-summary">
-                      <span class="settings-eyebrow">Documentation</span>
                       <h2>Connect an AI client</h2>
                       <p class="settings-muted">DeployerX keeps this MCP service available in the background after sign-in while the connection remains enabled.</p>
                     </summary>
@@ -2712,7 +2720,6 @@
                         </button>
                       </div>
                     </form>
-                    <div class="mcp-doc-spacer" aria-hidden="true"></div>
                     <div class="mcp-details-grid">
                       <div class="mcp-detail-item">
                         <span class="mcp-detail-label">Streamable HTTP URL</span>
@@ -2733,7 +2740,6 @@
                         </div>
                       </div>
                     </div>
-                    <div class="mcp-doc-spacer" aria-hidden="true"></div>
                     <div class="settings-card-actions">
                       <span id="mcpIntegrationServerCount" class="settings-muted">0 SSH/SFTP servers available</span>
                       <button id="mcpRotateTokenButton" class="button outline" type="button" disabled>
@@ -2744,7 +2750,6 @@
                         Disconnect MCP
                       </button>
                     </div>
-                    <div class="mcp-doc-spacer" aria-hidden="true"></div>
                     <ol class="mcp-steps">
                       <li><strong>Connect an agent.</strong><span>One-click setup saves the MCP connection for the selected local agent.</span></li>
                       <li><strong>Add the HTTP server.</strong><span>Use Streamable HTTP and send <code>Authorization: Bearer &lt;token&gt;</code> with every request.</span></li>
@@ -2803,16 +2808,17 @@ tool_timeout_sec = 300</pre>
                   </div>
                 </section>
 
-              <section id="settingsThemePanel" class="settings-panel" data-settings-panel="theme">
-                <div class="settings-panel-body">
-                  <div class="settings-card theme-settings-card">
-                    <div class="theme-settings-heading">
+              <section id="settingsThemePanel" class="settings-panel settings-guide" data-settings-panel="theme">
+                <div class="settings-panel-body settings-page-body">
+                    <header class="settings-page-header">
                       <div>
                         <h2>Theme</h2>
                         <p class="settings-muted">Choose how DeployerX looks. Your selection is saved on this device.</p>
                       </div>
                       <span id="activeThemeLabel" class="active-theme-label">DeployerX Light</span>
-                    </div>
+                    </header>
+                  <div class="settings-card settings-section-card theme-settings-card">
+                    <header class="settings-section-heading"><h2>Appearance</h2><span class="settings-muted">Saves automatically</span></header>
                     <div class="theme-option-grid" role="group" aria-label="Application theme">
                       <button class="theme-option" type="button" data-theme-option="deployerx-light" aria-pressed="false">
                         <span class="theme-preview" style="--preview-bg:#f7f8fb;--preview-surface:#ffffff;--preview-line:#d4d4d8;--preview-text:#18181b;--preview-muted:#71717a;--preview-accent:#0f8f8c" aria-hidden="true">
@@ -2861,8 +2867,9 @@ tool_timeout_sec = 300</pre>
                 </div>
               </section>
 
-              <section id="settingsAboutPanel" class="settings-panel" data-settings-panel="about">
-                <div class="settings-panel-body about-settings-body">
+              <section id="settingsAboutPanel" class="settings-panel settings-guide" data-settings-panel="about">
+                <div class="settings-panel-body settings-page-body about-settings-body">
+                  <header class="settings-page-header"><div><h2>About</h2><p>Product information, updates, and support.</p></div></header>
                   <header class="about-product-header">
                     <span class="about-product-logo" aria-hidden="true">
                       <img src="../../assets/deployerx-logo.png" alt="" />
@@ -2879,9 +2886,8 @@ tool_timeout_sec = 300</pre>
                   </header>
 
                   <section class="settings-card app-update-card about-update-card">
-                    <div class="app-update-header">
+                    <div class="app-update-header settings-section-heading">
                       <div>
-                        <span class="settings-eyebrow">Application</span>
                         <h2>App updates</h2>
                         <p id="settingsAppVersion" class="settings-muted">Installed version 0.1.0</p>
                       </div>
@@ -2921,7 +2927,7 @@ tool_timeout_sec = 300</pre>
                         <div class="about-fact"><span>Product role</span><strong>DeployerX is developed and maintained by EverythingX</strong></div>
                       </div>
                       <div class="about-actions">
-                        <button class="button solid" type="button" data-about-external="https://everythingx.in/">
+                        <button class="button outline" type="button" data-about-external="https://everythingx.in/">
                           Visit EverythingX
                           <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-external-link"></use></svg>
                         </button>
@@ -3168,6 +3174,18 @@ tool_timeout_sec = 300</pre>
         </footer>
       </form>
     </div>
+
+    <dialog id="settingsBackupHistoryDialog" class="settings-history-dialog" aria-labelledby="settingsBackupHistoryTitle">
+      <header class="settings-dialog-header"><div><h2 id="settingsBackupHistoryTitle">Backup history</h2><p>Recent account backups and restore activity.</p></div><button class="icon-button" type="button" data-settings-dialog-close aria-label="Close backup history"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg></button></header>
+      <div class="settings-dialog-body"><div id="backupHistoryList" class="backup-history-list"></div></div>
+      <footer class="settings-section-footer"><button class="button solid" type="button" data-settings-dialog-close>Done</button></footer>
+    </dialog>
+
+    <dialog id="settingsDeliveryHistoryDialog" class="settings-history-dialog" aria-labelledby="settingsDeliveryHistoryTitle">
+      <header class="settings-dialog-header"><div><h2 id="settingsDeliveryHistoryTitle">Recent deliveries</h2><p>Delivery activity across Backup Manager and Uptime Monitor.</p></div><button class="icon-button" type="button" data-settings-dialog-close aria-label="Close delivery history"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-x"></use></svg></button></header>
+      <div class="settings-dialog-body"><div id="backupNotificationDeliveryList" class="backup-notification-delivery-list hidden" aria-live="polite"></div><div id="backupNotificationDeliveriesEmpty" class="settings-empty-state">No delivery attempts yet.</div></div>
+      <footer class="settings-section-footer"><button class="button solid" type="button" data-settings-dialog-close>Done</button></footer>
+    </dialog>
 
     <div id="workspaceInvitesModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="workspaceInvitesTitle">
       <div class="modal-backdrop"></div>
@@ -6803,6 +6821,7 @@ tool_timeout_sec = 300</pre>
     <script src="../database-manager/er-diagram.js"></script>
     <script src="../database-manager/query-editor-tools.js"></script>
     <script src="../database-manager/result-grid.js"></script>
+    <script src="./settings-ui.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

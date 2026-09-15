@@ -147,9 +147,10 @@ function resolveWorkspaceAccess(team, member, uid) {
   };
 }
 
-function canAssignWorkspaceAccess(actor, role, permissions, visibleModules = ['*'], serverIds = ['*']) {
-  if (!actor || role === 'owner') return false;
+function canAssignWorkspaceAccess(actor, role, permissions, visibleModules = ['*'], serverIds = ['*'], blockedCommands = []) {
+  if (!actor || !['member', 'admin'].includes(role)) return false;
   if (actor.role === 'owner') return true;
+  if (actor.suspended || actor.mustChangePassword) return false;
   if (role === 'admin' && !hasWorkspacePermission(actor, 'members.promote')) return false;
   const modules = normalizeWorkspaceModules(role, visibleModules);
   const servers = normalizeWorkspaceServers(role, serverIds);
@@ -161,7 +162,8 @@ function canAssignWorkspaceAccess(actor, role, permissions, visibleModules = ['*
     : servers.every((serverId) => hasWorkspaceServerAccess(actor, serverId));
   return normalizeWorkspacePermissions(role, permissions).every((permission) => hasWorkspacePermission(actor, permission))
     && canAssignModules
-    && canAssignServers;
+    && canAssignServers
+    && normalizeBlockedCommands(actor.blockedCommands).every((command) => normalizeBlockedCommands(blockedCommands).includes(command));
 }
 
 module.exports = {

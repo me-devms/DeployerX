@@ -5536,7 +5536,9 @@ function fromFirestoreDocument(document) {
 async function firestoreFetch(segments, options = {}) {
   const auth = await requireAuthSession();
   const baseUrl = await firestoreBaseUrl();
-  const query = options.query && typeof options.query === 'object' ? new URLSearchParams(Object.entries(options.query).filter(([, value]) => value !== null && value !== undefined).map(([key, value]) => [key, String(value)])).toString() : '';
+  const query = options.query && typeof options.query === 'object' ? new URLSearchParams(Object.entries(options.query)
+    .filter(([, value]) => value !== null && value !== undefined)
+    .flatMap(([key, value]) => (Array.isArray(value) ? value : [value]).map((item) => [key, String(item)]))).toString() : '';
   const url = `${baseUrl}/${encodePath(segments)}${query ? `?${query}` : ''}`;
   const requestOptions = { ...options };
   delete requestOptions.query;
@@ -5574,12 +5576,15 @@ function firestorePreconditionQuery(precondition = {}) {
   return {};
 }
 
-async function patchDoc(segments, data, { precondition = null } = {}) {
+async function patchDoc(segments, data, { precondition = null, updateMask = null } = {}) {
   return fromFirestoreDocument(
     await firestoreFetch(segments, {
       method: 'PATCH',
       body: JSON.stringify(toFirestoreDocument(data)),
-      query: firestorePreconditionQuery(precondition || {})
+      query: {
+        ...firestorePreconditionQuery(precondition || {}),
+        ...(updateMask ? { 'updateMask.fieldPaths': updateMask } : {})
+      }
     })
   );
 }
@@ -6124,9 +6129,9 @@ async function ensureWorkspaceCommandsAllowed(commands) {
   if (denied) throw new Error(`This command is blocked for your workspace access: ${denied}`);
 }
 
-async function ensureCanAssignWorkspaceAccess(teamId, role, permissions, visibleModules, serverIds) {
+async function ensureCanAssignWorkspaceAccess(teamId, role, permissions, visibleModules, serverIds, blockedCommands) {
   const actor = await currentMember(teamId);
-  if (!canAssignWorkspaceAccess(actor, role, permissions, visibleModules, serverIds)) {
+  if (!canAssignWorkspaceAccess(actor, role, permissions, visibleModules, serverIds, blockedCommands)) {
     throw new Error('You cannot grant this role or these permissions.');
   }
   return actor;
@@ -10125,6 +10130,8 @@ function appendMcpCommandOutput(chunks, data, currentBytes) {
 
 async function executeManagedMcpSshCommand(project, command, timeoutMs, { onOutput } = {}) {
   await ensureWorkspaceCommandsAllowed([command]);
+  const member = await ensureActiveWorkspacePermission('server.view');
+  ensureWorkspaceServerAllowed(member, project.id);
   const validationError = validateConnectionProject(project, { requireSsh: true });
   if (validationError) throw new Error(validationError);
   const { connection, reused, terminalSessionId, entry, terminalEntry } = await managedMcpSshConnection(project);
@@ -14783,9 +14790,12 @@ ipcMain.handle('auth:changePassword', async (_event, payload = {}) => {
   await writeSettings({ ...settings, auth: nextAuth });
   if (settings.mode === 'cloud' && settings.activeTeamId) {
     const memberPath = ['teams', settings.activeTeamId, 'members', auth.uid];
-    const member = await getDoc(memberPath).catch(() => null);
+    const member = await getDoc(memberPath);
     if (member?.mustChangePassword) {
-      await patchDoc(memberPath, { ...member, mustChangePassword: false, updatedAt: nowIso() });
+      await patchDoc(memberPath, { mustChangePassword: false, updatedAt: nowIso() }, {
+        updateMask: ['mustChangePassword', 'updatedAt'],
+        precondition: { exists: true }
+      });
     }
   }
   return true;
@@ -14886,7 +14896,7 @@ ipcMain.handle('teams:invite', async (_event, payload = {}) => {
   if (!email) throw new Error('Invite email is required.');
   await ensureTeamPermission(teamId, 'members.invite');
   const access = workspaceAccessForStorage(payload.role, payload.permissions, payload.blockedCommands, payload.visibleModules, payload.serverIds);
-  await ensureCanAssignWorkspaceAccess(teamId, access.role, access.permissions, access.visibleModules, access.serverIds);
+  await ensureCanAssignWorkspaceAccess(teamId, access.role, access.permissions, access.visibleModules, access.serverIds, access.blockedCommands);
   const team = await getDoc(['teams', teamId]);
   const inviteId = createId('invite');
   const invite = {
@@ -14917,7 +14927,7 @@ ipcMain.handle('teams:createUser', async (_event, payload = {}) => {
   if (password.length < 6) throw new Error('Temporary password must be at least 6 characters.');
   await ensureTeamPermission(teamId, 'members.create');
   const access = workspaceAccessForStorage(payload.role, payload.permissions, payload.blockedCommands, payload.visibleModules, payload.serverIds);
-  await ensureCanAssignWorkspaceAccess(teamId, access.role, access.permissions, access.visibleModules, access.serverIds);
+  await ensureCanAssignWorkspaceAccess(teamId, access.role, access.permissions, access.visibleModules, access.serverIds, access.blockedCommands);
 
   const registered = await firebaseAuthRequest('accounts:signUp', { email, password, returnSecureToken: true });
   const uid = String(registered.localId || '');
@@ -15022,15 +15032,21 @@ ipcMain.handle('teams:updateMember', async (_event, payload = {}) => {
   if (actor.uid === uid) throw new Error('You cannot change your own workspace access.');
   const member = await getDoc(['teams', teamId, 'members', uid]);
   if (!member) throw new Error('Member was not found.');
-  if (member.role === 'owner') throw new Error('Owner permissions cannot be changed.');
+  const team = await getDoc(['teams', teamId]);
+  if (member.role === 'owner' || team?.ownerUid === uid) throw new Error('Owner permissions cannot be changed.');
+  if (member.role === 'admin' && !hasWorkspacePermission(actor, 'members.promote')) {
+    throw new Error('You cannot change an admin.');
+  }
   const access = workspaceAccessForStorage(payload.role, payload.permissions, payload.blockedCommands, payload.visibleModules, payload.serverIds);
-  if (!canAssignWorkspaceAccess(actor, access.role, access.permissions, access.visibleModules, access.serverIds)) {
+  if (!canAssignWorkspaceAccess(actor, access.role, access.permissions, access.visibleModules, access.serverIds, access.blockedCommands)) {
     throw new Error('You cannot grant this role or these permissions.');
   }
   const suspended = payload.suspended === undefined ? Boolean(member.suspended) : Boolean(payload.suspended);
-  const storedMember = { ...member };
-  delete storedMember.id;
-  await patchDoc(['teams', teamId, 'members', uid], { ...storedMember, ...access, suspended, updatedAt: nowIso() });
+  const changes = { ...access, suspended, updatedAt: nowIso() };
+  await patchDoc(['teams', teamId, 'members', uid], changes, {
+    updateMask: Object.keys(changes),
+    precondition: { exists: true }
+  });
   const auditAction = suspended !== Boolean(member.suspended)
     ? suspended ? 'member.suspended' : 'member.resumed'
     : 'member.access_updated';
@@ -15062,7 +15078,8 @@ ipcMain.handle('teams:removeMember', async (_event, payload = {}) => {
   if (!teamId || !uid) throw new Error('Member is required.');
   const actor = await ensureTeamPermission(teamId, 'members.remove');
   const member = await getDoc(['teams', teamId, 'members', uid]);
-  if (member?.role === 'owner') throw new Error('Owner cannot be removed.');
+  const team = await getDoc(['teams', teamId]);
+  if (member?.role === 'owner' || team?.ownerUid === uid) throw new Error('Owner cannot be removed.');
   if (member?.role === 'admin' && actor.role !== 'owner' && !hasWorkspacePermission(actor, 'members.promote')) {
     throw new Error('You cannot remove an admin.');
   }
@@ -15171,7 +15188,9 @@ ipcMain.handle('projects:list', async () => {
 
 ipcMain.handle('projects:save', async (_event, project) => {
   const settings = await readSettings();
-  const currentStore = await readCurrentStore().catch(() => ({ projects: [] }));
+  const currentStore = settings.mode === 'cloud'
+    ? await readCloudStoreForMember(await ensureActiveWorkspacePermission('server.view'))
+    : await readCurrentStore();
   const id = project.id || `${Date.now()}`;
   const normalized = {
     ...normalizeStoredProject(project),

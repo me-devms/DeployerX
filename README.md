@@ -59,14 +59,14 @@ DeployerX brings the tools used throughout a server's lifecycle into one focused
 - Expose bounded SSH, SFTP, monitoring, and uptime tools to trusted AI clients through a loopback-only MCP endpoint.
 - Choose from light and dark themes designed for long operational sessions.
 
-## What's new in v0.2.11
+## What's new in v0.2.12
 
-- Isolates AI deployments, runs, logs, and background events by workspace.
-- Adds member suspension, server credential redaction, and stricter SSH, FTP, VNC, and RDP permission checks.
-- Improves workspace switching and redesigns user and invitation management.
-- Adds regex server and repository search, explicit Save Deployment behavior, Run/Stop controls, and resilient remote-folder browsing.
+- Redesigns all nine Settings pages with consistent responsive layouts, bounded lists, dialogs, and reachable actions.
+- Adds searchable workspace scope controls for large server catalogs, all modules, all/none selection, and saved hidden assignments.
+- Hardens workspace access updates so profile fields survive permission edits and unauthorized grants remain blocked.
+- Adds paginated and scoped Firestore reads with emulator-backed authorization coverage.
 
-Read the complete changes on the [v0.2.11 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.2.11).
+Read the complete changes on the [v0.2.12 release page](https://github.com/me-devms/DeployerX/releases/tag/v0.2.12).
 
 ## What's new in v0.2.2
 
@@ -84,15 +84,15 @@ DeployerX is distributed for 64-bit Windows and Linux, plus Intel and Apple Sili
 
 | Platform | Package | Download |
 | --- | --- | --- |
-| **Windows x64** | Setup | [DeployerX-0.2.11-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-Setup-x64.exe) |
-| **Windows x64** | Portable | [DeployerX-0.2.11-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-Portable-x64.exe) |
-| **Linux x64** | AppImage | [DeployerX-0.2.11-x86_64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-x86_64.AppImage) |
-| **Linux x64** | Debian/Ubuntu | [DeployerX-0.2.11-amd64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-amd64.deb) |
-| **Linux x64** | Fedora/RHEL | [DeployerX-0.2.11-x86_64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-x86_64.rpm) |
-| **macOS Intel** | DMG | [DeployerX-0.2.11-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-x64.dmg) |
-| **macOS Intel** | ZIP | [DeployerX-0.2.11-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-x64.zip) |
-| **macOS Apple Silicon** | DMG | [DeployerX-0.2.11-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-arm64.dmg) |
-| **macOS Apple Silicon** | ZIP | [DeployerX-0.2.11-arm64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-arm64.zip) |
+| **Windows x64** | Setup | [DeployerX-0.2.12-Setup-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-Setup-x64.exe) |
+| **Windows x64** | Portable | [DeployerX-0.2.12-Portable-x64.exe](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-Portable-x64.exe) |
+| **Linux x64** | AppImage | [DeployerX-0.2.12-x86_64.AppImage](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-x86_64.AppImage) |
+| **Linux x64** | Debian/Ubuntu | [DeployerX-0.2.12-amd64.deb](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-amd64.deb) |
+| **Linux x64** | Fedora/RHEL | [DeployerX-0.2.12-x86_64.rpm](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-x86_64.rpm) |
+| **macOS Intel** | DMG | [DeployerX-0.2.12-x64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-x64.dmg) |
+| **macOS Intel** | ZIP | [DeployerX-0.2.12-x64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-x64.zip) |
+| **macOS Apple Silicon** | DMG | [DeployerX-0.2.12-arm64.dmg](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-arm64.dmg) |
+| **macOS Apple Silicon** | ZIP | [DeployerX-0.2.12-arm64.zip](https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-arm64.zip) |
 
 Windows may show a SmartScreen warning and macOS may require manual approval because the current release artifacts are unsigned. Confirm that every file came from this repository's release page before running it.
 

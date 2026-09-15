@@ -28,7 +28,6 @@ test('wires workspace user management and server permission enforcement end to e
   assert.match(main, /redactWorkspaceProjectSecrets/);
   assert.match(main, /visibleModules: normalizeWorkspaceModules\(role, membership\.visibleModules\)/);
   assert.match(main, /serverIds: normalizeWorkspaceServers\(role, membership\.serverIds\)/);
-  assert.match(main, /const storedMember = \{ \.\.\.member \};\s+delete storedMember\.id;/);
   assert.match(main, /ipcMain\.handle\('ftp:connect'[\s\S]*?ensureActiveWorkspacePermission\('server\.terminal\.open'\)/);
   assert.match(main, /ipcMain\.handle\('vnc:start'[\s\S]*?ensureActiveWorkspacePermission\('server\.terminal\.open'\)/);
   assert.match(main, /ipcMain\.handle\('rdp:start'[\s\S]*?ensureActiveWorkspacePermission\('server\.terminal\.open'\)/);

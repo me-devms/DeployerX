@@ -31,39 +31,39 @@
   ];
 
   const releaseFallback = {
-    tag: 'v0.2.11',
-    releaseName: 'DeployerX 0.2.11',
+    tag: 'v0.2.12',
+    releaseName: 'DeployerX 0.2.12',
     releaseDate: '2026-09-15',
-    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.11',
-    body: `## What's new in v0.2.11\n\n- Isolates AI deployments, runs, logs, and background events by workspace.\n- Adds member suspension, credential redaction, and stricter remote-session permission checks.\n- Improves workspace switching and redesigns user and invitation management.\n- Adds regex search, explicit Save Deployment behavior, Run/Stop controls, and resilient remote-folder browsing.`,
+    page: 'https://github.com/me-devms/DeployerX/releases/tag/v0.2.12',
+    body: `## What's new in v0.2.12\n\n- Redesigns all nine Settings pages with consistent responsive layouts and dialogs.\n- Adds searchable workspace scope controls for large server catalogs and all modules.\n- Preserves profile fields during access edits and blocks unauthorized grants.\n- Adds paginated, scoped Firestore reads with emulator-backed authorization coverage.`,
     assets: {
       'windows-portable': {
-        name: 'DeployerX-0.2.11-Portable-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-Portable-x64.exe'
+        name: 'DeployerX-0.2.12-Portable-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-Portable-x64.exe'
       },
       'windows-setup': {
-        name: 'DeployerX-0.2.11-Setup-x64.exe',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-Setup-x64.exe'
+        name: 'DeployerX-0.2.12-Setup-x64.exe',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-Setup-x64.exe'
       },
       'mac-arm64': {
-        name: 'DeployerX-0.2.11-arm64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-arm64.dmg'
+        name: 'DeployerX-0.2.12-arm64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-arm64.dmg'
       },
       'mac-x64': {
-        name: 'DeployerX-0.2.11-x64.dmg',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-x64.dmg'
+        name: 'DeployerX-0.2.12-x64.dmg',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-x64.dmg'
       },
       'linux-appimage': {
-        name: 'DeployerX-0.2.11-x86_64.AppImage',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-x86_64.AppImage'
+        name: 'DeployerX-0.2.12-x86_64.AppImage',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-x86_64.AppImage'
       },
       'linux-deb': {
-        name: 'DeployerX-0.2.11-amd64.deb',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-amd64.deb'
+        name: 'DeployerX-0.2.12-amd64.deb',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-amd64.deb'
       },
       'linux-rpm': {
-        name: 'DeployerX-0.2.11-x86_64.rpm',
-        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.11/DeployerX-0.2.11-x86_64.rpm'
+        name: 'DeployerX-0.2.12-x86_64.rpm',
+        url: 'https://github.com/me-devms/DeployerX/releases/download/v0.2.12/DeployerX-0.2.12-x86_64.rpm'
       }
     }
   };

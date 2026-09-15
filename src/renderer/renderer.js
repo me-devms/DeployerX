@@ -11551,11 +11551,10 @@ function renderAiDeploymentFormOptions(selected = {}) {
     `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name || project.ssh?.host || 'Server')}</option>`
   )).join('');
 
-  const agents = state.aiDeployments.agents;
+  const agents = state.aiDeployments.agents.filter((agent) => agent.runnable);
   els.aiDeploymentAgent.innerHTML = '<option value="">Select agent</option>' + agents.map((agent) => {
-    const ready = agent.runnable;
-    const detail = !ready ? 'CLI not found' : `${agent.active ? 'Active locally' : 'Installed locally'}${agent.version ? ` · ${agent.version}` : ''}`;
-    return `<option value="${escapeHtml(agent.id)}" ${ready ? '' : 'disabled'}>${escapeHtml(agent.name)} — ${escapeHtml(detail)}</option>`;
+    const detail = `${agent.active ? 'Active locally' : 'Installed locally'}${agent.version ? ` · ${agent.version}` : ''}`;
+    return `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name)} — ${escapeHtml(detail)}</option>`;
   }).join('');
 
   const reusable = state.aiDeployments.items.filter((deployment) => deployment.prompt && deployment.promptReusable !== false);
@@ -23051,12 +23050,65 @@ function applyWorkspaceModuleVisibility() {
 function renderWorkspaceScopeInputs(container, items, selectedIds, type) {
   if (!container) return;
   const selected = new Set(Array.isArray(selectedIds) ? selectedIds : ['*']);
-  container.innerHTML = items.length ? items.map((item) => `
-    <label class="workspace-permission-option">
-      <input type="checkbox" data-workspace-${type}="${escapeHtml(item.key)}" ${selected.has('*') || selected.has(item.key) ? 'checked' : ''} />
-      <span>${escapeHtml(item.label)}</span>
-    </label>
-  `).join('') : '<span class="team-muted">No servers available.</span>';
+  const catalog = new Map(items.map((item) => [String(item.key), item]));
+  // Preserve explicit grants absent from the loaded catalog instead of silently dropping them on save.
+  for (const id of selected) {
+    if (id !== '*' && !catalog.has(id)) catalog.set(id, { key: id, label: `Unavailable ${type} · ${id}` });
+  }
+  container.dataset.scopeType = type;
+  container.innerHTML = `
+    ${type === 'server' ? '<input type="search" class="workspace-scope-search" data-scope-search aria-label="Search servers by name or ID" placeholder="Search servers by name or ID…" />' : ''}
+    <div class="workspace-scope-summary" data-scope-summary role="status" aria-live="polite"></div>
+    <div class="workspace-scope-tools">
+      <button type="button" class="button outline compact" data-scope-select>Select ${type === 'server' ? 'results' : 'all listed'}</button>
+      <button type="button" class="button outline compact" data-scope-clear>Clear selection</button>
+    </div>
+    <div class="workspace-scope-list" role="group" aria-label="${type === 'server' ? 'Server' : 'Module'} selection">
+      ${[...catalog.values()].map((item) => `<label class="workspace-permission-option" data-scope-option>
+        <input type="checkbox" data-workspace-${type}="${escapeHtml(item.key)}" ${selected.has('*') || selected.has(String(item.key)) ? 'checked' : ''} />
+        <span>${escapeHtml(item.label)}</span>
+      </label>`).join('')}
+    </div>
+    <span class="team-muted hidden" data-scope-empty></span>
+    <small class="field-note" data-scope-help></small>`;
+  const refresh = () => refreshWorkspaceScopeInputs(container);
+  container.querySelector('[data-scope-search]')?.addEventListener('input', refresh);
+  container.onchange = refresh;
+  container.querySelector('[data-scope-select]').addEventListener('click', () => {
+    container.querySelectorAll('[data-scope-option]:not(.hidden) input:not(:disabled)').forEach((input) => { input.checked = true; });
+    refresh();
+  });
+  container.querySelector('[data-scope-clear]').addEventListener('click', () => {
+    container.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach((input) => { input.checked = false; });
+    refresh();
+  });
+  refresh();
+}
+
+function refreshWorkspaceScopeInputs(container) {
+  const type = container.dataset.scopeType;
+  const all = container.dataset.scopeAll === 'true';
+  const query = (container.querySelector('[data-scope-search]')?.value || '').trim().toLocaleLowerCase();
+  const rows = [...container.querySelectorAll('[data-scope-option]')];
+  let matches = 0;
+  let selected = 0;
+  rows.forEach((row) => {
+    const input = row.querySelector('input');
+    const match = `${row.textContent} ${input.dataset.workspaceModule || input.dataset.workspaceServer}`.toLocaleLowerCase().includes(query);
+    row.classList.toggle('hidden', !match);
+    if (match) matches++;
+    if (input.checked) selected++;
+  });
+  container.querySelector('[data-scope-summary]').textContent = `${all ? `All ${type}s allowed` : `${selected} selected`} · ${query ? `${matches} of ` : ''}${rows.length} listed`;
+  container.querySelector('.workspace-scope-tools').classList.toggle('hidden', all);
+  container.querySelector('[data-scope-select]').disabled = all || !matches;
+  container.querySelector('[data-scope-clear]').disabled = all || !selected;
+  const empty = container.querySelector('[data-scope-empty]');
+  empty.classList.toggle('hidden', matches > 0);
+  empty.textContent = rows.length ? `No ${type}s match your search.` : `No ${type}s available in your current workspace access.`;
+  container.querySelector('[data-scope-help]').textContent = all
+    ? `Includes future ${type}s. Uncheck All ${type}s to choose specific ones.`
+    : `Only selected ${type}s are allowed. None selected means no access.${type === 'server' ? ' Search keeps selections; scroll for more results.' : ''}`;
 }
 
 function selectedWorkspaceScope(container, selector, allControl) {
@@ -23065,7 +23117,10 @@ function selectedWorkspaceScope(container, selector, allControl) {
 }
 
 function syncWorkspaceScopeAll(allControl, container) {
+  if (!container) return;
+  container.dataset.scopeAll = String(Boolean(allControl?.checked));
   container?.querySelectorAll('input[type="checkbox"]').forEach((input) => { input.disabled = Boolean(allControl?.checked); });
+  refreshWorkspaceScopeInputs(container);
 }
 
 function workspaceScopeLabel(ids, catalog, singular) {
@@ -23199,16 +23254,30 @@ function renderTeamView() {
       editorRow.id = `workspace-user-access-${member.uid}`;
       editorRow.dataset.memberAccessRow = member.uid;
       editorRow.innerHTML = `<td colspan="6"><form class="workspace-user-access-form" data-member-access-form="${escapeHtml(member.uid)}">
-        ${canEdit ? `
-          <div class="workspace-user-fields"><label class="field"><span>Role</span><select data-member-role><option value="member" ${member.role === 'member' ? 'selected' : ''}>Member</option><option value="admin" ${member.role === 'admin' ? 'selected' : ''} ${!canPromoteMembers ? 'disabled' : ''}>Admin</option></select></label></div>
-          <fieldset class="workspace-permission-fieldset"><legend>Permissions</legend><div class="workspace-permission-grid" data-member-permissions></div></fieldset>
-          <div class="workspace-access-scope-grid">
+        <header class="workspace-access-editor-header">
+          <div><span class="workspace-access-editor-eyebrow">User access</span><h3>${escapeHtml(member.displayName || member.email || 'Member')}</h3></div>
+          <label class="workspace-access-role"><span>Workspace role</span><select data-member-role><option value="member" ${member.role === 'member' ? 'selected' : ''}>Member</option><option value="admin" ${member.role === 'admin' ? 'selected' : ''} ${!canPromoteMembers ? 'disabled' : ''}>Admin</option></select></label>
+        </header>
+        <div class="workspace-access-editor-tabs" role="tablist" aria-label="User access settings">
+          ${[['permissions', 'Permissions'], ['visibility', 'Modules & servers'], ['commands', 'Command restrictions']].map(([key, title], index) => `<button type="button" role="tab" id="member-${escapeHtml(member.uid)}-tab-${key}" data-member-access-tab="${key}" aria-controls="member-${escapeHtml(member.uid)}-panel-${key}" aria-selected="${index === 0}" tabindex="${index === 0 ? '0' : '-1'}">${title}</button>`).join('')}
+        </div>
+        <div class="workspace-access-editor-body">
+          <section class="workspace-user-access-panel" data-member-access-panel="permissions" id="member-${escapeHtml(member.uid)}-panel-permissions" role="tabpanel" aria-labelledby="member-${escapeHtml(member.uid)}-tab-permissions" tabindex="0">
+            <p class="workspace-access-editor-hint">Choose what this user can do in the workspace.</p>
+            <div class="workspace-permission-grid" data-member-permissions></div>
+          </section>
+          <section class="workspace-user-access-panel hidden" data-member-access-panel="visibility" id="member-${escapeHtml(member.uid)}-panel-visibility" role="tabpanel" aria-labelledby="member-${escapeHtml(member.uid)}-tab-visibility" tabindex="0">
+            <p class="workspace-access-editor-hint">Allow all modules and servers, or select specific ones below.</p>
+            <div class="workspace-access-scope-grid">
             <fieldset class="workspace-permission-fieldset"><legend>Visible modules</legend><label class="workspace-scope-all"><input type="checkbox" data-member-all-modules ${!Array.isArray(member.visibleModules) || member.visibleModules.includes('*') ? 'checked' : ''} />All modules</label><div class="workspace-scope-options" data-member-modules></div></fieldset>
             <fieldset class="workspace-permission-fieldset"><legend>Visible servers</legend><label class="workspace-scope-all"><input type="checkbox" data-member-all-servers ${!Array.isArray(member.serverIds) || member.serverIds.includes('*') ? 'checked' : ''} />All servers</label><div class="workspace-scope-options" data-member-servers></div></fieldset>
-          </div>
-          <label class="field"><span>Blocked saved commands</span><textarea rows="3" data-member-blocked-commands>${escapeHtml((member.blockedCommands || []).join('\n'))}</textarea><small>Exact matches only. Remove interactive terminal permission to prevent shell bypass.</small></label>
-        ` : ''}
-        <div class="workspace-user-access-actions"><button class="button solid compact" type="submit">Save access</button></div>
+            </div>
+          </section>
+          <section class="workspace-user-access-panel hidden" data-member-access-panel="commands" id="member-${escapeHtml(member.uid)}-panel-commands" role="tabpanel" aria-labelledby="member-${escapeHtml(member.uid)}-tab-commands" tabindex="0">
+            <label class="field"><span>Blocked saved commands</span><textarea rows="4" spellcheck="false" placeholder="One command per line, e.g. reboot" data-member-blocked-commands aria-describedby="member-${escapeHtml(member.uid)}-command-help">${escapeHtml((member.blockedCommands || []).join('\n'))}</textarea><small class="field-note" id="member-${escapeHtml(member.uid)}-command-help">Exact matches only. Disable interactive terminal access to prevent running these commands through a shell.</small></label>
+          </section>
+        </div>
+        <footer class="workspace-user-access-actions"><span>Changes apply after saving.</span><button class="button outline compact" type="button" data-member-access-cancel>Cancel</button><button class="button solid compact" type="submit">Save changes</button></footer>
       </form></td>`;
       els.teamMembersList.appendChild(editorRow);
       const permissionContainer = editorRow.querySelector('[data-member-permissions]');
@@ -23223,10 +23292,27 @@ function renderTeamView() {
       syncWorkspaceScopeAll(allServers, serverContainer);
       allModules?.addEventListener('change', () => syncWorkspaceScopeAll(allModules, moduleContainer));
       allServers?.addEventListener('change', () => syncWorkspaceScopeAll(allServers, serverContainer));
+      bindMemberAccessTabs(editorRow);
+      const closeEditor = () => {
+        editorRow.classList.add('hidden');
+        const editButton = row.querySelector('[data-edit-member]');
+        editButton?.setAttribute('aria-expanded', 'false');
+        editorRow.querySelector('form').reset();
+        renderWorkspacePermissionInputs(permissionContainer, member.permissions || [], { prefix: `member-${member.uid}` });
+        renderWorkspaceScopeInputs(moduleContainer, state.teams.moduleCatalog, member.visibleModules, 'module');
+        renderWorkspaceScopeInputs(serverContainer, serverCatalog, member.serverIds, 'server');
+        syncWorkspaceScopeAll(allModules, moduleContainer);
+        syncWorkspaceScopeAll(allServers, serverContainer);
+        editButton?.focus();
+      };
       row.querySelector('[data-edit-member]')?.addEventListener('click', (event) => {
-        const expanded = !editorRow.classList.toggle('hidden');
-        event.currentTarget.setAttribute('aria-expanded', String(expanded));
+        if (!editorRow.classList.contains('hidden')) { closeEditor(); return; }
+        els.teamMembersList.querySelectorAll('[data-edit-member][aria-expanded="true"]').forEach(button => button.click());
+        editorRow.classList.remove('hidden');
+        event.currentTarget.setAttribute('aria-expanded', 'true');
+        editorRow.querySelector('[data-member-access-tab][aria-selected="true"]')?.focus();
       });
+      editorRow.querySelector('[data-member-access-cancel]')?.addEventListener('click', closeEditor);
       row.querySelector('[data-edit-member]')?.setAttribute('aria-controls', editorRow.id);
       editorRow.querySelector('[data-member-role]')?.addEventListener('change', (event) => resetWorkspacePermissionInputs(permissionContainer, event.currentTarget.value, `member-${member.uid}`));
       editorRow.querySelector('[data-member-access-form]')?.addEventListener('submit', updateMemberAccess);
@@ -23974,6 +24060,7 @@ function openAddWorkspaceUserModal() {
   const allServers = actor?.role === 'owner' || !Array.isArray(actor?.serverIds) || actor.serverIds.includes('*');
   const availableModules = allModules ? state.teams.moduleCatalog : state.teams.moduleCatalog.filter((module) => actor.visibleModules.includes(module.key));
   const availableServers = state.projects.map((project) => ({ key: String(project.id), label: project.name || 'Server' }));
+  els.addWorkspaceUserBlockedCommands.value = (actor.blockedCommands || []).join('\n');
   els.addWorkspaceUserAllModules.checked = allModules;
   els.addWorkspaceUserAllModules.disabled = !allModules;
   els.addWorkspaceUserAllServers.checked = allServers;
@@ -24016,6 +24103,31 @@ async function submitAddWorkspaceUser(event) {
   } catch (error) {
     showAddWorkspaceUserError(error.message || 'Could not add user.');
   }
+}
+
+function bindMemberAccessTabs(editor) {
+  const tabs = [...editor.querySelectorAll('[data-member-access-tab]')];
+  const activate = (tab) => {
+    tabs.forEach(item => {
+      item.setAttribute('aria-selected', String(item === tab));
+      item.tabIndex = item === tab ? 0 : -1;
+    });
+    editor.querySelectorAll('[data-member-access-panel]').forEach(panel => {
+      panel.classList.toggle('hidden', panel.dataset.memberAccessPanel !== tab.dataset.memberAccessTab);
+    });
+  };
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => activate(tab));
+    tab.addEventListener('keydown', event => {
+      const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length
+        : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length
+        : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+      if (next < 0) return;
+      event.preventDefault();
+      activate(tabs[next]);
+      tabs[next].focus();
+    });
+  });
 }
 
 async function updateMemberAccess(event) {

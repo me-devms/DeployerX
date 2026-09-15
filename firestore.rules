@@ -26,6 +26,7 @@ service cloud.firestore {
 
     function isActiveTeamMember(teamId) {
       return isTeamMember(teamId)
+        && member(teamId).data.get('mustChangePassword', false) == false
         && (
           !member(teamId).data.keys().hasAny(['suspended'])
           || member(teamId).data.suspended == false
@@ -33,29 +34,28 @@ service cloud.firestore {
     }
 
     function isTeamManager(teamId) {
-      return isTeamOwner(teamId)
-        || (isActiveTeamMember(teamId) && (
-          member(teamId).data.role == 'owner'
-          || (
-            member(teamId).data.permissions is list
-            && member(teamId).data.permissions.hasAny(['members.update'])
-          )
-        ));
+      return hasTeamPermission(teamId, 'members.update');
+    }
+
+    function memberPermissions(teamId) {
+      let data = member(teamId).data;
+      return data.get('permissions', data.role == 'admin' ? [
+        'server.view', 'server.create', 'server.update', 'server.delete',
+        'server.command.execute', 'server.terminal.open', 'workspace.settings.update',
+        'members.view', 'members.invite', 'members.create', 'members.update',
+        'members.remove', 'members.promote'
+      ] : ['server.view']);
     }
 
     function hasTeamPermission(teamId, permission) {
       return isTeamOwner(teamId)
-        || (isActiveTeamMember(teamId) && (
-          member(teamId).data.role == 'owner'
-          || (
-            member(teamId).data.permissions is list
-            && member(teamId).data.permissions.hasAny([permission])
-          )
-        ));
+        || (isActiveTeamMember(teamId)
+          && memberPermissions(teamId) is list
+          && memberPermissions(teamId).hasAny([permission]));
     }
 
     function canAssignAccess(teamId) {
-      return request.resource.data.role != 'owner'
+      return request.resource.data.role in ['member', 'admin']
         && request.resource.data.permissions is list
         && request.resource.data.blockedCommands is list
         && request.resource.data.visibleModules is list
@@ -70,7 +70,8 @@ service cloud.firestore {
         && (
           isTeamOwner(teamId)
           || (
-            request.resource.data.permissions.hasOnly(member(teamId).data.permissions)
+            request.resource.data.permissions.hasOnly(memberPermissions(teamId))
+            && request.resource.data.blockedCommands.hasAll(member(teamId).data.get('blockedCommands', []))
             && (
               !member(teamId).data.keys().hasAny(['visibleModules'])
               || member(teamId).data.visibleModules.hasAny(['*'])
@@ -222,6 +223,8 @@ service cloud.firestore {
           ) || (
             !isSelf(uid)
             && resource.data.role != 'owner'
+            && get(/databases/$(database)/documents/teams/$(teamId)).data.ownerUid != uid
+            && (resource.data.role != 'admin' || hasTeamPermission(teamId, 'members.promote'))
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'role',
               'permissions',
@@ -235,6 +238,7 @@ service cloud.firestore {
             && canAssignAccess(teamId)
           );
         allow delete: if resource.data.role != 'owner'
+          && get(/databases/$(database)/documents/teams/$(teamId)).data.ownerUid != uid
           && hasTeamPermission(teamId, 'members.remove')
           && (
             resource.data.role != 'admin'

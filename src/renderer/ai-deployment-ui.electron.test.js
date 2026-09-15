@@ -45,7 +45,9 @@ app.whenReady().then(async () => {
         ],
         listLocalAgents: async () => [
           { id: 'codex', name: 'Codex', installed: true, connected: true, runnable: true },
-          { id: 'claude-code', name: 'Claude Code', installed: true, connected: true, runnable: true }
+          { id: 'claude-code', name: 'Claude Code', installed: true, connected: true, runnable: true },
+          { id: 'gemini', name: 'Gemini CLI', installed: false, connected: false, runnable: false },
+          { id: 'opencode', name: 'OpenCode', installed: false, connected: false, runnable: false }
         ],
         saveAiDeployment: async (deployment) => deployment,
         selectAiDeploymentTemporaryFiles: async () => [
